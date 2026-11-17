@@ -816,6 +816,7 @@ SaveEditorTests.Run();
 CoopSetupTests.Run();
 CuratedModTests.Run();
 ModFeatureManifestTests.Run();
+SettingsSafetyTests.Run();
 Console.WriteLine("PASS: mod nightwatch.json read with the engine's rules (good, too new, beta suffix, unknown feature, bad JSON, none)");
 VpnTests.Run();
 ChaliceGlyphDbTests.Run();

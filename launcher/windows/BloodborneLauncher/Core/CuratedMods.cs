@@ -472,7 +472,7 @@ namespace BloodborneLauncher.Core
             {
                 if (File.Exists(Mods.ProfilePath) && JsonNode.Parse(File.ReadAllText(Mods.ProfilePath)) is JsonObject p &&
                     Renamed(p, Map))
-                    File.WriteAllText(Mods.ProfilePath, p.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+                    SettingsFile.Write(Mods.ProfilePath, p.ToJsonString(new JsonSerializerOptions { WriteIndented = true }), json: true);
             }
             catch (Exception e) when (e is IOException or JsonException or InvalidOperationException or UnauthorizedAccessException)
             {

@@ -44,6 +44,8 @@ namespace BloodborneLauncher.Core
         /// <summary>Keys the launcher changed since the file was read: only these are written over it.
         /// The game edits the same file (in-game menu) while the launcher holds an older copy.</summary>
         private readonly HashSet<string> _changed = new(StringComparer.Ordinal);
+        /// <summary>The file exists but the last <see cref="Load"/> could not read it (a save would replace what it holds).</summary>
+        private bool _readFailed;
 
         public void Load()
         {
@@ -55,14 +57,12 @@ namespace BloodborneLauncher.Core
                 _values[effect.Key] = effect.Default ? "1" : "0";
 
             _lines = new List<string>();
-            try
+            // Unreadable: this copy runs on the defaults, but Save() then leaves the file alone.
+            var text = SettingsFile.ReadText(Paths.IniPath, out _readFailed);
+            if (text != null)
             {
-                if (File.Exists(Paths.IniPath))
-                    _lines = File.ReadAllLines(Paths.IniPath).ToList();
-            }
-            catch
-            {
-                // Unreadable: start from the defaults.
+                using var reader = new StringReader(text);
+                while (reader.ReadLine() is { } line) _lines.Add(line);
             }
 
             foreach (var line in _lines)
@@ -84,6 +84,12 @@ namespace BloodborneLauncher.Core
             {
                 _values[key] = value;
                 _changed.Add(key); // Load() cleared it; stays pending until the write below succeeds
+            }
+            if (_readFailed)
+            {
+                // Never write over a file that could not be read; the changes stay pending for the next save.
+                SettingsFile.Warn(Paths.IniPath, "could not be read");
+                return;
             }
             var written = new HashSet<string>(StringComparer.Ordinal);
             var output = new List<string>();
@@ -109,9 +115,8 @@ namespace BloodborneLauncher.Core
                 if (!written.Contains(key) && value != null)
                     output.Add($"{key}={value}");
 
-            Directory.CreateDirectory(Path.GetDirectoryName(Paths.IniPath)!);
-            File.WriteAllText(Paths.IniPath + ".tmp", string.Join("\n", output) + "\n");
-            File.Move(Paths.IniPath + ".tmp", Paths.IniPath, true);
+            if (!SettingsFile.Write(Paths.IniPath, string.Join("\n", output) + "\n", json: false))
+                return;
             _lines = output;
             _changed.Clear();
         }

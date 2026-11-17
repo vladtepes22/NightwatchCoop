@@ -14,6 +14,14 @@ namespace BloodborneLauncher.Core
         public const string ShadnetServer = "srv.shadps4.net:31313";
 
         private JsonObject _data = new();
+        private readonly string? _file;
+        /// <summary>The file exists but could not be read or parsed at the last <see cref="Load"/>: it is never written over.</summary>
+        private bool _unreadable;
+
+        /// <summary>The settings file (tests give their own).</summary>
+        public LauncherSettings(string? file = null) => _file = file;
+
+        private string SettingsPath => _file ?? Paths.ConfigFile;
 
         private static Dictionary<string, JsonNode?> Defaults() => new()
         {
@@ -128,11 +136,31 @@ namespace BloodborneLauncher.Core
             try
             {
                 var initial = Path.Combine(AppContext.BaseDirectory, "seamless-defaults.json");
-                if (!File.Exists(Paths.ConfigFile) && File.Exists(initial) &&
+                var text = SettingsFile.ReadText(SettingsPath, out _unreadable);
+                if (text == null && !_unreadable && File.Exists(initial) &&
                     JsonNode.Parse(File.ReadAllText(initial)) is JsonObject firstRun)
                     foreach (var (key, value) in firstRun) _data[key] = value?.DeepClone();
-                if (File.Exists(Paths.ConfigFile) &&
-                    JsonNode.Parse(File.ReadAllText(Paths.ConfigFile)) is JsonObject saved)
+                // An empty file (an interrupted write of an older launcher) holds nothing to keep. Anything else
+                // that does not parse is moved aside as settings.json.broken (nothing in it is lost) and the last
+                // good copy (.bak) is used, so saving works again instead of being refused on every start.
+                if (text != null && text.Trim().Length > 0 && !SettingsFile.IsJsonObject(text))
+                {
+                    try
+                    {
+                        File.Move(SettingsPath, SettingsPath + ".broken", true);
+                        var backup = SettingsFile.ReadText(SettingsPath + ".bak", out var noBackup);
+                        text = !noBackup && backup != null && SettingsFile.IsJsonObject(backup) ? backup : null;
+                        SettingsFile.Warn(SettingsPath, text != null
+                            ? "was not valid: it was kept as settings.json.broken and the last good copy is used"
+                            : "was not valid: it was kept as settings.json.broken and the defaults are used");
+                    }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                    {
+                        _unreadable = true;
+                    }
+                }
+                if (text != null && !_unreadable && text.Trim().Length > 0 &&
+                    JsonNode.Parse(text) is JsonObject saved)
                 {
                     foreach (var (key, value) in saved)
                         _data[key] = value?.DeepClone();
@@ -188,7 +216,7 @@ namespace BloodborneLauncher.Core
             }
             catch
             {
-                // A broken file falls back to the defaults; it is rewritten on the next save.
+                // A broken file falls back to the defaults for this run; Save() does not replace it.
             }
             // Saved with the next change: from then on the player's own choice stays.
             if (Updater.CurrentBeta > 0)
@@ -219,12 +247,22 @@ namespace BloodborneLauncher.Core
 
         public void Save()
         {
-            Directory.CreateDirectory(Paths.ConfigDir);
-            // Written beside and moved into place: an interrupted write no longer leaves an empty file
-            // that the next start reads as all defaults (remembered passwords gone).
-            File.WriteAllText(Paths.ConfigFile + ".tmp",
-                _data.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-            File.Move(Paths.ConfigFile + ".tmp", Paths.ConfigFile, true);
+            // Written beside and moved into place, the old file kept as .bak: an interrupted write no longer leaves an
+            // empty file that the next start reads as all defaults (remembered passwords gone). A file that could not be
+            // read at start-up (or since) is never replaced by the defaults this run holds.
+            if (_unreadable)
+            {
+                // Busy at start-up only (antivirus, a sync tool, a second launcher): once it reads, the real
+                // settings are loaded in place of the defaults this run held, and later saves go through. This one
+                // change is not written: it was made on top of the defaults.
+                SettingsFile.ReadText(SettingsPath, out var stillBusy);
+                if (!stillBusy) Load();
+                SettingsFile.Warn(SettingsPath, stillBusy || _unreadable
+                    ? "could not be read"
+                    : "could not be read at start-up: it was read again now, and the change just made was not saved");
+                return;
+            }
+            SettingsFile.Write(SettingsPath, _data.ToJsonString(new JsonSerializerOptions { WriteIndented = true }), json: true);
         }
 
         /// <summary>The shadNet password, kept encrypted for this Windows user (Core/Secret.cs).</summary>

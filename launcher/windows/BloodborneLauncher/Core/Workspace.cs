@@ -56,6 +56,9 @@ namespace BloodborneLauncher.Core
 
         public void Initialise()
         {
+            // A refused write (a settings file that could not be read) shows once in the activity log.
+            SettingsFile.Warned -= OnSettingsWarned;
+            SettingsFile.Warned += OnSettingsWarned;
             Settings.Load();
             ResolvePort();
             MoveWorldSaves();
@@ -150,6 +153,13 @@ namespace BloodborneLauncher.Core
             {
                 Ini.Set("dlss_preset", dlss);
                 Settings.Set("dlss_preset", "k");
+                SaveSoon();
+            }
+            // NVIDIA dropped the CNN presets E and F: the game runs a saved one as auto, so the file says so too.
+            if (Paths.IsPortDir(Paths.PortDir) && Environment.GetEnvironmentVariable("BB_DLSS_PRESET_RULES") != "0" &&
+                Ini.Raw("dlss_preset")?.ToLowerInvariant() is "e" or "f")
+            {
+                Ini.Set("dlss_preset", "auto");
                 SaveSoon();
             }
             // The game's co-op switches moved to bbport.ini too (SeamlessSettings.GameSwitches).
@@ -395,6 +405,8 @@ namespace BloodborneLauncher.Core
             OutputLines.Clear();
             OutputCleared?.Invoke();
         }
+
+        private void OnSettingsWarned(string message) => Log(message, LogLevel.Warn);
 
         public void Log(string message, LogLevel level = LogLevel.Info) =>
             Dispatch(() => Logged?.Invoke(message, level));

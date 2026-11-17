@@ -157,7 +157,7 @@ namespace BloodborneLauncher.Core
                 ["disabled"] = new JsonArray(list.Where(m => !m.Enabled).Select(m => (JsonNode?)m.Name).ToArray()),
             };
             Directory.CreateDirectory(Paths.DataDir);
-            File.WriteAllText(ProfilePath, profile.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
+            SettingsFile.Write(ProfilePath, profile.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n", json: true);
         }
     }
 
@@ -340,7 +340,7 @@ namespace BloodborneLauncher.Core
                 ["disabled"] = new JsonArray(disabled.OrderBy(k => k, StringComparer.Ordinal).Select(k => (JsonNode?)k).ToArray()),
             };
             Directory.CreateDirectory(Paths.DataDir);
-            File.WriteAllText(ProfilePath, profile.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
+            SettingsFile.Write(ProfilePath, profile.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n", json: true);
         }
     }
 }
