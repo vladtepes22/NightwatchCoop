@@ -868,6 +868,20 @@ target_include_directories(gpu-logic-test PRIVATE shim)
 set_target_properties(gpu-logic-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 add_test(NAME gpu-logic-test COMMAND gpu-logic-test)
 add_dependencies(seamless-tests gpu-logic-test)
+# Lantern v0.9.43: nested GPU command-task frames freed exactly once (shim/bbport_coro_frame.h).
+add_executable(coro-frame-test EXCLUDE_FROM_ALL ../tests/test_coro_frame.cpp)
+target_compile_options(coro-frame-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(coro-frame-test PRIVATE shim)
+set_target_properties(coro-frame-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+add_test(NAME coro-frame-test COMMAND coro-frame-test)
+add_dependencies(seamless-tests coro-frame-test)
+# Lantern v0.9.43: a failed GPU queue submit stops with its result named (shim/bbport_submit_result.h).
+add_executable(submit-result-test EXCLUDE_FROM_ALL ../tests/test_submit_result.cpp)
+target_compile_options(submit-result-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(submit-result-test PRIVATE shim)
+set_target_properties(submit-result-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+add_test(NAME submit-result-test COMMAND submit-result-test)
+add_dependencies(seamless-tests submit-result-test)
 # visy 0.8.2 (Jgamrot 1e6fb99): lseek + read on one thread, pread on others, same descriptor: the offset lock
 # in runtime_file.c keeps the reads right (BB_FILE_OFFSET_LOCK=0 fails it).
 add_executable(file-offsets-test EXCLUDE_FROM_ALL ../tests/test_file_offsets.c ../src/win32_compat.c ../src/runtime_savecommit.c)
@@ -877,3 +891,50 @@ target_compile_definitions(file-offsets-test PRIVATE _WIN32_WINNT=0x0A00)
 target_link_libraries(file-offsets-test PRIVATE winpthread ws2_32)
 add_test(NAME file-offsets-test COMMAND file-offsets-test)
 add_dependencies(seamless-tests file-offsets-test)
+
+# The display refresh watch (gpu/shim/lantern_vblank_watch.h): a burst of irregular wakes must not switch the
+# vblank lock off for the whole session. LANTERN_VBLANK_WATCH_MUTANTS runs the suite against deliberately broken
+# copies of each rule (mutant 8 = the rule before 0.3.3) and fails if one survives.
+add_executable(vblank-watch-test EXCLUDE_FROM_ALL ../tests/test_vblank_watch.cpp)
+target_include_directories(vblank-watch-test PRIVATE ..)
+target_compile_options(vblank-watch-test PRIVATE -UNDEBUG -Wall -Wextra)
+target_compile_definitions(vblank-watch-test PRIVATE LANTERN_VBLANK_WATCH_MUTANTS)
+add_test(NAME vblank-watch-test COMMAND vblank-watch-test)
+add_dependencies(seamless-tests vblank-watch-test)
+
+# DLSS presets and upscaler history resets (gpu/shim/dlss_rules.h, header only): auto per quality mode and GPU
+# generation, saved E/F run as auto, load arrivals cut the history. The _MUTANTS build runs the suite unmutated,
+# then against broken copies of each rule, and fails if one survives.
+add_executable(dlss-rules-test EXCLUDE_FROM_ALL ../tests/test_dlss_rules.cpp)
+target_include_directories(dlss-rules-test PRIVATE ..)
+target_compile_options(dlss-rules-test PRIVATE -UNDEBUG -Wall -Wextra)
+target_compile_definitions(dlss-rules-test PRIVATE LANTERN_DLSS_RULES_MUTANTS)
+add_test(NAME dlss-rules-test COMMAND dlss-rules-test)
+add_dependencies(seamless-tests dlss-rules-test)
+
+# Frames the upscaler did not resolve (renderer_vulkan/upscaler_skips.h, header only): after a few, scene LOD bias
+# 0 and no jitter until it runs again; the frame-stats line and the after-load line. Mutants as above.
+add_executable(upscaler-skips-test EXCLUDE_FROM_ALL ../tests/test_upscaler_skips.cpp)
+target_include_directories(upscaler-skips-test PRIVATE ..)
+target_compile_options(upscaler-skips-test PRIVATE -UNDEBUG -Wall -Wextra)
+target_compile_definitions(upscaler-skips-test PRIVATE LANTERN_UPSCALER_SKIPS_MUTANTS)
+add_test(NAME upscaler-skips-test COMMAND upscaler-skips-test)
+add_dependencies(seamless-tests upscaler-skips-test)
+
+# The game's graphics heaps (start/game_heaps.h, header only): GX range, sun shadow atlas room, enlarged heaps; the
+# game's own sun shadow writes the words the start wrote before. GAME_HEAPS_TRIALS runs the suite against wrong lines.
+add_executable(game-heaps-test EXCLUDE_FROM_ALL ../tests/test_game_heaps.cpp)
+target_include_directories(game-heaps-test PRIVATE ..)
+target_compile_options(game-heaps-test PRIVATE -UNDEBUG -Wall -Wextra)
+target_compile_definitions(game-heaps-test PRIVATE GAME_HEAPS_TRIALS)
+add_test(NAME game-heaps-test COMMAND game-heaps-test)
+add_dependencies(seamless-tests game-heaps-test)
+
+# Fog amount (gpu/shim/engine/fog_scale.h, header only): a scaled copy is uploaded, the game's table keeps its values.
+# Mutants as above.
+add_executable(fog-scale-test EXCLUDE_FROM_ALL ../tests/test_fog_scale.cpp)
+target_include_directories(fog-scale-test PRIVATE ..)
+target_compile_options(fog-scale-test PRIVATE -UNDEBUG -Wall -Wextra)
+target_compile_definitions(fog-scale-test PRIVATE BB_FOG_SCALE_MUTANTS)
+add_test(NAME fog-scale-test COMMAND fog-scale-test)
+add_dependencies(seamless-tests fog-scale-test)
