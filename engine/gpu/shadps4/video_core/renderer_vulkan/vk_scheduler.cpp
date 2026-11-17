@@ -18,6 +18,7 @@
 #include "bbport_copy.h"
 #include "bbport_platform.h"
 #include "bbport_sections.h"
+#include "bbport_submit_result.h"
 #include "video_core/renderer_vulkan/vk_gpu_profiler.h"
 #include "bbport_toggles.h"
 #include "bbport_wait_trace.h"
@@ -35,6 +36,22 @@ namespace Vulkan {
 std::mutex Scheduler::submit_mutex;
 
 namespace {
+// bbport: a failed queue submit (bbport_submit_result.h). Every failure, not only a device lost,
+// is named in one critical line and stops as the device-lost assert always did.
+// BB_SUBMIT_FAIL_STOP=0: only a device lost stops.
+void CheckSubmit(vk::Result result) {
+    if (result == vk::Result::eErrorDeviceLost) {
+        Breadcrumbs::ReportDeviceLost("submit");
+    }
+    static const bool all_failures = [] {
+        const char* env = std::getenv("BB_SUBMIT_FAIL_STOP");
+        return !(env && env[0] == '0');
+    }();
+    const int code = static_cast<int>(result);
+    ASSERT_MSG(!BbSubmit::Stops(code, all_failures), "GPU submit failed: vk::Result={} ({})",
+               vk::to_string(result), BbSubmit::Meaning(code));
+}
+
 // bbport: ProducerScope state of this thread: the producer function it is in (any scheduler).
 thread_local const char* producer_scope_where = nullptr;
 std::atomic<u32> producer_reports{0};
@@ -1084,11 +1101,7 @@ void Scheduler::SubmitExecution(SubmitInfo& info) {
         operation();
     }
     ImGui::Core::TextureManager::Submit();
-    auto submit_result = instance.GetGraphicsQueue().submit(submit_info, info.fence);
-    if (submit_result == vk::Result::eErrorDeviceLost) {
-        Breadcrumbs::ReportDeviceLost("submit");
-    }
-    ASSERT_MSG(submit_result != vk::Result::eErrorDeviceLost, "Device lost during submit");
+    CheckSubmit(instance.GetGraphicsQueue().submit(submit_info, info.fence));
     submitted_tick.store(signal_value, std::memory_order_release);
     submitted_tick.notify_all();
 
@@ -1163,11 +1176,7 @@ void Scheduler::SubmitAsync(SubmitInfo& info) {
             for (auto& operation : info.before_submit) {
                 operation();
             }
-            const auto result = instance.GetGraphicsQueue().submit(submit_info, info.fence);
-            if (result == vk::Result::eErrorDeviceLost) {
-                Breadcrumbs::ReportDeviceLost("submit");
-            }
-            ASSERT_MSG(result != vk::Result::eErrorDeviceLost, "Device lost during submit");
+            CheckSubmit(instance.GetGraphicsQueue().submit(submit_info, info.fence));
         }
         submitted_tick.store(signal_value, std::memory_order_release);
         submitted_tick.notify_all();

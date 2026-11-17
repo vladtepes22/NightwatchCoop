@@ -721,8 +721,13 @@ void TextureCache::DumpImagesAt(VAddr address, const char* dir) {
         const std::string path = std::format("{}/img_{:x}_{}_{}x{}_{}.raw", dir, address, n++, width,
                                              height, format);
         if (FILE* f = std::fopen(path.c_str(), "wb")) {
-            std::fwrite(download.mapped, 1, size, f);
-            std::fclose(f);
+            // bbport (Lantern v0.9.43): a short write (disk full) leaves no partial file.
+            const bool written = std::fwrite(download.mapped, 1, size, f) == size;
+            if (std::fclose(f) != 0 || !written) {
+                std::remove(path.c_str());
+                std::printf("  image %u could not be written to %s; partial file removed\n",
+                            image_id.index, path.c_str());
+            }
         }
     }
 }

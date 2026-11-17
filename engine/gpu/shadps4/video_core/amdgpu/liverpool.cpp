@@ -15,6 +15,7 @@
 #include "bbport_ce_stats.h"
 #include "bbport_timeline.h"
 #include "bbport_copy.h"
+#include "bbport_coro_frame.h"
 #include "bbport_platform.h"
 #include "bbport_toggles.h"
 #include <atomic>
@@ -960,6 +961,8 @@ Liverpool::Task Liverpool::ProcessCeUpdate(std::span<const u32> ccb) {
             const auto* indirect_buffer = reinterpret_cast<const PM4CmdIndirectBuffer*>(header);
             auto task =
                 ProcessCeUpdate({indirect_buffer->Address<const u32>(), indirect_buffer->ib_size});
+            // bbport: the finished nested frame is freed at the end of this scope (it leaked).
+            BbCoro::OwnedFrame nested{task.handle};
             RESUME_CE(task);
 
             while (!task.handle.done()) {
@@ -2065,6 +2068,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 }
                 auto task = ProcessGraphics(
                     {indirect_buffer->Address<const u32>(), indirect_buffer->ib_size}, {});
+                // bbport: the finished nested frame is freed at the end of this scope (it leaked).
+                BbCoro::OwnedFrame nested{task.handle};
                 // Tasks start suspended: the nested body (and its scan) runs on this resume.
                 g_dcb_depth = dcb_depth + 1;
                 RESUME_GFX(task);
@@ -2252,6 +2257,8 @@ Liverpool::Task Liverpool::ProcessCompute(std::span<const u32> acb, u32 vqid) {
             }
             auto task = ProcessCompute<true>(
                 {indirect_buffer->Address<const u32>(), indirect_buffer->ib_size}, vqid);
+            // bbport: the finished nested frame is freed at the end of this scope (it leaked).
+            BbCoro::OwnedFrame nested{task.handle};
             RESUME_ASC(task, vqid);
 
             while (!task.handle.done()) {
