@@ -13,6 +13,7 @@ Layers (QA_TESTING.md has the why of each):
   launcher  dotnet SeamlessTests, LocalizationChecks, DisplayChecks
   smoke     tools/smoke-game.py: one headless, muted new game (party tick, new-game progression, no crash line)
   coop      tools/smoke-coop.py rows from tools/qa_scenarios.json (host + guest, headless, isolated saves)
+  generator tools/randomizer unit tests (needs the game's files; about 20 min)
   world     the package's randomizer through the launcher: a world is generated and found as a world (no game runs)
   privacy   tools/privacy-scan.py on the package + no game-derived files in it
 
@@ -36,10 +37,10 @@ import time
 REPO = Path(__file__).resolve().parent.parent
 BASH = Path(r'C:\msys64\usr\bin\bash.exe')
 PYTHON = Path(os.environ.get('BB_QA_PYTHON', r'C:\msys64\clang64\bin\python.exe'))
-LAYERS = ['build', 'native', 'python', 'launcher', 'smoke', 'coop', 'world', 'privacy']
+LAYERS = ['build', 'native', 'python', 'launcher', 'generator', 'smoke', 'coop', 'world', 'privacy']
 LEVELS = {
     'merge': ['native', 'python', 'launcher'],
-    'release': ['build', 'native', 'python', 'launcher', 'smoke', 'coop', 'world', 'privacy'],
+    'release': ['build', 'native', 'python', 'launcher', 'generator', 'smoke', 'coop', 'world', 'privacy'],
 }
 RELEASE_SCENARIOS = ['join', 'core', 'deaths', 'boss', 'guestrest', 'loadgap', 'invade']
 # Touched path -> layers; the first matching rule wins (a party-only change needs the co-op rows, not the solo
@@ -50,6 +51,7 @@ RULES = [
     (r'^engine/(gpu|src|start)/', ['native', 'smoke']),
     (r'^engine/(scripts/|tools/|tests/.*\.py$)', ['python']),
     (r'^launcher/', ['launcher']),
+    (r'^tools/randomizer/', ['generator']),
     (r'^tools/(package-seamless|release)\.ps1$', ['smoke']),
     (r'^tools/(smoke-|qa)', ['python']),
 ]
@@ -215,6 +217,17 @@ class Run:
         return self.done('python', code == 0, f'{ran.group(1) if ran else "?"} tests, {verdict[-1] if verdict else "no verdict"}', t,
                          pick(out, r'^(FAIL|ERROR): |^\w*(Error|Exception): ', 20))
 
+    def generator(self):
+        """The world generator's own tests. They read the game (BB_GAME) and the newest installed Nocturne; a case
+        whose input is missing skips, so the summary names the skips."""
+        t = time.monotonic()
+        code, out = self.sh('generator', [str(PYTHON), '-I', '-B', '-m', 'unittest', 'discover', '-s', 'tools/randomizer/tests'],
+                            env={'BB_GAME': self.args.game})
+        ran = re.search(r'Ran (\d+) tests?', out)
+        verdict = re.findall(r'^(OK.*|FAILED.*)$', out, re.M)
+        return self.done('generator', code == 0, f'{ran.group(1) if ran else "?"} tests, {verdict[-1] if verdict else "no verdict"}', t,
+                         pick(out, r'^(FAIL|ERROR): |^\w*(Error|Exception): ', 20))
+
     def launcher(self):
         t = time.monotonic()
         base = REPO / 'launcher' / 'windows'
@@ -313,8 +326,8 @@ class Run:
         whose folder names its launcher did not know: every world ended as "The generator ended without writing a world")."""
         t = time.monotonic()
         package = self.args.package
-        if not package or not (package / 'randomizer' / 'randomizer.exe').exists():
-            return self.done('world', False, 'needs --package <package dir> with randomizer\randomizer.exe', t)
+        if not package or not (package / 'randomizer' / 'source' / 'randomizer.py').exists():
+            return self.done('world', False, 'needs --package <package dir> with randomizer/source/randomizer.py', t)
         mods = self.dir / 'world-mods'
         mods.mkdir(parents=True, exist_ok=True)
         code, out = self.sh('world', ['dotnet', 'run', '--project', 'SeamlessTests', '--', '--world-generate',
@@ -354,9 +367,9 @@ class Run:
         # The build comes first (smoke needs its exes); the checks that need no game run side by side;
         # games run one after another (a host and a guest already make two).
         if 'build' in layers and not self.build():
-            layers = [l for l in layers if l in ('python', 'launcher')]
-        side = [l for l in layers if l in ('native', 'python', 'launcher')]
-        with ThreadPoolExecutor(max_workers=3) as pool:
+            layers = [l for l in layers if l in ('python', 'launcher', 'generator')]
+        side = [l for l in layers if l in ('native', 'python', 'launcher', 'generator')]
+        with ThreadPoolExecutor(max_workers=4) as pool:
             ok = dict(zip(side, pool.map(lambda l: getattr(self, l)(), side)))
         for layer in [l for l in layers if l in ('smoke', 'coop', 'world', 'privacy')]:
             if layer in ('smoke', 'coop') and ok.get('native') is False:
