@@ -13,6 +13,7 @@ Layers (QA_TESTING.md has the why of each):
   launcher  dotnet SeamlessTests, LocalizationChecks, DisplayChecks
   smoke     tools/smoke-game.py: one headless, muted new game (party tick, new-game progression, no crash line)
   coop      tools/smoke-coop.py rows from tools/qa_scenarios.json (host + guest, headless, isolated saves)
+  world     the package's randomizer through the launcher: a world is generated and found as a world (no game runs)
   privacy   tools/privacy-scan.py on the package + no game-derived files in it
 
 Every run writes work/qa/<run>/report.md, report.json and one log per layer. Exit 1 when a layer fails.
@@ -35,10 +36,10 @@ import time
 REPO = Path(__file__).resolve().parent.parent
 BASH = Path(r'C:\msys64\usr\bin\bash.exe')
 PYTHON = Path(os.environ.get('BB_QA_PYTHON', r'C:\msys64\clang64\bin\python.exe'))
-LAYERS = ['build', 'native', 'python', 'launcher', 'smoke', 'coop', 'privacy']
+LAYERS = ['build', 'native', 'python', 'launcher', 'smoke', 'coop', 'world', 'privacy']
 LEVELS = {
     'merge': ['native', 'python', 'launcher'],
-    'release': ['build', 'native', 'python', 'launcher', 'smoke', 'coop', 'privacy'],
+    'release': ['build', 'native', 'python', 'launcher', 'smoke', 'coop', 'world', 'privacy'],
 }
 RELEASE_SCENARIOS = ['join', 'core', 'deaths', 'boss', 'guestrest', 'loadgap', 'invade']
 # Touched path -> layers; the first matching rule wins (a party-only change needs the co-op rows, not the solo
@@ -307,6 +308,21 @@ class Run:
                         f"joined {result.get('longest_continuous_join_seconds', 0):.0f} s" + (f' [missing {miss[:80]}]' if miss else '')
                         + ('' if passed else ' FAIL')), note
 
+    def world(self):
+        """The package's generator and this tree's launcher must agree on what a world is (v0.3.2 shipped a generator
+        whose folder names its launcher did not know: every world ended as "The generator ended without writing a world")."""
+        t = time.monotonic()
+        package = self.args.package
+        if not package or not (package / 'randomizer' / 'randomizer.exe').exists():
+            return self.done('world', False, 'needs --package <package dir> with randomizer\randomizer.exe', t)
+        mods = self.dir / 'world-mods'
+        mods.mkdir(parents=True, exist_ok=True)
+        code, out = self.sh('world', ['dotnet', 'run', '--project', 'SeamlessTests', '--', '--world-generate',
+                                      str(package), self.args.game, str(mods)], cwd=REPO / 'launcher' / 'windows')
+        made = re.search(r"^generated .*$", out, re.M)
+        return self.done('world', code == 0 and 'world-generate ok' in out, made.group(0) if made else f'exit {code}', t,
+                         pick(out, r'FAIL|Exception', 8))
+
     def privacy(self):
         t = time.monotonic()
         package = self.args.package
@@ -342,7 +358,7 @@ class Run:
         side = [l for l in layers if l in ('native', 'python', 'launcher')]
         with ThreadPoolExecutor(max_workers=3) as pool:
             ok = dict(zip(side, pool.map(lambda l: getattr(self, l)(), side)))
-        for layer in [l for l in layers if l in ('smoke', 'coop', 'privacy')]:
+        for layer in [l for l in layers if l in ('smoke', 'coop', 'world', 'privacy')]:
             if layer in ('smoke', 'coop') and ok.get('native') is False:
                 self.results[layer] = {'status': 'SKIP', 'summary': 'native failed', 'seconds': 0}
                 print(f'  SKIP {layer}: native failed', flush=True)
@@ -381,7 +397,7 @@ def main():
     parser.add_argument('--only', help='Comma-separated layers instead of a level.')
     parser.add_argument('--base', help='change level: diff base (default the first of fork/main, upstream/main, origin/main).')
     parser.add_argument('--scenario', help='coop rows to run (comma-separated; default join for a change, every release row for a release).')
-    parser.add_argument('--package', type=Path, help='Package folder for the privacy layer.')
+    parser.add_argument('--package', type=Path, help='Package folder for the world and privacy layers.')
     parser.add_argument('--game', default=os.environ.get('BB_QA_GAME', r'C:\Games\CUSA03173'))
     parser.add_argument('--smoke-seconds', type=int, default=240)
     parser.add_argument('--wait-games', type=int, default=30,

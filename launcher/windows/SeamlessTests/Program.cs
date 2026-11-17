@@ -84,6 +84,37 @@ if (args.Length == 4 && args[0] == "--map-prep")
     Environment.Exit(MapPrep.IsReady(prep) ? 0 : 1);
 }
 
+// --world-generate <package> <game> <mods folder> [mod folder name...]: a world made by the package's own generator
+// through the launcher (Randomizer.Generate) on those mods of the folder, then found again as the pages find it. Fails
+// when the launcher does not know the generator's folder (v0.3.2: "The generator ended without writing a world").
+// Give it a scratch mods folder; the game's files are only read and no game runs.
+if (args.Length >= 4 && args[0] == "--world-generate")
+{
+    Paths.PortDir = args[1];
+    var made = new LauncherSettings();
+    made.Set("game_dir", args[2]);
+    made.Set("mods_dir", args[3]);
+    if (!Randomizer.Supported) throw new InvalidOperationException("No generator in " + args[1]);
+    var worldCode = Randomizer.ToCode(Randomizer.Standard(20261117)) ?? throw new InvalidOperationException("No code for the standard options");
+    var watch = System.Diagnostics.Stopwatch.StartNew();
+    var folder = await Randomizer.Generate(made, worldCode, args[4..]);
+    Console.WriteLine($"generated '{folder}' in {watch.Elapsed.TotalSeconds:0} s, generator {(await Randomizer.BuildIdAsync())?[..8]}");
+    var failures = new List<string>();
+    var world = Randomizer.Load(args[3], folder);
+    if (world == null) failures.Add("the folder does not load as a world");
+    else if (world.Code != worldCode) failures.Add($"the world's code is {world.Code}, asked for {worldCode}");
+    if (world != null && folder != Randomizer.FolderName(worldCode, world.Hash))
+        failures.Add($"a guest would look for '{Randomizer.FolderName(worldCode, world.Hash)}'");
+    if (Randomizer.ReadManifest(Path.Combine(args[3], folder)) is not { } manifest) failures.Add("no manifest");
+    else if (manifest.Generator != Randomizer.GeneratorMajor) failures.Add($"generator {manifest.Generator}, the launcher's is {Randomizer.GeneratorMajor}");
+    // Every world folder already there (one a player made before this launcher) is a world too, never a plain mod.
+    foreach (var other in Directory.GetDirectories(args[3], "Randomizer *").Select(Path.GetFileName))
+        if (!other!.EndsWith(".tmp") && Randomizer.Load(args[3], other) == null) failures.Add($"'{other}' is listed as a plain mod");
+    foreach (var failure in failures) Console.WriteLine("FAIL: " + failure);
+    Console.WriteLine(failures.Count == 0 ? "world-generate ok" : "world-generate failed");
+    Environment.Exit(failures.Count == 0 ? 0 : 1);
+}
+
 // --connection-check <port>: what the troubleshooter reads on this PC, for a host (read-only).
 if (args.Length == 2 && args[0] == "--connection-check")
 {
