@@ -9,6 +9,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <functional>
+#include <map>
 #include <set>
 
 namespace menu_assets {
@@ -1670,6 +1672,14 @@ Bytes GlyphPanelMovie(const Bytes& gfx) {
 }
 
 
+namespace {
+bool IsShape(const Tag& t);
+std::vector<Tag> SettingsRowsSprite(const Movie& m, std::uint16_t& next, std::uint16_t text_of, double bx, double by,
+                                    std::int64_t text_left, std::int64_t text_right, std::int64_t text_top,
+                                    std::uint8_t fill_type, std::uint16_t* sprite_id, const Movie& option,
+                                    const Movie& inventory);
+}  // namespace
+
 // The Chalice glyph screen's card list: ItemList (its one sprite) gets, beside the game's NormalItem (left as it is),
 // the glyph screen's own list parts, all hidden (the glyph screen shows them and hides NormalItem; every other screen
 // keeps NormalItem):
@@ -1682,7 +1692,7 @@ Bytes GlyphPanelMovie(const Bytes& gfx) {
 //                    Query (a card name's gold text) over an underline, the card's focus highlight Cursor and
 //                    Active, the bar being typed in (a steady gold frame and underline; both hidden). Sizes and colours from the agreed mock (work/mockups/3-card-height-bar-with-caption).
 // The glyph screen's list widget is made on "ItemList/GlyphNormalItem" (gpu/shim/bbport_glyph_screen.cpp).
-Bytes GlyphListMovie(const Bytes& gfx) {
+Bytes GlyphListMovie(const Bytes& gfx, const Bytes& option_gfx, const Bytes& inventory_gfx) {
     constexpr double kPitch = 93.85, kCard = 90;  // the rows' spacing; a card's height
     Movie m = ReadMovie(gfx);
     const std::size_t list_place = FindPlaced(m, "ItemList");
@@ -1860,9 +1870,113 @@ Bytes GlyphListMovie(const Bytes& gfx) {
                                         "letterSpacing=\"0.000000\" kerning=\"1\"><b></b></font></p>"));
     }
 
+    // SettingsRows (hidden): the Settings screen's rows over the list (SettingsRowsSprite).
+    std::uint16_t settings_rows = 0;
+    {
+        constexpr std::uint8_t kSmoothClipped = 0x41;
+        const auto rows_defs = SettingsRowsSprite(m, next, only_text(*name_box), bx, by, name_left, name_right,
+                                                  name_top, kSmoothClipped, &settings_rows, ReadMovie(option_gfx),
+                                                  ReadMovie(inventory_gfx));
+        defs.insert(defs.end(), rows_defs.begin(), rows_defs.end());
+    }
+    // SettingsScroll (hidden): the list's own scroll bar for the Settings rows (the game moves NormalItem's Bar from
+    // code; ours is Thumb, 101 frames: the Bar from the track's top (frame 1) to its bottom (frame 101), which the
+    // screen picks by how far its list is scrolled).
+    std::uint16_t settings_scroll = 0;
+    {
+        const Sprite game_bar = ReadSprite(m.tags[FindSprite(m, *bar_at->character)]);
+        std::optional<Place> thumb_part;
+        double down_y = -1;
+        Sprite scroll{++next, 1, {}};
+        std::vector<Place> arrows;
+        for (const Tag& t : game_bar.tags) {
+            if (!IsPlace(t)) continue;
+            const Place p = ReadPlace(t);
+            if (p.name == "Bar") {
+                thumb_part = p;
+                continue;
+            }
+            if (p.name == "ArrowDown" && p.matrix) down_y = double(p.matrix->ty) / 20;
+            if ((p.name == "ArrowDown" || p.name == "ArrowUp") && p.character && p.matrix) {
+                arrows.push_back(p);  // placed below, over the bar
+                continue;
+            }
+            scroll.tags.push_back(t);
+        }
+        if (!thumb_part || !thumb_part->character || !thumb_part->matrix || down_y <= 0 || arrows.size() != 2)
+            throw Error("NormalItem's scroll bar is not 1.09's");
+        const Box thumb_box = Bounds(m, *thumb_part->character);
+        // the list's blinking arrows: centred on the bar's line (the game's art has them at the list's left)
+        const double bar_mid = double(thumb_part->matrix->tx + (thumb_box.x0 + thumb_box.x1) / 2) / 20;
+        for (const Place& a : arrows) scroll.tags.push_back(Placement(*a.character, a.depth, *a.matrix, a.name, true));
+        // The blinking "more" markers: the bar's first part (unnamed, depth 1: the marker sprite at the top and,
+        // flipped, at the bottom), which the game's art puts at the list's left edge: moved so they centre on the
+        // bar's line. Their centre: the first shape down their first frames (translations only).
+        std::function<std::optional<double>(std::uint16_t, int)> centre = [&](std::uint16_t id, int depth) {
+            for (const Tag& t : m.tags) {
+                if (t.body.size() < 2 || U16(t.body, 0) != id) continue;
+                if (IsShape(t)) {
+                    const Box b = Bounds(m, id);
+                    return std::optional<double>(double(b.x0 + b.x1) / 40);
+                }
+                if (t.code != kSprite || depth > 6) break;
+                for (const Tag& c : ReadSprite(t).tags) {
+                    if (c.code == kShowFrame) break;
+                    if (!IsPlace(c)) continue;
+                    const Place p = ReadPlace(c);
+                    if (!p.character) continue;
+                    if (const auto x = centre(*p.character, depth + 1))
+                        return std::optional<double>(*x + (p.matrix ? double(p.matrix->tx) / 20 : 0));
+                }
+                break;
+            }
+            return std::optional<double>();
+        };
+        for (Tag& t : scroll.tags) {
+            if (!IsPlace(t)) continue;
+            const Place p = ReadPlace(t);
+            if (p.depth != 1 || p.name || !p.character || !p.matrix) continue;
+            const auto x = centre(*p.character, 0);
+            if (!x) throw Error("NormalItem's scroll markers are not 1.09's");
+            Matrix at = *p.matrix;
+            at.tx += std::llround((bar_mid - (double(at.tx) / 20 + *x)) * 20);
+            t = Changed(t.code, Rewrite(t, p, {}, {}, at, {}));
+        }
+        // Thumb: frame 1 + size * 21 + position; the Bar's height times (size + 1) / 10 (10 .. 90 % of the track,
+        // the share of the list shown), at 0 .. 20 twentieths of its travel
+        const double top = double(thumb_part->matrix->ty) / 20, high = double(thumb_box.y1 - thumb_box.y0) / 20;
+        constexpr int kSizes = 9, kSteps = 21;
+        Sprite thumb{++next, std::uint16_t(kSizes * kSteps), {}};
+        for (int k = 0; k < kSizes * kSteps; ++k) {
+            const int size = k / kSteps, f = k % kSteps;
+            const double sy = (size + 1) / 10.0;
+            const double travel = std::max(0.0, down_y - top - high * sy);
+            Matrix at = WithScale(*thumb_part->matrix, 1, sy);
+            at.ty = std::llround((top + travel * f / double(kSteps - 1)) * 20 - double(thumb_box.y0) * sy);
+            if (k == 0) {
+                thumb.tags.push_back(Placement(*thumb_part->character, 1, at, std::nullopt, true));
+            } else {
+                Bytes move{std::uint8_t(0x01 | 0x04)};  // PlaceObject2: move the depth's character, a new matrix
+                PutLe(move, 1, 2);
+                Append(move, WriteMatrix(at));
+                thumb.tags.push_back(Changed(kPlace2, std::move(move)));
+            }
+            thumb.tags.push_back(Tag{kShowFrame, {}, {}});
+        }
+        thumb.tags.push_back(Tag{kEnd, {}, {}});
+        defs.push_back(WriteSprite(thumb));
+        scroll.tags.push_back(Placement(thumb.id, 40, At(0, 0), std::string("Thumb"), true));
+        scroll.tags.push_back(Tag{kShowFrame, {}, {}});
+        scroll.tags.push_back(Tag{kEnd, {}, {}});
+        defs.push_back(WriteSprite(scroll));
+        settings_scroll = scroll.id;
+    }
+
     // ItemList: the glyph screen's parts after NormalItem, hidden.
     const auto frame = std::find_if(list.tags.begin(), list.tags.end(), [](const Tag& t) { return t.code == kShowFrame; });
     const std::vector<Tag> parts = {
+        Placement(settings_rows, 11, At(0, 0), std::string("SettingsRows"), false),
+        Placement(settings_scroll, 13, *bar_at->matrix, std::string("SettingsScroll"), false),
         Placement(*back->character, 3, *back->matrix, std::string("GlyphListBack"), false),
         Placement(items.id, 5, At(0, kPitch), std::string("GlyphNormalItem"), false),
         Placement(search.id, 7, At(0, 0), std::string("GlyphSearch"), false),
@@ -2290,12 +2404,12 @@ std::array<Picture, 4> SettingsTabPictures(const Bytes& tpf) {
     return out;
 }
 
-// DefineBitsLossless2 (tag 36): a 32-bit ARGB bitmap, premultiplied, zlib-packed.
-Tag BitmapTag(std::uint16_t id, const Picture& p) {
+// DefineBitsLossless2 (tag 36): a 32-bit ARGB bitmap, premultiplied, zlib-packed; `rgba` w x h, row-major.
+Tag BitmapTag(std::uint16_t id, int w, int h, const std::uint8_t* rgba) {
     Bytes argb;
-    argb.reserve(p.px.size());
-    for (int i = 0; i < kCell * kCell; ++i) {
-        const std::uint8_t* s = &p.px[std::size_t(i) * 4];
+    argb.reserve(std::size_t(w) * h * 4);
+    for (int i = 0; i < w * h; ++i) {
+        const std::uint8_t* s = rgba + std::size_t(i) * 4;
         const int a = s[3];
         argb.push_back(std::uint8_t(a));
         for (int c = 0; c < 3; ++c) argb.push_back(std::uint8_t((s[c] * a + 127) / 255));
@@ -2306,11 +2420,334 @@ Tag BitmapTag(std::uint16_t id, const Picture& p) {
     Bytes body;
     PutLe(body, id, 2);
     body.push_back(5);  // 32-bit ARGB
-    PutLe(body, kCell, 2);
-    PutLe(body, kCell, 2);
+    PutLe(body, std::uint64_t(w), 2);
+    PutLe(body, std::uint64_t(h), 2);
     body.insert(body.end(), z.begin(), z.begin() + std::ptrdiff_t(packed));
     return Changed(36, std::move(body));
 }
+Tag BitmapTag(std::uint16_t id, const Picture& p) { return BitmapTag(id, kCell, kCell, p.px.data()); }
+// A w x h shape filled with bitmap `bitmap` at 1:1 (20 twips a pixel), its top left at (0, 0).
+Tag BitmapRect(std::uint16_t id, std::uint16_t bitmap, std::uint8_t fill_type, int w, int h) {
+    const std::int64_t wide = std::int64_t(w) * 20, high = std::int64_t(h) * 20;
+    Bytes body;
+    PutLe(body, id, 2);
+    BitWriter bounds;
+    const int n = std::max(BitsFor(wide), BitsFor(high));
+    bounds.Put(std::uint64_t(n), 5);
+    for (const std::int64_t v : {std::int64_t(0), wide, std::int64_t(0), high})
+        bounds.Put(std::uint64_t(v) & ((std::uint64_t(1) << n) - 1), n);
+    Append(body, bounds.out);
+    body.push_back(1);  // one fill style
+    body.push_back(fill_type);
+    PutLe(body, bitmap, 2);
+    Matrix fill;  // 20 twips a bitmap pixel
+    fill.scaled = true, fill.sx = fill.sy = 20u << 16, fill.scale_bits = BitsFor(std::int64_t(20) << 16);
+    Append(body, WriteMatrix(fill));
+    body.push_back(0);  // no line styles
+    BitWriter shape;
+    shape.Put(1, 4);  // fill index bits
+    shape.Put(0, 4);  // line index bits
+    shape.Put(0b000011, 6);  // a style change: fill style 0 and a move
+    shape.Put(1, 5), shape.Put(0, 1), shape.Put(0, 1);  // move to (0, 0)
+    shape.Put(1, 1);  // fill style 0 = 1
+    const int bits = std::max({BitsFor(wide), BitsFor(-wide), BitsFor(high), BitsFor(-high)});
+    const auto edge = [&](bool vertical, std::int64_t delta) {
+        shape.Put(0b11, 2);
+        shape.Put(std::uint64_t(bits - 2), 4);
+        shape.Put(0, 1);
+        shape.Put(vertical ? 1 : 0, 1);
+        shape.Put(std::uint64_t(delta) & ((std::uint64_t(1) << bits) - 1), bits);
+    };
+    edge(false, wide), edge(true, high), edge(false, -wide), edge(true, -high);
+    shape.Put(0, 6);  // the end
+    Append(body, shape.out);
+    return Changed(2, std::move(body));
+}
+Tag SwapOnDepth(std::uint16_t depth, std::uint16_t id);
+// Nightwatch: copying the game's own menu parts from one movie into another (the Settings rows take the Environment
+// screen's row parts from optionsetting.gfx). A part's closure: the characters it places (sprites' PlaceObject
+// characters), the bitmaps its shapes fill with (DefineExternalImage2, tag 1009: shared with the target by name when
+// it has the image, else copied) and the text settings of its edit texts (tag 74). Characters get ids after the
+// target's; placements keep every other byte (colour transforms, blend modes, clip depths).
+constexpr std::uint16_t kExternalImage = 1009, kTextSettings = 74;
+std::string ExternalImageName(const Tag& t) {  // u32 id, u16 format, u16 w, u16 h, u8 n + export name, u8 n + file
+    if (t.body.size() < 11) throw Error("an external image record is too short");
+    const std::size_t n = t.body[10];
+    if (11 + n > t.body.size()) throw Error("an external image record is too short");
+    return std::string(t.body.begin() + 11, t.body.begin() + 11 + std::ptrdiff_t(n));
+}
+// The byte offsets of a shape's bitmap ids (fill styles 0x40..0x43, in its style arrays and its line styles' fills).
+// Shapes that change styles in their records (StateNewStyles) are refused: none of the parts copied has one.
+std::vector<std::size_t> ShapeBitmapRefs(const Tag& t) {
+    const Bytes& b = t.body;
+    const bool rgba = t.code == 32 || t.code == 83;
+    const auto skip_rect = [&](std::size_t at) {
+        BitReader r{b, at};
+        const int n = int(r.Unsigned(5));
+        r.Unsigned(4 * n);
+        return r.End();
+    };
+    const auto skip_matrix = [&](std::size_t at) {
+        BitReader r{b, at};
+        ReadMatrix(r);
+        return r.End();
+    };
+    std::vector<std::size_t> refs;
+    std::size_t at = skip_rect(2);
+    if (t.code == 83) at = skip_rect(at) + 1;  // edge bounds, flags
+    const auto fill = [&](std::size_t p) {
+        const std::uint8_t type = b.at(p++);
+        if (type == 0x00) return p + (rgba ? 4 : 3);
+        if (type == 0x10 || type == 0x12 || type == 0x13) {
+            p = skip_matrix(p);
+            const int count = b.at(p++) & 0x0f;
+            p += std::size_t(count) * (1 + (rgba ? 4 : 3));
+            return type == 0x13 ? p + 2 : p;
+        }
+        if (type >= 0x40 && type <= 0x43) {
+            refs.push_back(p);
+            return skip_matrix(p + 2);
+        }
+        throw Error("a shape has an unknown fill style");
+    };
+    // a fill style array and a line style array (the shape's own, or new ones in a style change record)
+    const auto styles = [&](std::size_t p) {
+        std::size_t fills = b.at(p++);
+        if (fills == 0xff && t.code != 2) fills = U16(b, p), p += 2;
+        for (std::size_t i = 0; i < fills; ++i) p = fill(p);
+        std::size_t lines = b.at(p++);
+        if (lines == 0xff && t.code != 2) lines = U16(b, p), p += 2;
+        for (std::size_t i = 0; i < lines; ++i) {
+            if (t.code != 83) {
+                p += 2 + (rgba ? 4 : 3);
+                continue;
+            }
+            const std::uint8_t f1 = b.at(p + 2);
+            p += 4;
+            if (((f1 >> 4) & 3) == 2) p += 2;  // miter limit
+            p = (f1 & 0x08) ? fill(p) : p + 4;
+        }
+        return p;
+    };
+    at = styles(at);
+    BitReader r{b, at};
+    int fill_bits = int(r.Unsigned(4)), line_bits = int(r.Unsigned(4));
+    for (;;) {
+        if (r.Unsigned(1)) {  // an edge
+            const bool straight = r.Unsigned(1);
+            const int n = int(r.Unsigned(4)) + 2;
+            if (straight) r.Unsigned(r.Unsigned(1) ? 2 * n : 1 + n);
+            else r.Unsigned(4 * n);
+            continue;
+        }
+        const int flags = int(r.Unsigned(5));
+        if (!flags) break;
+        if (flags & 0x01) r.Unsigned(2 * int(r.Unsigned(5)));
+        if (flags & 0x02) r.Unsigned(fill_bits);
+        if (flags & 0x04) r.Unsigned(fill_bits);
+        if (flags & 0x08) r.Unsigned(line_bits);
+        if (flags & 0x10) {  // new styles, byte-aligned, then new index widths
+            r.at = styles(r.End()), r.bit = 0;
+            fill_bits = int(r.Unsigned(4)), line_bits = int(r.Unsigned(4));
+        }
+    }
+    return refs;
+}
+bool IsShape(const Tag& t) { return t.code == 2 || t.code == 22 || t.code == 32 || t.code == 83; }
+
+struct Copied {
+    std::vector<Tag> defs;                      // in the source's order (a definition before its uses)
+    std::map<std::uint16_t, std::uint16_t> id;  // source id -> target id
+};
+Copied CopyParts(const Movie& from, const Movie& to, const std::vector<std::uint16_t>& roots, std::uint16_t& next) {
+    std::map<std::uint16_t, std::size_t> def;  // source id -> its defining tag
+    for (std::size_t i = 0; i < from.tags.size(); ++i) {
+        const Tag& t = from.tags[i];
+        if ((kDefines.count(t.code) || t.code == kExternalImage) && t.body.size() >= 2) def[U16(t.body, 0)] = i;
+    }
+    std::map<std::string, std::uint16_t> target_images;
+    for (const Tag& t : to.tags)
+        if (t.code == kExternalImage) target_images[ExternalImageName(t)] = U16(t.body, 0);
+    std::set<std::uint16_t> need;
+    std::vector<std::uint16_t> stack(roots);
+    while (!stack.empty()) {
+        const std::uint16_t c = stack.back();
+        stack.pop_back();
+        if (!need.insert(c).second) continue;
+        const auto it = def.find(c);
+        if (it == def.end()) throw Error("optionsetting.gfx defines no character " + std::to_string(c));
+        const Tag& t = from.tags[it->second];
+        if (t.code == kSprite) {
+            for (const Tag& s : ReadSprite(t).tags) {
+                if (s.code == 12 || s.code == 59) throw Error("a copied part has scripts");
+                if (IsPlace(s))
+                    if (const auto ch = ReadPlace(s).character) stack.push_back(*ch);
+            }
+        } else if (IsShape(t)) {
+            for (const std::size_t at : ShapeBitmapRefs(t)) stack.push_back(U16(t.body, at));
+        }
+    }
+    Copied out;
+    for (const std::uint16_t c : need) {  // ids: shared images first, then the rest in the source's order
+        const Tag& t = from.tags[def[c]];
+        if (t.code == kExternalImage)
+            if (const auto same = target_images.find(ExternalImageName(t)); same != target_images.end())
+                out.id[c] = same->second;
+    }
+    for (std::size_t i = 0; i < from.tags.size(); ++i) {
+        const Tag& t = from.tags[i];
+        if (!(kDefines.count(t.code) || t.code == kExternalImage) || t.body.size() < 2) continue;
+        const std::uint16_t c = U16(t.body, 0);
+        if (!need.count(c) || out.id.count(c)) continue;
+        out.id[c] = ++next;
+    }
+    for (std::size_t i = 0; i < from.tags.size(); ++i) {
+        const Tag& t = from.tags[i];
+        if (!(kDefines.count(t.code) || t.code == kExternalImage) || t.body.size() < 2) continue;
+        const std::uint16_t c = U16(t.body, 0);
+        if (!need.count(c)) continue;
+        if (t.code == kExternalImage && target_images.count(ExternalImageName(t))) continue;  // the target's own
+        Bytes body = t.body;
+        SetLe(body, 0, out.id[c], 2);
+        if (t.code == kSprite) {
+            Sprite s = ReadSprite(Tag{t.code, body, {}});
+            for (Tag& p : s.tags)
+                if (IsPlace(p)) {
+                    const Place pl = ReadPlace(p);
+                    if (pl.character) p = Changed(p.code, Rewrite(p, pl, {}, out.id.at(*pl.character), {}, {}));
+                }
+            out.defs.push_back(WriteSprite(s));
+            continue;
+        }
+        if (IsShape(t))
+            for (const std::size_t at : ShapeBitmapRefs(t)) SetLe(body, at, out.id.at(U16(t.body, at)), 2);
+        out.defs.push_back(Changed(t.code, std::move(body)));
+        if (t.code == 37)  // its text settings follow it
+            for (std::size_t j = i + 1; j < from.tags.size() && j < i + 3; ++j)
+                if (from.tags[j].code == kTextSettings && U16(from.tags[j].body, 0) == c) {
+                    Bytes settings = from.tags[j].body;
+                    SetLe(settings, 0, out.id[c], 2);
+                    out.defs.push_back(Changed(kTextSettings, std::move(settings)));
+                }
+    }
+    return out;
+}
+// PlaceObject3 of `id` with a blend mode (8: add), as the game places its glowing parts.
+Tag BlendPlacement(std::uint16_t id, std::uint16_t depth, const Matrix& at, std::uint8_t blend) {
+    Bytes b{std::uint8_t(0x02 | 0x04), std::uint8_t(0x02)};
+    PutLe(b, depth, 2);
+    PutLe(b, id, 2);
+    Append(b, WriteMatrix(at));
+    b.push_back(blend);
+    return Changed(kPlace3, std::move(b));
+}
+
+// Nightwatch: the in-game Settings screen's rows (gpu/shim/bbport_settings_screen.cpp fills them): SettingsRows, a
+// sprite of kSettingsSlots line slots Slot_0 .. Slot_N. Each slot is a copy of the Environment screen's row parts
+// (optionsetting.gfx: EnvironmentSetting/Item_N_0 = character 97 and its neighbours), all hidden, shown and filled by
+// the screen (a scrolled list moves the content through the slots, never the slots):
+//   Head        a section heading (StaticText_111010's text, 101), left of and above the line's row, as Environment
+//   Name        the row's name (97's Text_0, 38) over its ornamented underline NameLine (40)
+//   Cursor      the row's pulsing gold light (97's Cursor, 43)
+//   Combo       an On / Off or list value (Widgets/ComboBox, 57: its Item_0_0/Text_0, underline, pulsing Cursor with
+//               the value's arrows)
+//   Slider      a 0 .. 10 value (Widgets/Slider, 74: Bar (100 frames), Text_0, LeftArrow / RightArrow, Cursor)
+//   Button      Defaults / a command (EnvironmentSetting/Item_5_0, 100: Text_0 over its underline, Cursor)
+//   HeadLine    the heading's ornamented underline (the names' one)
+// The parts keep Environment's layout relative to its rows (Text_0 at (-29, 19.15) of a row, Widgets at
+// (410.95, -11) ...); the slots are that row scaled to the book's list (kScale) and kPitch apart.
+constexpr int kSettingsSlots = 13;
+std::vector<Tag> SettingsRowsSprite(const Movie& m, std::uint16_t& next, std::uint16_t, double bx, double by,
+                                    std::int64_t, std::int64_t, std::int64_t, std::uint8_t, std::uint16_t* sprite_id,
+                                    const Movie& option, const Movie& inventory) {
+    constexpr std::uint16_t kName = 38, kNameLine = 40, kCursor = 43, kCombo = 57, kSlider = 74, kHead = 101,
+                            kButton = 100;
+    constexpr double kScale = 0.9, kPitch = 49, kRowX = 67;  // the row's origin in the slot (px, before the scale)
+    constexpr double kTopY = -10;  // the first line's origin under the list's top: its heading padded as the sides
+    Copied c = CopyParts(option, m, {kName, kNameLine, kCursor, kCombo, kSlider, kHead, kButton}, next);
+    std::vector<Tag> defs = std::move(c.defs);
+    const auto at = [&](double x, double y) { return At(x, y); };
+    // Environment's offsets of each part from a row's origin (EnvironmentSetting / 97 / 96, px)
+    const double widgets_x = 410.95, widgets_y = -11;
+    Sprite slot{++next, 1, {}};
+    slot.tags.push_back(Placement(c.id.at(kCursor), 1, at(-220.15, -15.85), std::string("Cursor"), false));
+    slot.tags.push_back(BlendPlacement(c.id.at(kNameLine), 2, at(-59.2, 47.8), 8));
+    {  // NameLine needs its name and hidden state: re-place it named (the blend kept)
+        Tag& line = slot.tags.back();
+        line = Changed(kPlace3, [&] {
+            Bytes b{std::uint8_t(0x02 | 0x04 | 0x08 | 0x20), std::uint8_t(0x02 | 0x20)};
+            PutLe(b, 2, 2);
+            PutLe(b, c.id.at(kNameLine), 2);
+            Append(b, WriteMatrix(At(-59.2, 47.8)));
+            BitWriter cx;  // alpha 51/256 (Environment's)
+            cx.Put(0, 1), cx.Put(1, 1), cx.Put(10, 4);
+            for (const int v : {256, 256, 256, 51}) cx.Put(std::uint64_t(v) & 0x3ff, 10);
+            Append(b, cx.out);
+            const std::string name = "NameLine";
+            b.insert(b.end(), name.begin(), name.end());
+            b.push_back(0);
+            b.push_back(8);  // add
+            b.push_back(0);  // hidden
+            return b;
+        }());
+    }
+    slot.tags.push_back(Placement(c.id.at(kName), 3, at(-29, 19.15), std::string("Name"), false));
+    slot.tags.push_back(Placement(c.id.at(kCombo), 4, at(widgets_x + 48.5, widgets_y + 24.5), std::string("Combo"), false));
+    slot.tags.push_back(Placement(c.id.at(kSlider), 5, at(widgets_x + 62.55, widgets_y + 40.5), std::string("Slider"), false));
+    // Head: a section heading on a line of its own, left, at the names' height, over its own ornamented underline
+    // (the names' NameLine, from the heading's left). Environment's heading text field (133 px) widened to 400 px.
+    const std::uint16_t head = ++next;
+    {
+        Movie copied;
+        copied.tags = defs;
+        std::int64_t left = 0, right = 0;
+        for (const Tag& t : copied.tags)
+            if (t.code == 37 && U16(t.body, 0) == c.id.at(kHead)) {
+                BitReader r{t.body, 2};
+                const int n = int(r.Unsigned(5));
+                left = r.Signed(n), right = r.Signed(n);
+            }
+        defs.push_back(WiderEditText(copied, c.id.at(kHead), head, 400 * 20 - (right - left)));
+        for (const Tag& t : copied.tags)  // its text settings, as the heading's
+            if (t.code == kTextSettings && U16(t.body, 0) == c.id.at(kHead)) {
+                Bytes settings = t.body;
+                SetLe(settings, 0, head, 2);
+                defs.push_back(Changed(kTextSettings, std::move(settings)));
+            }
+    }
+    constexpr double kHeadX = -61.1;
+    slot.tags.push_back(Placement(head, 6, at(kHeadX, 17), std::string("Head"), false));
+    slot.tags.push_back(Placement(c.id.at(kButton), 7, at(540 - 92, 19.15 + 31.65), std::string("Button"), false));
+    // Command: the same button centred on the whole list (a command has no value column to sit under); the
+    // button's middle is 142 px right of its origin, the list's middle 357 px right of a row's origin
+    slot.tags.push_back(Placement(c.id.at(kButton), 9, at(357 - 142, 19.15 + 31.65), std::string("Command"), false));
+    {  // HeadLine: the Stats panel's gold line (inventory.gfx: PlayerStatus's rows, 65: 425 x 3 px) under the
+        // heading, stretched across the list (kHeadLineW px, the list's width less its padding)
+        constexpr std::uint16_t kStatsLine = 65;
+        constexpr double kStatsLineW = 425, kHeadLineW = 840;
+        Movie target = m;  // the target with what is copied so far (an image copied once is shared)
+        target.tags.insert(target.tags.end(), defs.begin(), defs.end());
+        Copied line = CopyParts(inventory, target, {kStatsLine}, next);
+        defs.insert(defs.end(), line.defs.begin(), line.defs.end());
+        slot.tags.push_back(Placement(line.id.at(kStatsLine), 8,
+                                      WithScale(At(kHeadX - 2, 46), kHeadLineW / kStatsLineW, 1),
+                                      std::string("HeadLine"), false));
+    }
+    slot.tags.push_back(Tag{kShowFrame, {}, {}});
+    slot.tags.push_back(Tag{kEnd, {}, {}});
+    defs.push_back(WriteSprite(slot));
+    Sprite rows{++next, 1, {}};
+    for (int i = 0; i < kSettingsSlots; ++i)
+        rows.tags.push_back(Placement(slot.id, std::uint16_t(1 + i),
+                                      WithScale(At(bx + kRowX, by + kTopY + kPitch * i), kScale, kScale),
+                                      "Slot_" + std::to_string(i), true));
+    rows.tags.push_back(Tag{kShowFrame, {}, {}});
+    rows.tags.push_back(Tag{kEnd, {}, {}});
+    defs.push_back(WriteSprite(rows));
+    *sprite_id = rows.id;
+    return defs;
+}
+
 // A kCell-pixel square shape filled with bitmap `bitmap` at 1:1, with the fill type the game's tab pictures use.
 Tag BitmapSquare(std::uint16_t id, std::uint16_t bitmap, std::uint8_t fill_type) {
     const std::int64_t side = kCell * 20;

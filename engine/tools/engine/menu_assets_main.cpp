@@ -51,7 +51,9 @@ int main(int argc, char** argv) {
             args[1] == "movie"     ? menu_assets::OptionMovie(source)
             : args[1] == "rebirth" ? menu_assets::AltarScripts(source)
             : args[1] == "glyph-panel" ? menu_assets::GlyphPanelMovie(source)
-            : args[1] == "glyph-list"  ? menu_assets::GlyphListMovie(source)
+            // the Settings rows copy the game's options movie's row parts (beside the list movie)
+            : args[1] == "glyph-list"  ? menu_assets::GlyphListMovie(source, read(args[2].parent_path() / "optionsetting.gfx"),
+                                                                  read(args[2].parent_path() / "inventory.gfx"))
             : args[1] == "name-entry" ? menu_assets::NameEntryMovie(source)
             // the tab pictures come from the menu sheet beside the movie
             : args[1] == "glyph-tabs" ? menu_assets::GlyphTabsMovie(source, read(args[2].parent_path() / "common.tpf.dcx"))

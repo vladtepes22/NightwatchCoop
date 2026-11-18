@@ -147,6 +147,8 @@ bool g_settings_opening = false;
 bool g_from_settings = false;
 u64 g_settings_menu = 0;
 u64 g_settings_list = 0;  // the tab's fresh list (after the screen filter), its rows turned away by TabCollect
+bool g_settings_setup_pending = false;   // the next item screen set up is the Settings screen's
+std::atomic<u64> g_settings_screen{0};   // the Settings screen's item screen (its rows drawn each frame)
 PickedFn g_picked_original = nullptr;
 
 // The glyph screen's own description panel (GlyphDetailText, a second panel in the generated itemdetailtext.gfx:
@@ -533,11 +535,21 @@ BB_COOP_SYSV u64 GlyphItem(u64 out, u64 ctx) {
 // An item screen's setup: the first after the glyph item is the glyph screen's; a later setup of the same object is
 // another screen's.
 BB_COOP_SYSV void ScreenSetup(u64 screen, u64, u64, u64, u64, u64) {
-    bool ours = false;
+    bool ours = false, settings = false;
     {
         std::lock_guard<std::mutex> lk(g_mu);
         ours = g_panel_pending;
         g_panel_pending = false;
+        settings = g_settings_setup_pending;
+        g_settings_setup_pending = false;
+    }
+    if (settings) {
+        g_settings_screen.store(screen, std::memory_order_release);
+        BbSettingsScreen::Opened();
+        std::printf("Settings screen: item screen 0x%llx\n", static_cast<unsigned long long>(screen));
+        std::fflush(stdout);
+    } else if (g_settings_screen.load(std::memory_order_acquire) == screen) {
+        g_settings_screen.store(0, std::memory_order_release);
     }
     if (ours) {
         g_panel_screen.store(screen, std::memory_order_release);
@@ -1440,8 +1452,21 @@ void TypingPrompts(u64 screen, int mode) {
 }
 // After the game sets any screen's help line or redraws its prompts (BbMenuWidgets::AddPromptsHook): the glyph
 // screen's typing ones over them.
+// The Settings screen's prompts: its own moves (Change: left / right; the tabs: L1 / R1, as the input layer gives
+// them to the book on this screen). Two key images before one label: the second image's markup rides in the first
+// image's name.
+void SettingsPrompts(u64 screen) {
+    u64 prompts = 0;
+    coop::SafeGet(screen + kPromptsField, &prompts);
+    const std::u16string gap = u"\x3000";
+    const std::u16string row = Prompt(u"KG_L_UD", u"Select") + gap + Prompt(u"KG_L_LR", u"Change") + gap +
+                               Prompt(u"KG_L1' vspace='-8'><img src='KG_R1", u"Switch Tabs") + gap +
+                               Prompt(u"KG_Cancel", u"Return");
+    SetValueText(prompts, row.c_str());
+}
 void GlyphPrompts(u64 screen) {
     if (IsGlyphScreen(screen) && g_prompts_mode) TypingPrompts(screen, g_prompts_mode);
+    if (screen && screen == g_settings_screen.load(std::memory_order_acquire)) SettingsPrompts(screen);
 }
 // Each frame: the prompts follow the typing (started, ended, the controller's keyboard shown or hidden).
 void ShowTypingPrompts(u64 screen) {
@@ -1517,6 +1542,12 @@ void ShowList(u64 screen) {
         ++found;
     }
     normal.SetVisible(!ours);
+    const bool settings = screen == g_settings_screen.load(std::memory_order_acquire);
+    if (settings) BbMenuWidgets::ShowPart(root.at(), "ItemList/NormalItem/ScrollBarV", false);  // its own is SettingsScroll
+    if (!BbMenuWidgets::ShowPart(root.at(), "ItemList/SettingsRows", settings) && settings) {
+        std::printf("Settings screen: its list movie has no ItemList/SettingsRows\n");
+        std::fflush(stdout);
+    }
     g_list_screen = screen;
     if (found != static_cast<int>(std::size(kGlyphListParts))) {
         std::printf("Glyph screen: only %d of the %zu glyph list parts found\n", found, std::size(kGlyphListParts));
@@ -1567,8 +1598,25 @@ void ShowBarCursor(u64 screen) {
     g_bar_cursor_shown = focus;
     g_bar_active_shown = typing;
 }
+// The Settings screen each frame: its rows (BbSettingsScreen::Update), its help line the selected row's.
+// An item screen's text fields (0x1ad4c20's setup fetches them, each a block whose text wrapper is 8 bytes in):
+// MenuTitle/Text_0 at +0x1f0 (+0x1f8: what BbMenuWidgets::kHelpField names on command screens is the title here),
+// StatusBar/LineHelp at +0x258 (the bottom help line: +0x260), StatusBar/KeyGuide at +0x2a0 (+0x2a8, the prompts).
+constexpr u64 kItemLineHelpField = 0x260;
+void SettingsUpdate(u64 screen) {
+    if (!screen || screen != g_settings_screen.load(std::memory_order_acquire) || g_list_screen != screen) return;
+    Wrapper root;
+    if (!ListRoot(screen, root)) return;
+    if (BbSettingsScreen::Update(root.at(), ShownTab(screen))) {
+        u64 help = 0;
+        coop::SafeGet(screen + kItemLineHelpField, &help);
+        if (const char16_t* text = BbSettingsScreen::Text(0xc9, 263000)) SetValueText(help, text);
+    }
+}
+
 BB_COOP_SYSV void ScreenUpdate(u64 screen, u64, u64, u64, u64, u64) {
     ShowList(screen);
+    SettingsUpdate(screen);
     if (IsGlyphScreen(screen)) {
         Typing(screen);
         ShowTypingPrompts(screen);
@@ -1985,6 +2033,7 @@ std::uint64_t OpenSettings(std::uint64_t out, std::uint64_t arg) {
     {
         std::lock_guard<std::mutex> lk(g_mu);
         g_settings_opening = true;
+        g_settings_setup_pending = true;
         g_from_settings = true;
         g_settings_menu = 0;
         g_settings_list = 0;

@@ -33,6 +33,10 @@ bool PointerOnStage(float& x, float& y);
 bool TextEntryOpen();
 
 PadState LastPad();
+/// Nightwatch: the Settings screen, each frame while it is up: for the next quarter second the game gets L1 / R1 as
+/// the d-pad's Left / Right (its book switches tabs with those) and never the real Left / Right or the left stick's
+/// sideways tilt (the screen's own rows take them, through LastPad, which stays as pressed).
+void HoldTabRemap();
 }
 
 extern "C" {

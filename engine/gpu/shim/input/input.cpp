@@ -431,6 +431,15 @@ extern "C" int bbgpu_menu_buttons(std::uint32_t* confirm, std::uint32_t* back) {
     return MenuPointer::Navigating() ? 1 : 0;
 }
 
+// Nightwatch: the Settings screen's tab keys (BbInput::HoldTabRemap): on until this steady-clock time (ms).
+static std::atomic<std::int64_t> g_tab_remap_until{0};
+static std::int64_t NowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+static bool TabRemapOn() { return NowMs() < g_tab_remap_until.load(std::memory_order_relaxed); }
+void BbInput::HoldTabRemap() { g_tab_remap_until.store(NowMs() + 250, std::memory_order_relaxed); }
+
 extern "C" void bbgpu_request_quit(void);
 // TEMPORARY (Settings screen test builds only; remove once the Settings screen shows Quit to Desktop): with
 // BB_TEST_QUIT=1, holding Options (Start) for two seconds quits to the desktop (L3 + R3 clashed with the developer
@@ -505,6 +514,14 @@ extern "C" int bbgpu_pc_input(BbPcPad* d, const bool* keys, int nkeys, int gamep
     {
         std::scoped_lock lock(g_pad_lock);
         g_last_pad = pad;
+    }
+    if (TabRemapOn()) {  // the Settings screen (BbInput::HoldTabRemap)
+        using namespace PadBits;
+        const bool l1 = pad.buttons & kL1, r1 = pad.buttons & kR1;
+        pad.buttons &= ~(kLeft | kRight | kL1 | kR1);
+        if (l1) pad.buttons |= kLeft;
+        if (r1) pad.buttons |= kRight;
+        pad.lx = kStickRest;
     }
     d->buttons = pad.buttons;
     d->lx = pad.lx;

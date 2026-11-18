@@ -96,6 +96,32 @@ void SetValueText(u64 wrapper, const char16_t* text) {
         reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64, u64)>(release)(iface, v + 8, data);
     }
 }
+// As the game's 0x1ad9ab0 does it: the wrapper's value copied out (its vtable[0]), then the interface's +0x158
+// (iface, data, frame, 1): go to the frame and stop there.
+void GotoFrame(u64 wrapper, int frame) {
+    if (!wrapper || frame <= 0) return;
+    alignas(16) std::uint8_t value[0x40]{};
+    const u64 v = reinterpret_cast<u64>(value);
+    const u64 vtable = *reinterpret_cast<const u64*>(wrapper);
+    reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64)>(*reinterpret_cast<const u64*>(vtable))(v, wrapper);
+    const u64 iface = *reinterpret_cast<const u64*>(v + 0x18);
+    const u32 type = *reinterpret_cast<const u32*>(v + 0x20);
+    const u64 data = *reinterpret_cast<const u64*>(v + 0x28);
+    if (iface && (type & 0x8f)) {
+        const u64 go = *reinterpret_cast<const u64*>(*reinterpret_cast<const u64*>(iface) + 0x158);
+        reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64, u32, u32)>(go)(iface, data, u32(frame), 1);
+    }
+    if ((type & 0x40) && iface) {
+        const u64 release = *reinterpret_cast<const u64*>(*reinterpret_cast<const u64*>(iface) + 0x18);
+        reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64, u64)>(release)(iface, v + 8, data);
+    }
+}
+bool GotoPartFrame(u64 root, const char* path, int frame) {
+    Wrapper part;
+    if (!part.Fetch(root, path)) return false;
+    GotoFrame(part.at(), frame);
+    return true;
+}
 void SetFieldText(u64 root, const char* path, const char16_t* text) {
     Wrapper field;
     if (text && field.Fetch(root, path)) SetValueText(field.at(), text);
