@@ -19,6 +19,8 @@ change report says which layers ran and what stayed unproven.
 | `build` | the release configuration: LTO, the party build ID re-hash | `cmake out/gpu` + `build.sh` | release, or hooks / start-up changed |
 | `smoke` | the game boots, reaches the world, ticks the party code, no fault line | `tools/smoke-game.py --new-game` (headless, muted, isolated save) | engine hooks, start-up, packaging |
 | `coop` | host + guest in one session; scripted co-op rows judged from both logs | `tools/smoke-coop.py --scenario <row>` | party / net code touched; release |
+| `generator` | the world generator's own logic: plans, codes, written maps and events, the build id | `python -I -B -m unittest discover -s tools/randomizer/tests` (reads the game's files as `BB_GAME`; cases for a base mod use the newest installed Nocturne and skip without it) | `tools/randomizer` touched; release |
+| `world` | the generator and the launcher agree on what a world is: the launcher runs the generator, accepts the folder it wrote, reads it back as that world (code, manifest, generator major) | `dotnet run --project SeamlessTests -- --world-generate` (no window, no game run; the game's files are only read) | generator or the launcher's randomizer code touched; every merge; release |
 | `privacy` | user names, friends' names, addresses, game-derived files in a package | `tools/privacy-scan.py` + file check | every package |
 | visible | what a player sees (headless draws nothing) | one numbered checklist for the batch | only what no layer above covers |
 | playtest | everything the scripts never thought of | testers with logs, `net_doctor` | after a pre-release |
@@ -28,7 +30,7 @@ change report says which layers ran and what stayed unproven.
 ```
 python tools/qa.py plan --level change          # which layers the touched files need (vs fork/main)
 python tools/qa.py run  --level change          # ... and run them
-python tools/qa.py run  --level merge           # native + python + launcher
+python tools/qa.py run  --level merge           # native + python + launcher + world (from the tree)
 python tools/qa.py run  --level release --package <package dir>   # everything, every co-op row
 python tools/qa.py run  --only coop --scenario core
 ```
@@ -36,6 +38,28 @@ python tools/qa.py run  --only coop --scenario core
 Each run writes `work/qa/<run>/report.md` (the table to paste into a change report), `report.json` and a
 log per layer. Exit code 1 when any layer fails. The release level refuses to build without a `subst`
 drive mapped to the tree: exes built under `C:\Users\...` embed the user name.
+
+**The randomizer layers.** v0.3.2 shipped a generator whose world folders its launcher did not know, so no
+world could be made; `world` is the check for that whole class, and it runs long before a release:
+
+- `world` without `--package` (**tree mode**; change and merge level) stages the tree's own generator the way
+  `tools/package-seamless.ps1` ships it (`tools/randomizer/*.py`, no tests) next to the embedded Python that
+  script pins (its archive is kept in `work/downloads`, fetched from python.org once, signature checked), then
+  makes one world through the tree's launcher code into the run folder (removed after a pass, kept on a
+  failure, whose note names the folder the generator wrote). About 25 s (the generator itself ~20 s).
+  It proves the pair in the tree; it says nothing about a package.
+- `world --package <dir>` (**package mode**; release) does the same with the package's generator and Python,
+  and first fails when the package's `randomizer/source` is not byte for byte the tree's `tools/randomizer`
+  (a package made from another commit). The summary starts with `tree:` or `package:`.
+- `generator` is the generator's unit suite (about 15 min, beside the other layers). It needs the game's
+  files; the summary shows skipped cases, which mean a missing input (no Nocturne installed), not a pass.
+- Both need the game folder: `--game <dir>` or `BB_QA_GAME` (default `C:\Games\CUSA03173`). No game file is
+  written and no game or launcher window opens.
+- Without the game, `python` still holds two source-only checks (`engine/tests/test_qa_tools.py`): the folder
+  name the generator writes matches the launcher's pattern, and both carry the same generator major.
+- At change level `tools/randomizer/**` selects `python` + `generator` + `world`; the launcher's side (`Core/Randomizer.cs`,
+  `Core/WorldCode.cs`, `Core/Paths.cs`, `Views/RandomizerPage.cs`, `SeamlessTests/Randomizer*.cs`,
+  `SeamlessTests/Program.cs`) selects `python` + `launcher` + `world`. The two sides change and ship from one commit.
 
 **For agents: the harness does the work, you read its stdout.** One `qa.py` command per check; no
 hand-built director chains, loops or log greps. A PASS is the table line: paste `report.md`. A FAIL prints a
@@ -155,7 +179,8 @@ What visy has not run live is not claimed as tested here either: it goes on the 
    and the `smoke` layer are done, start `python tools/qa.py run --only coop` in the background and do
    steps 3-5 meanwhile; the release waits only for its PASS (the rows run every release, never skipped).
 3. Package into a **fresh** folder (`tools/package-seamless.ps1 ... -Release`), never one a game ran from;
-   rerun the `privacy` layer on it (`--only privacy --package <dir>`).
+   rerun the `world` and `privacy` layers on it (`--only world,privacy --package <dir>`): the release level
+   without `--package` proved the tree's generator, this proves the package's.
 4. `tools/release.ps1 -Package <dir> -Notes <notes> -DryRun`.
 5. Notes in player language (Added / Changed / Fixed / Known issues / Not played live yet), the Lantern
    attribution line first, "update together" when the party build ID changed.

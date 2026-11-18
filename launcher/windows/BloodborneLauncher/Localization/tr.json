@@ -2871,7 +2871,6 @@
   "The game steps by each frame's measured time (Mrsuss60's clock, from visy's 0.7.8) instead of the fixed frame-rate code: cloth, animation and moving platforms follow real time. On by default; not used at 30 FPS. The target can be changed in game (Insert menu, Live FPS)": "Oyun, sabit kare hızı kodu yerine her karenin ölçülen süresine göre adım atar (Mrsuss60'ın saati, visy'nin 0.7.8 sürümünden): kumaş, animasyon ve hareketli platformlar gerçek zamanı izler. Varsayılan olarak açık; 30 FPS'te kullanılmaz. Hedef oyun içinde değiştirilebilir (Insert menüsü, Canlı FPS)",
   "The generator ended without writing a world.": "Oluşturucu bir dünya yazmadan sona erdi.",
   "The generator failed.": "Oluşturucu başarısız oldu.",
-  "The generator only runs inside Nightwatch Co-op.": "Oluşturucu yalnızca Nightwatch Co-op içinde çalışır.",
   "The host plays a randomized world you don't have: building it, then joining again.": "Host'un sahip olmadığınız rastgeleleştirilmiş bir dünyada oynadığı: önce onu oluşturuluyor, sonra yeniden katılınıyor.",
   "The host's world could not be set up: {0}": "Host'un dünyası kurulamadı: {0}",
   "The mods ticked above are not the ones this world was made on: make it again on them, with a new character.": "Yukarıda işaretli modlar bu dünyanın üzerine kurulduğu modlar değil: yeni bir karakterle onlar üzerinde yeniden oluşturun.",

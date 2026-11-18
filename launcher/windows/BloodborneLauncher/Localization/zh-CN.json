@@ -2881,7 +2881,6 @@
   "The free weapons in the Hunter's Dream are drawn again, and you can use them with any stats.": "Hunter's Dream 中的免费武器会重新抽取，任何属性均可使用。",
   "The generator ended without writing a world.": "生成器已结束，但未写入任何世界。",
   "The generator failed.": "生成器失败。",
-  "The generator only runs inside Nightwatch Co-op.": "生成器只能在 Nightwatch Co-op 内运行。",
   "The host plays a randomized world you don't have: building it, then joining again.": "房主正在游玩你没有的随机化世界：正在生成，然后重新加入。",
   "The host's world could not be set up: {0}": "无法设置房主的世界：{0}",
   "The mods ticked above are not the ones this world was made on: make it again on them, with a new character.": "上方勾选的模组与该世界生成时所用的不同：请基于这些模组重新生成，并创建新角色。",

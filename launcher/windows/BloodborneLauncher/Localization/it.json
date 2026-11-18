@@ -2871,7 +2871,6 @@
   "The game steps by each frame's measured time (Mrsuss60's clock, from visy's 0.7.8) instead of the fixed frame-rate code: cloth, animation and moving platforms follow real time. On by default; not used at 30 FPS. The target can be changed in game (Insert menu, Live FPS)": "Il gioco avanza in base al tempo misurato di ogni frame (l'orologio di Mrsuss60, dalla 0.7.8 di visy) invece del codice a frequenza fissa: stoffa, animazioni e piattaforme mobili seguono il tempo reale. Attivo di default; non usato a 30 FPS. Il target si può cambiare in gioco (menu Insert, FPS in tempo reale)",
   "The generator ended without writing a world.": "Il generatore è terminato senza scrivere alcun mondo.",
   "The generator failed.": "Il generatore non è riuscito.",
-  "The generator only runs inside Nightwatch Co-op.": "Il generatore funziona solo dentro Nightwatch Co-op.",
   "The host plays a randomized world you don't have: building it, then joining again.": "L'host gioca in un mondo casuale che non hai: creazione in corso, poi unione di nuovo.",
   "The host's world could not be set up: {0}": "Impossibile preparare il mondo dell'host: {0}",
   "The mods ticked above are not the ones this world was made on: make it again on them, with a new character.": "Le mod spuntate sopra non sono quelle su cui è stato creato questo mondo: rigeneralo con esse, con un nuovo personaggio.",

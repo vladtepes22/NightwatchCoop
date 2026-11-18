@@ -2871,7 +2871,6 @@
   "The game steps by each frame's measured time (Mrsuss60's clock, from visy's 0.7.8) instead of the fixed frame-rate code: cloth, animation and moving platforms follow real time. On by default; not used at 30 FPS. The target can be changed in game (Insert menu, Live FPS)": "게임은 고정 프레임 속도 코드 대신 각 프레임의 측정 시간(visy 0.7.8의 Mrsuss60 시계)에 맞춰 진행합니다. 천, 애니메이션, 움직이는 발판이 실시간을 따릅니다. 기본값은 켜짐이며 30 FPS에서는 사용되지 않습니다. 목표값은 게임 내(Insert 메뉴, 실시간 FPS)에서 바꿀 수 있습니다",
   "The generator ended without writing a world.": "생성기가 세계를 기록하지 않고 종료되었습니다.",
   "The generator failed.": "생성기가 실패했습니다.",
-  "The generator only runs inside Nightwatch Co-op.": "생성기는 Nightwatch Co-op 안에서만 실행됩니다.",
   "The host plays a randomized world you don't have: building it, then joining again.": "호스트가 가지고 있지 않은 무작위 세계를 플레이 중입니다. 세계를 생성한 뒤 다시 참가합니다.",
   "The host's world could not be set up: {0}": "호스트의 세계를 설정할 수 없습니다: {0}",
   "The mods ticked above are not the ones this world was made on: make it again on them, with a new character.": "위에서 선택한 모드는 이 세계를 만든 모드와 다릅니다. 새 캐릭터로 선택한 모드에서 다시 만드세요.",

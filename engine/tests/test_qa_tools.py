@@ -40,9 +40,63 @@ class LayerChoice(unittest.TestCase):
         self.assertEqual(qa.layers_for(['tools/package-seamless.ps1']), ['smoke'])
         self.assertEqual(qa.layers_for(['engine/docs/party/items.md', 'README.md']), [])
 
+    def test_either_side_of_a_world_needs_a_world(self):
+        self.assertEqual(qa.layers_for(['tools/randomizer/generate.py']), ['python', 'generator', 'world'])
+        self.assertEqual(qa.layers_for(['tools/randomizer/tests/test_randomizer.py']), ['python', 'generator', 'world'])
+        for name in ('BloodborneLauncher/Core/Randomizer.cs', 'BloodborneLauncher/Core/WorldCode.cs',
+                     'BloodborneLauncher/Core/Paths.cs', 'BloodborneLauncher/Views/RandomizerPage.cs',
+                     'SeamlessTests/RandomizerTests.cs', 'SeamlessTests/Program.cs'):
+            self.assertEqual(qa.layers_for(['launcher/windows/' + name]), ['python', 'launcher', 'world'], name)
+        self.assertEqual(qa.layers_for(['launcher/windows/BloodborneLauncher/Core/WorldSaves.cs']), ['launcher'])
+
+    def test_a_merge_makes_a_world_from_the_tree(self):
+        self.assertEqual(qa.LEVELS['merge'], ['native', 'python', 'launcher', 'world'])
+        self.assertIn('generator', qa.LEVELS['release'])
+        self.assertIn('world', qa.LEVELS['release'])
+
     def test_layers_come_in_run_order(self):
         layers = qa.layers_for(['launcher/x.cs', 'engine/gpu/shim/party/x.cpp', 'engine/scripts/x.py'])
         self.assertEqual(layers, ['native', 'python', 'launcher', 'coop'])
+
+
+class World(unittest.TestCase):
+    """The generator (tools/randomizer) and the launcher (Core/Randomizer.cs) agree on a world's folder and on the
+    generator's major, read from both sources: no game files needed (the `world` layer makes a real one)."""
+    LAUNCHER = TOOLS.parent / 'launcher' / 'windows' / 'BloodborneLauncher' / 'Core' / 'Randomizer.cs'
+
+    def generator(self, expression):
+        import subprocess
+        out = subprocess.run([sys.executable, '-I', '-B', '-c',
+                              f'import sys; sys.path.insert(0, sys.argv[1]); import generate, seedcode; print({expression})',
+                              str(qa.GENERATOR)], capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stderr[-400:])
+        return out.stdout.strip()
+
+    def test_the_launcher_knows_the_folder_the_generator_writes(self):
+        source = self.LAUNCHER.read_text(encoding='utf-8')
+        pattern = re.search(r'Regex WorldName = new\(@"([^"]+)"', source)
+        self.assertIsNotNone(pattern, 'Randomizer.cs: no WorldName pattern')
+        for code in ('R2-0M000-01G74-ZY', 'R2' + '-AD2XE' * 60):
+            name = self.generator(f'generate.folder_name({code!r}, "227291f8" + "0" * 56)')
+            self.assertRegex(name, pattern.group(1), 'the launcher would not list this folder as a world')
+
+    def test_one_generator_major(self):
+        major = re.search(r'const int GeneratorMajor = (\d+);', self.LAUNCHER.read_text(encoding='utf-8'))
+        self.assertIsNotNone(major, 'Randomizer.cs: no GeneratorMajor')
+        self.assertEqual(self.generator('seedcode.GENERATOR_MAJOR'), major.group(1))
+
+    def test_a_package_made_from_another_generator_is_named(self):
+        tree = {'randomizer.py': b'a', 'generate.py': b'b'}
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            for name, data in {'randomizer.py': b'a', 'generate.py': b'old', 'stamp.py': b'c', '_x.py': b'd'}.items():
+                (Path(folder) / name).write_bytes(data)
+            self.assertEqual(qa.generator_difference(folder, tree), 'changed generate.py; extra stamp.py')
+            (Path(folder) / 'generate.py').write_bytes(b'b')
+            (Path(folder) / 'stamp.py').unlink()
+            self.assertEqual(qa.generator_difference(folder, tree), '')
+        self.assertIn('randomizer.py', qa.generator_modules())
+        self.assertFalse([n for n in qa.generator_modules() if n.startswith(('_', 'test_'))])
 
 
 class Ctest(unittest.TestCase):
