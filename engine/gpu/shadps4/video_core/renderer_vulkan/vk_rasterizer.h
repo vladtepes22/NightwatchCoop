@@ -13,6 +13,7 @@
 #include "common/shared_first_mutex.h"
 #include "video_core/buffer_cache/buffer_cache.h"
 #include "video_core/page_manager.h"
+#include "video_core/renderer_vulkan/vk_ao_spatial.h"
 #include "video_core/renderer_vulkan/vk_bind_helper.h"
 #include "video_core/renderer_vulkan/vk_camera_motion.h"
 #include "video_core/renderer_vulkan/vk_constant_ring.h"
@@ -331,6 +332,10 @@ private:
     void EffectsBlendedScene();
     void EffectsBeforeUpscaler(u64 compute_hash);
     void EffectsBeforeResources(const GraphicsPipeline* pipeline);
+    /// GTAO: the AO strength into the push constants of the game's SSAO draw (effect_gtao).
+    void GtaoBeforeBind(const GraphicsPipeline* pipeline);
+    /// graphics_ao_quality=1: denoises the GTAO gather and redoes the upscale at full resolution.
+    void HqAoAfterDraw(const GraphicsPipeline* pipeline, const RenderState& state);
     /// Right before a draw binds its resources (DrawRecord): point light shadows read the lamp draw.
     void EffectsBeforeBind(const AmdGpu::Regs& regs, const GraphicsPipeline* pipeline, bool is_indexed,
                            u32 index_offset, u32 first_vertex);
@@ -595,6 +600,7 @@ private:
     VideoCore::ImageId previous_scene_depth{};
     std::unique_ptr<ObjectMotion> object_motion;
     bool effects_wanted = false; ///< a lighting effect is on this frame (EffectsOnFrameEnd)
+    std::unique_ptr<SpatialAo> spatial_ao; // bbport: graphics_ao_quality=1 (High GTAO)
     std::unique_ptr<ContactShadow> contact_shadow; ///< contact shadows and soft sun shadows
     std::unique_ptr<PointShadow> point_shadow; ///< effect_point_shadows (vk_point_shadow.h)
     u32 shadow_frame = 0;                      ///< counts the sun shadow resolves (contact shadow noise)

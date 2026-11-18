@@ -6,12 +6,17 @@
 #include <cmath>
 #include <cstddef>
 #include <cstring>
+#include <optional>
+#include <string>
+
+#include <fmt/format.h>
 
 #include "bbport_settings.h"
 #include "core/memory.h"
 #include "video_core/amdgpu/liverpool.h"
 #include "video_core/renderer_vulkan/lighting_rules.h"
 #include "video_core/renderer_vulkan/rt_lamp_rules.h"
+#include "video_core/renderer_vulkan/vk_ao_spatial.h"
 #include "video_core/renderer_vulkan/vk_effect_shaders.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 
@@ -124,6 +129,10 @@ void Rasterizer::EffectsAfterTargets(const GraphicsPipeline* pipeline) {
     const auto& key = pipeline->GetGraphicsKey();
     if (std::popcount(key.mrt_mask) >= 5 && db_desc.first) {
         ssgi->OnGBufferDraw(db_desc.first, cb_descs[2].first, cb_descs[0].first);
+    }
+    if (cb_descs[0].first && EffectShaders::GtaoActive() &&
+        FragmentHash(pipeline) == EffectShaders::SsaoHash) {
+        ssgi->OnAoDraw(cb_descs[0].first);
     }
 }
 
@@ -274,5 +283,125 @@ void Rasterizer::EffectsBeforeBind(const AmdGpu::Regs& regs, const GraphicsPipel
         }
     }
 }
+
+// bbport: GTAO (gtao.frag, effect_gtao) reads the AO strength from the push constant word the
+// object motion uses elsewhere (motion_param, offset 120): the float's bits, clamped to 0..1.
+// Not behind effects_wanted: that is refreshed only on frames the camera motion runs for
+// (EffectsOnFrameEnd), and the replaced shader needs its strength whenever it is in use.
+void Rasterizer::GtaoBeforeBind(const GraphicsPipeline* pipeline) {
+    if (!EffectShaders::GtaoActive()) {
+        return;
+    }
+    const auto* ps = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
+    if (!ps || ps->pgm_hash != EffectShaders::SsaoHash) {
+        return;
+    }
+    static_assert(offsetof(Shader::PushData, motion_param) == 120);
+    static_assert(offsetof(Shader::PushData, scene_size) == 124);
+    const float k = std::clamp(BbSettings::Get().graphics_ao_strength.load(std::memory_order_relaxed),
+                               0.0f, 1.0f);
+    push_data.motion_param = std::bit_cast<u32>(k);
+}
+
+// bbport: graphics_ao_quality=1 (vk_ao_spatial.h). The GTAO gather (the HQ variant of gtao.frag)
+// is denoised in place; the draw right after it is the game's bilateral upscale to the internal
+// resolution (R8, sampling the gather and the full-resolution depth), whose output HQ AO
+// recomputed at that resolution replaces.
+void Rasterizer::HqAoAfterDraw(const GraphicsPipeline* pipeline, const RenderState& state) {
+    const auto* ps_info = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
+    const auto& dynamic = scheduler.GetDynamicState();
+    const auto draw_region = [&]() -> std::optional<vk::Rect2D> {
+        if (dynamic.scissors.size() != 1 || dynamic.viewports.size() != 1) {
+            return std::nullopt;
+        }
+        const auto& vp = dynamic.viewports[0];
+        const auto& scissor = dynamic.scissors[0];
+        const s32 left =
+            std::max(scissor.offset.x, s32(std::ceil(std::min(vp.x, vp.x + vp.width))));
+        const s32 top =
+            std::max(scissor.offset.y, s32(std::ceil(std::min(vp.y, vp.y + vp.height))));
+        const s32 right = std::min<s32>(
+            state.width, std::min<s32>(scissor.offset.x + s32(scissor.extent.width),
+                                       s32(std::floor(std::max(vp.x, vp.x + vp.width)))));
+        const s32 bottom = std::min<s32>(
+            state.height, std::min<s32>(scissor.offset.y + s32(scissor.extent.height),
+                                        s32(std::floor(std::max(vp.y, vp.y + vp.height)))));
+        return vk::Rect2D{{left, top},
+                          {u32(std::max(right - left, 0)), u32(std::max(bottom - top, 0))}};
+    };
+    if (spatial_ao->UpscalePending()) {
+        const auto gather = spatial_ao->GatherTarget();
+        s32 depth_index = -1;
+        bool reads_gather = false;
+        // bound_images lists the render target first, then the sampled images in binding order.
+        if (ps_info && cb_descs[0].first && state.num_color_attachments == 1 &&
+            state.num_layers == 1 && ps_info->images.size() == 2 &&
+            ps_info->buffers.size() == 2 && bound_images.size() == 3 &&
+            bound_images[0] == cb_descs[0].first && image_infos.size() >= 2 &&
+            buffer_infos.size() >= 2) {
+            for (s32 i = 0; i < 2; ++i) {
+                const auto id = bound_images[i + 1];
+                if (id == gather) {
+                    reads_gather = true;
+                } else if (texture_cache.GetImage(id).info.pixel_format ==
+                           vk::Format::eR32Sfloat) {
+                    depth_index = i;
+                }
+            }
+        }
+        const auto region = draw_region();
+        if (reads_gather && depth_index >= 0 && region && region->offset.x == 0 &&
+            region->offset.y == 0 && region->extent.width == state.width &&
+            region->extent.height == state.height) {
+            const float k = std::clamp(
+                BbSettings::Get().graphics_ao_strength.load(std::memory_order_relaxed), 0.0f,
+                1.0f);
+            const u32 offsets = u32(push_data.buf_offsets[0]) | (u32(push_data.buf_offsets[1]) << 8);
+            spatial_ao->FullResolution(cb_descs[0].first, cb_descs[0].second.view_info,
+                                       image_infos[depth_index], buffer_infos[0],
+                                       buffer_infos[1], offsets, k);
+        } else {
+            spatial_ao->SkipUpscale(fmt::format(
+                "next draw: colors={} ps_images={} ps_buffers={} bound={} gather={} depth={} "
+                "region={}",
+                state.num_color_attachments, ps_info ? ps_info->images.size() : 0,
+                ps_info ? ps_info->buffers.size() : 0, bound_images.size(), reads_gather,
+                depth_index,
+                region ? fmt::format("{},{} {}x{} of {}x{}", region->offset.x, region->offset.y,
+                                     region->extent.width, region->extent.height, state.width,
+                                     state.height)
+                       : std::string{"none"}));
+        }
+    }
+    if (!ps_info || ps_info->pgm_hash != EffectShaders::SsaoHash || !EffectShaders::GtaoActive()) {
+        return;
+    }
+    // Descriptors are appended per stage with the fragment stage first, so its Cb0 and normals
+    // stay at the front while other stages may append their own buffers.
+    if (cb_descs[0].first && state.num_color_attachments == 1 && state.num_layers == 1 &&
+        ps_info->buffers.size() == 3 && ps_info->images.size() == 3 &&
+        buffer_infos.size() >= 3 && image_infos.size() >= 6 && dynamic.scissors.size() == 1 &&
+        dynamic.viewports.size() == 1) {
+        const auto region = *draw_region();
+        if (region.extent.width && region.extent.height) {
+            spatial_ao->Filter(cb_descs[0].first, cb_descs[0].second.view_info, image_infos[1],
+                               buffer_infos[0], push_data.buf_offsets[0], push_data.scene_size,
+                               state.width, state.height, region);
+            spatial_ao->NoteGather(cb_descs[0].first, image_infos[1]);
+        } else {
+            spatial_ao->WarnUnsupported(fmt::format("empty region {},{} {}x{}", region.offset.x,
+                                                    region.offset.y, region.extent.width,
+                                                    region.extent.height));
+        }
+    } else {
+        spatial_ao->WarnUnsupported(fmt::format(
+            "cb={} colors={} layers={} ps_buffers={} ps_images={} images={} buffers={} "
+            "scissors={} viewports={}",
+            bool(cb_descs[0].first), state.num_color_attachments, state.num_layers,
+            ps_info->buffers.size(), ps_info->images.size(), image_infos.size(),
+            buffer_infos.size(), dynamic.scissors.size(), dynamic.viewports.size()));
+    }
+}
+
 
 } // namespace Vulkan

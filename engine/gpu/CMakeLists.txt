@@ -153,12 +153,16 @@ function(add_host_shader FILENAME SHADER_NAME)
         set(SOURCE ${FILENAME})
     endif()
     set(INCLUDES "")
+    set(STAGE "")
+    if (FILENAME MATCHES "\\.frag$" AND SHADER_NAME MATCHES "_comp$") # a fragment source built as a compute shader
+        set(STAGE -S comp)
+    endif()
     if (FILENAME MATCHES "^native_motion_blur")
         list(APPEND INCLUDES ${SHADER_SRC}/native_motion_blur.glsl)
     endif()
     add_custom_command(OUTPUT ${OUT}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADER_DIR}
-        COMMAND ${GLSLANG_COMPILER} --target-env vulkan1.3 -o ${OUT} --vn ${SYMBOL} ${DEFINES} ${SOURCE}
+        COMMAND ${GLSLANG_COMPILER} --target-env vulkan1.3 -o ${OUT} --vn ${SYMBOL} ${STAGE} ${DEFINES} ${SOURCE}
         COMMAND ${CMAKE_COMMAND} "-DHEADER_FILE=${OUT}" -P ${SHADER_SRC}/AddShaderHeaderInclude.cmake
         DEPENDS ${SOURCE} ${INCLUDES} VERBATIM)
     set(SHADER_HEADERS ${SHADER_HEADERS} ${OUT} PARENT_SCOPE)
@@ -190,6 +194,16 @@ add_host_shader(fs_tri.vert fs_tri_vert)
 add_host_shader(fsr.comp fsr_easu_comp SAMPLE_EASU=1)
 add_host_shader(fsr.comp fsr_rcas_comp SAMPLE_RCAS=1)
 add_host_shader(post_process.frag post_process_frag)
+# effect_gtao (vk_effect_shaders.cpp, vk_ao_spatial.cpp); graphics_ao_quality=1 (High): three directions, the
+# denoiser, full internal resolution. The single-direction and 16-direction shaders are for gtao-test only.
+add_host_shader(gtao.frag gtao_frag)
+add_host_shader(gtao.frag gtao_hq_frag GTAO_SPATIAL_HQ=1 GTAO_SLICES=3 GTAO_STEPS=6)
+add_host_shader(gtao.frag gtao_single_hq_frag GTAO_SPATIAL_HQ=1 GTAO_SLICES=1 GTAO_STEPS=6)
+add_host_shader(gtao.frag gtao_reference_frag GTAO_SPATIAL_HQ=1 GTAO_SLICES=16 GTAO_STEPS=32)
+add_host_shader(gtao.frag gtao_full_comp GTAO_COMPUTE=1 GTAO_SPATIAL_HQ=1 GTAO_SLICES=3 GTAO_STEPS=6)
+add_host_shader(gtao_denoise.comp gtao_denoise_comp)
+add_host_shader(gtao_denoise.comp gtao_denoise_full_comp FULLRES=1)
+add_host_shader(gtao_denoise.comp gtao_copy_comp COPY=1)
 add_host_shader(hdr_output.frag hdr_output_frag)
 add_host_shader(hdr_native.comp hdr_native_luma_comp LUMA=1)
 add_host_shader(hdr_native.comp hdr_native_stats_comp STATS=1)
@@ -513,6 +527,13 @@ target_include_directories(tone-curve-shader-test PRIVATE ${SHADER_INCLUDE})
 target_compile_options(tone-curve-shader-test PRIVATE -UNDEBUG -Wall -Werror)
 target_link_libraries(tone-curve-shader-test PRIVATE Vulkan::Vulkan)
 add_dependencies(tone-curve-shader-test host_shaders)
+# GTAO on synthetic scenes (Regular, High and its denoiser) against a 16-direction reference; plain Vulkan, no
+# bbgpu, needs a GPU but no window: gtao-test.exe <outdir> [--native|--benchmark].
+add_executable(gtao-test EXCLUDE_FROM_ALL ../tests/test_gtao.cpp)
+target_include_directories(gtao-test PRIVATE ${SHADER_INCLUDE})
+target_compile_options(gtao-test PRIVATE -UNDEBUG -Wall -Wextra -Werror -Wno-missing-field-initializers)
+target_link_libraries(gtao-test PRIVATE Vulkan::Vulkan)
+add_dependencies(gtao-test host_shaders)
 
 # bbport: FSR 4 benchmark outside the game (tools/fsr4_bench.cpp): ninja -C out/gpu fsr4-bench.
 add_executable(upscaler-support-test EXCLUDE_FROM_ALL ../tests/test_upscaler_support.cpp

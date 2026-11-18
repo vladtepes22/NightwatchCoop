@@ -10,12 +10,16 @@
 #include <vector>
 
 #include "bbport_settings.h"
+#include "video_core/host_shaders/gtao_frag.h"
+#include "video_core/host_shaders/gtao_hq_frag.h"
 #include "video_core/host_shaders/native_motion_blur_frag.h"
 #include "video_core/renderer_vulkan/vk_pom_patch.h"
 
 namespace Vulkan::EffectShaders {
 
 namespace {
+
+std::atomic<bool> gtao_active{false};
 
 bool Fits(const Shader::Info& info, const Shader::Profile& profile, const Shader::Backend::Bindings& start,
           size_t buffers, size_t images, size_t samplers) {
@@ -43,7 +47,18 @@ std::span<const u32> Replacement(const Shader::Info& info, const Shader::Profile
     if (info.hw_stage != Shader::HwStage::Fragment) {
         return {};
     }
-    if (info.pgm_hash == MotionBlurHash && BbSettings::Get().startup_motion_blur_quality == 1) {
+    if (info.pgm_hash == SsaoHash && BbSettings::Get().startup_effects[BbSettings::EffectGtao]) {
+        if (Fits(info, profile, start, 3, 3, 3)) {
+            const bool high = BbSettings::Get().startup_ao_quality == 1;
+            if (!gtao_active.exchange(true, std::memory_order_relaxed)) {
+                std::printf(high ? "GTAO: in use in place of the game's SSAO shader (High: three "
+                                   "directions, spatial denoise, full internal resolution)\n"
+                                 : "GTAO: in use in place of the game's SSAO shader\n");
+            }
+            return high ? std::span<const u32>(GTAO_HQ_FRAG) : std::span<const u32>(GTAO_FRAG);
+        }
+        Declined("GTAO", info, profile, start);
+    } else if (info.pgm_hash == MotionBlurHash && BbSettings::Get().startup_motion_blur_quality == 1) {
         if (Fits(info, profile, start, 1, 2, 2)) {
             static std::atomic<bool> said{false};
             if (!said.exchange(true, std::memory_order_relaxed)) {
@@ -114,6 +129,10 @@ std::optional<std::vector<u32>> Patched(const Shader::Info& info, std::span<cons
         return PatchedPom(info, spv);
     }
     return std::nullopt;
+}
+
+bool GtaoActive() {
+    return gtao_active.load(std::memory_order_relaxed);
 }
 
 } // namespace Vulkan::EffectShaders

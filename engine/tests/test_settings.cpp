@@ -74,6 +74,35 @@ int main() {
         BbSettings::Load();
     }
     {
+        // GTAO quality: 0 regular (default) or 1 high; anything else is regular. Frozen at start
+        // for the restart check; the GTAO row is in the build and starts the lighting hooks.
+        auto& d = BbSettings::Get();
+        assert(d.graphics_ao_quality == 0 && d.startup_ao_quality == 0);
+        assert(BbSettings::EffectAvailable(BbSettings::EffectGtao));
+        { std::ofstream file(path); file << "graphics_ao_quality=1\neffect_gtao=1\n"; }
+        BbSettings::Load();
+        assert(d.graphics_ao_quality == 1 && d.startup_ao_quality == 1);
+        assert(d.effects[BbSettings::EffectGtao] && d.startup_effects[BbSettings::EffectGtao]);
+        BbSettings::Save();
+        assert(Read(path).find("graphics_ao_quality=1\n") != std::string::npos);
+        assert(Read(path).find("effect_gtao=1\n") != std::string::npos);
+        d.graphics_ao_quality = 0;
+        assert(d.graphics_ao_quality != d.startup_ao_quality); // the overlay asks for a restart
+        { std::ofstream file(path); file << "graphics_ao_quality=7\n"; }
+        BbSettings::Load();
+        assert(d.graphics_ao_quality == 0 && d.startup_ao_quality == 0);
+        { std::ofstream file(path); file << "graphics_ao_quality=1\n"; }
+        BbSettings::Load();
+        assert(d.graphics_ao_quality == 1);
+        { std::ofstream file(path); file << ""; }
+        BbSettings::Load();
+        assert(d.graphics_ao_quality == 1); // a missing key keeps the value, as the other settings do
+        d.graphics_ao_quality = 0;
+        d.startup_ao_quality = 0;
+        d.effects[BbSettings::EffectGtao] = false;
+        d.startup_effects[BbSettings::EffectGtao] = false;
+    }
+    {
         // The keys from visy 0.7.5: defaults first, then each one read from and written to bbport.ini.
         auto& d = BbSettings::Get();
         assert(d.party_level_sync && !d.party_phantom_hp && d.party_pvp_full_hp && d.party_boss_drops && !d.party_skip_prologue && d.party_vpn == 0 &&

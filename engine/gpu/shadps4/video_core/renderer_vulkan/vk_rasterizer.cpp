@@ -100,6 +100,9 @@ Rasterizer::Rasterizer(const Instance& instance_, Scheduler& scheduler_, Runtime
                                                  *scene_targets, *camera_motion, *rt_shadow);
     upscaler = std::make_unique<TemporalUpscaler>(instance, scheduler, texture_cache, runtime,
                                                   *camera_motion, *scene_targets, *hdr_native);
+    // bbport: graphics_ao_quality=1; creates nothing unless High GTAO is on at start.
+    spatial_ao = std::make_unique<SpatialAo>(instance, scheduler, runtime, *scene_targets,
+                                             texture_cache);
     if (!EmulatorSettings.IsNullGPU()) {
         liverpool->BindRasterizer(this);
     }
@@ -2208,6 +2211,7 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
             GetDrawOffsets(regs, pipeline->GetStage(Shader::SwStage::Vertex), pipeline->GetFetchShader());
         EffectsBeforeBind(regs, pipeline, is_indexed, index_offset, effect_first_vertex);
     }
+    GtaoBeforeBind(pipeline);
     pipeline->BindResources(set_writes, push_data, {image_infos.data(), image_infos.size()},
                             {buffer_infos.data(), buffer_infos.size()});
     if (pipeline->GetGraphicsKey().motion_vectors) {
@@ -2351,6 +2355,9 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
         const auto& cb = regs.color_buffers[0];
         HdrChannel::NoteTarget(ps->pgm_hash, cb.Address(), cb.Pitch(), cb.Height(),
             LiverpoolToVK::SurfaceFormat(cb.GetDataFmt(), cb.GetNumberFmt()));
+    }
+    if (spatial_ao->Enabled()) {
+        HqAoAfterDraw(pipeline, state);
     }
     if (FrameCapture::Active()) {
         const auto* ps = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];

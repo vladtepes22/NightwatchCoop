@@ -99,7 +99,7 @@ static_assert(EffectCount == EffectRayTracing + 1);
 /// A lighting row exists in the build only once its pass is in: until then it is not shown, not
 /// read from bbport.ini and not written to it, so it can never be on.
 inline constexpr bool EffectAvailable(int effect) {
-    return effect < EffectFirstLighting || effect == EffectPomCavity || effect == EffectGi ||
+    return effect < EffectFirstLighting || effect == EffectGtao || effect == EffectPomCavity || effect == EffectGi ||
            effect == EffectContactShadows || effect == EffectPcss || effect == EffectPointShadows;
 }
 /// Lighting passes from contact shadows on switch while the game runs; the rest are built into
@@ -532,6 +532,9 @@ struct Values {
     /// graphics_motion_blur_quality (after a restart; 0 game, 1 high): the game's motion blur shader is
     /// swapped for one with up to 16 taps per side (vk_effect_shaders.cpp; Lantern 4889a8a8b).
     std::atomic<int> graphics_motion_blur_quality{0};
+    /// graphics_ao_quality (after a restart; 0 regular GTAO, 1 high: three directions, denoised, full internal
+    /// resolution): which gtao.frag replaces the game's SSAO shader (vk_effect_shaders.cpp).
+    std::atomic<int> graphics_ao_quality{0};
     std::atomic<int> output_res{OutputDefault};
     int custom_output_w = 1920, custom_output_h = 1080;
     std::atomic<int> cheat_vials{CheatOff}, cheat_bullets{CheatOff};
@@ -578,6 +581,7 @@ struct Values {
     int startup_model_lod = 0;
     int startup_texture_quality = 0;
     int startup_shadow_resolution = 0, startup_local_shadow_resolution = 0, startup_motion_blur_quality = 0;
+    int startup_ao_quality = 0;
     int startup_output_res = OutputDefault;
     int startup_live_resolution = 0;
     std::atomic<float> hdr_exposure{1.0f};

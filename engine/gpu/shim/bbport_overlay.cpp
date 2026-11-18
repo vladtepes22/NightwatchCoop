@@ -941,6 +941,42 @@ void PictureSection() {
     }
 }
 
+void AoQualityItem() {
+    auto& s = BbSettings::Get();
+    const char* label = Item("Ambient occlusion quality", "Качество затенения (AO)");
+    if (!label) {
+        return;
+    }
+    const char* levels[] = {
+        BbSettings::MenuText("Regular GTAO", "Обычный GTAO"),
+        BbSettings::MenuText("High (full-res bitmask GTAO, denoised, experimental)",
+                             "Высокое (битмаск GTAO в полном разрешении, с шумоподавлением, "
+                             "экспериментальное)")};
+    int quality = std::clamp(s.graphics_ao_quality.load(), 0, 1);
+    if (ImGui::Combo(label, &quality, levels, 2)) {
+        Store(s.graphics_ao_quality, quality, true);
+    }
+    Hint(BbSettings::MenuText(
+        "Regular GTAO is unchanged and selected by default. High traces three visibility-bitmask "
+        "GTAO directions at the full internal render resolution (it follows DLSS/FSR scaling) and "
+        "applies a depth/normal-aware denoiser for sharper, more stable contact shadows. Higher GPU "
+        "cost; GTAO must also be on. Both modes are computed fresh each frame from a fixed sampling "
+        "pattern, so they stay stable in motion with no ghosting or trailing. Applied when the game "
+        "restarts.",
+        "Обычный GTAO не меняется и выбран по умолчанию. Высокое трассирует три направления "
+        "битмаск GTAO в полном внутреннем разрешении рендера (следует масштабированию DLSS/FSR) "
+        "и применяет фильтр шумоподавления с учётом глубины и нормалей для более чётких и "
+        "стабильных контактных теней. Повышает нагрузку на GPU; GTAO должен быть включён. "
+        "Оба режима рассчитываются заново каждый кадр по фиксированному шаблону выборки, "
+        "поэтому остаются стабильными в движении без шлейфов и ореолов. "
+        "Применяется после перезапуска игры."));
+    if (s.graphics_ao_quality != s.startup_ao_quality) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", BbSettings::MenuText("Applied when the game restarts.",
+                                                       "Применяется после перезапуска игры."));
+    }
+}
+
 void EffectsSection() {
     auto& s = BbSettings::Get();
     Section("Game effects (restart required)", "Эффекты игры (после перезапуска)");
@@ -1024,16 +1060,40 @@ void EffectsSection() {
         Hint(BbSettings::MenuText("Smoother motion blur, more samples along the motion. Motion blur must be on.",
                                   "Более плавное размытие, больше выборок вдоль движения. Размытие должно быть включено."));
     }
+    bool lighting_title = false;
     for (int e = 0; e < BbSettings::EffectCount; ++e) {
         const auto& effect = BbSettings::Effects[e];
         if (!BbSettings::EffectAvailable(e)) {
             continue;
         }
+        if (e >= BbSettings::EffectFirstLighting && !lighting_title) {
+            // The optional lighting rows are not game patches: their own heading, and each row says
+            // whether it switches at once.
+            lighting_title = true;
+            Section("Lighting (optional, needs an upscaler on)",
+                    "Освещение (дополнительно, нужен включённый апскейлер)");
+        }
         const char* label = Item(effect.label, effect.label_ru);
         if (!label) {
+            if (e == BbSettings::EffectGtao) {
+                AoQualityItem(); // matches a search on its own
+            }
             continue;
         }
         Checkbox(label, s.effects[e]);
+        if (e >= BbSettings::EffectFirstLighting) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", BbSettings::EffectIsLive(e) && e != BbSettings::EffectRayTracing
+                                          ? BbSettings::MenuText("(applies at once)", "(сразу)")
+                                          : BbSettings::MenuText("(after a restart)", "(после перезапуска)"));
+        }
+        if (e == BbSettings::EffectGtao) {
+            if (s.effects[e] && !s.effects[3]) {
+                ImGui::TextDisabled("%s", BbSettings::MenuText("Needs Ambient occlusion (SSAO) on",
+                                                               "Нужно включённое затенение SSAO"));
+            }
+            AoQualityItem();
+        }
         if (std::strcmp(effect.key, "effect_dynamic_shadows") == 0) {
             Hint(BbSettings::MenuText(
                 "Effects are enabled and disabled by game patches at startup (patches/Bloodborne.xml). "
@@ -2242,6 +2302,7 @@ void Menu() {
         s.graphics_shadow_resolution != s.startup_shadow_resolution ||
         s.graphics_local_shadow_resolution != s.startup_local_shadow_resolution ||
         s.graphics_motion_blur_quality != s.startup_motion_blur_quality ||
+        s.graphics_ao_quality != s.startup_ao_quality ||
         s.live_resolution != s.startup_live_resolution || s.hdr != s.startup_hdr ||
         ((s.hdr_mode == BbSettings::HdrModePsychoV30) != s.startup_psychov30) ||
         BbSettings::ResolutionNeedsRestart();
