@@ -27,12 +27,24 @@ inline constexpr std::size_t kBookTabs = 4;
 /// Its text for the book's text (`category`, `id`) while the Settings screen is up, else nullptr (the help line is
 /// the selected row's).
 const char16_t* Text(std::uint32_t category, std::uint32_t id);
+/// The selected row's name and help (for the details page; null when the tab has no row).
+void Selected(const char16_t** name, const char16_t** help);
 
 /// The screen opened (its cursor and rows start over).
 void Opened();
+/// The menu pointer (the mouse), as the screen sees it each frame.
+struct Pointer {
+    bool on = false;     ///< the mouse is the menu pointer and on the stage
+    float x = 0, y = 0;  ///< its stage point
+    /// Whether the stage point is on the part at `path` under `root` (*fx: how far across it, 0 .. 1).
+    bool (*at)(std::uint64_t root, const char* path, float x, float y, float* fx) = nullptr;
+    /// Takes a left click no list took (MenuPointer::TakeClick).
+    bool (*take_click)() = nullptr;
+};
+
 /// Each frame while it is up: `root` the list movie's root wrapper, `tab` the shown tab (0 Display .. 5 System).
-/// Reads the pad, moves the cursor, changes values, draws the rows (ItemList/SettingsRows). True: the help line
-/// should be refreshed (another row or tab).
-bool Update(std::uint64_t root, int tab);
+/// Reads the pad and the mouse, moves the cursor, changes values, opens and drives a list's choices pop-up, draws
+/// the rows (ItemList/SettingsRows). True: the help line should be refreshed (another row or tab).
+bool Update(std::uint64_t root, int tab, const Pointer& pointer);
 
 } // namespace BbSettingsScreen

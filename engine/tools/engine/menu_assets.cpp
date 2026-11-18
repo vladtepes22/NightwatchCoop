@@ -1748,29 +1748,63 @@ Bytes GlyphListMovie(const Bytes& gfx, const Bytes& option_gfx, const Bytes& inv
     if (!back || !bar_at || !card || rows != 7 || std::abs(last_row_y - 6 * kPitch) > 0.1 || bar_at->matrix->scaled)
         throw Error("NormalItem is not 1.09's");
 
-    // The scroll bar, scaled from the first row's top to six rows' height; its first part (the list's ornaments) put
-    // back where it was, at its own size.
-    const double scale = (5 * kPitch + kCard) / (6 * kPitch + kCard);
+    // The blinking "more" markers: the bar's first part (unnamed, depth 1: the marker sprite at the top and,
+    // flipped, at the bottom), which the game's art puts at the list's left edge: moved so they centre on the
+    // bar's line. Their centre: the first shape down their first frames (translations only).
+    std::function<std::optional<double>(std::uint16_t, int)> centre = [&](std::uint16_t id, int depth) {
+        for (const Tag& t : m.tags) {
+            if (t.body.size() < 2 || U16(t.body, 0) != id) continue;
+            if (IsShape(t)) {
+                const Box b = Bounds(m, id);
+                return std::optional<double>(double(b.x0 + b.x1) / 40);
+            }
+            if (t.code != kSprite || depth > 6) break;
+            for (const Tag& c : ReadSprite(t).tags) {
+                if (c.code == kShowFrame) break;
+                if (!IsPlace(c)) continue;
+                const Place p = ReadPlace(c);
+                if (!p.character) continue;
+                if (const auto x = centre(*p.character, depth + 1))
+                    return std::optional<double>(*x + (p.matrix ? double(p.matrix->tx) / 20 : 0));
+            }
+            break;
+        }
+        return std::optional<double>();
+    };
+    const auto markers_on_bar = [&](Sprite& s, double bar_mid) {
+        for (Tag& t : s.tags) {
+            if (!IsPlace(t)) continue;
+            const Place p = ReadPlace(t);
+            if (p.depth != 1 || p.name || !p.character || !p.matrix) continue;
+            const auto x = centre(*p.character, 0);
+            if (!x) throw Error("NormalItem's scroll markers are not 1.09's");
+            Matrix at = *p.matrix;
+            at.tx += std::llround((bar_mid - (double(at.tx) / 20 + *x)) * 20);
+            t = Changed(t.code, Rewrite(t, p, {}, {}, at, {}));
+        }
+    };
+    // The scroll bar: the game's, where the game has it (the search bar's top to the last card's bottom, as on the
+    // Settings screen), its blinking "more" markers (its first part) just outside the list's frame, as the game's,
+    // moved onto the bar's line.
     Sprite bar = ReadSprite(m.tags[FindSprite(m, *bar_at->character)]);
     bar.id = ++next;
-    const double bar_y = double(bar_at->matrix->ty) / 20, new_bar_y = bar_y * scale;  // new_bar_y: in GlyphNormalItem
-    bool ornaments = false;
-    for (Tag& t : bar.tags) {
-        if (!IsPlace(t)) continue;
-        const Place p = ReadPlace(t);
-        if (p.depth != 1) continue;
-        if (!p.matrix || p.matrix->scaled || p.matrix->rotated) throw Error("ScrollBarV is not 1.09's");
-        const double list_y = bar_y + double(p.matrix->ty) / 20;  // where it is in ItemList
-        Matrix at = WithScale(*p.matrix, 1, 1 / scale);
-        at.ty = std::llround((list_y - kPitch - new_bar_y) / scale * 20);
-        t = Changed(t.code, Rewrite(t, p, {}, {}, at, {}));
-        ornaments = true;
+    const double bar_y = double(bar_at->matrix->ty) / 20;
+    {
+        std::optional<double> bar_mid;
+        for (const Tag& t : bar.tags) {
+            if (!IsPlace(t)) continue;
+            const Place p = ReadPlace(t);
+            if (p.name != "Bar" || !p.character || !p.matrix) continue;
+            const Box b = Bounds(m, *p.character);
+            bar_mid = double(p.matrix->tx + (b.x0 + b.x1) / 2) / 20;
+        }
+        if (!bar_mid) throw Error("ScrollBarV is not 1.09's");
+        markers_on_bar(bar, *bar_mid);
     }
-    if (!ornaments) throw Error("ScrollBarV is not 1.09's");
     defs.push_back(WriteSprite(bar));
     {
-        Matrix at = WithScale(*bar_at->matrix, 1, scale);
-        at.ty = std::llround(new_bar_y * 20);
+        Matrix at = *bar_at->matrix;
+        at.ty = std::llround((bar_y - kPitch) * 20);  // GlyphNormalItem sits a row lower (the search bar's)
         const auto end = std::find_if(items.tags.begin(), items.tags.end(), [](const Tag& t) { return t.code == kShowFrame; });
         items.tags.insert(end, Placement(bar.id, bar_at->depth, at, std::string("ScrollBarV"), true));
     }
@@ -1909,39 +1943,7 @@ Bytes GlyphListMovie(const Bytes& gfx, const Bytes& option_gfx, const Bytes& inv
         // the list's blinking arrows: centred on the bar's line (the game's art has them at the list's left)
         const double bar_mid = double(thumb_part->matrix->tx + (thumb_box.x0 + thumb_box.x1) / 2) / 20;
         for (const Place& a : arrows) scroll.tags.push_back(Placement(*a.character, a.depth, *a.matrix, a.name, true));
-        // The blinking "more" markers: the bar's first part (unnamed, depth 1: the marker sprite at the top and,
-        // flipped, at the bottom), which the game's art puts at the list's left edge: moved so they centre on the
-        // bar's line. Their centre: the first shape down their first frames (translations only).
-        std::function<std::optional<double>(std::uint16_t, int)> centre = [&](std::uint16_t id, int depth) {
-            for (const Tag& t : m.tags) {
-                if (t.body.size() < 2 || U16(t.body, 0) != id) continue;
-                if (IsShape(t)) {
-                    const Box b = Bounds(m, id);
-                    return std::optional<double>(double(b.x0 + b.x1) / 40);
-                }
-                if (t.code != kSprite || depth > 6) break;
-                for (const Tag& c : ReadSprite(t).tags) {
-                    if (c.code == kShowFrame) break;
-                    if (!IsPlace(c)) continue;
-                    const Place p = ReadPlace(c);
-                    if (!p.character) continue;
-                    if (const auto x = centre(*p.character, depth + 1))
-                        return std::optional<double>(*x + (p.matrix ? double(p.matrix->tx) / 20 : 0));
-                }
-                break;
-            }
-            return std::optional<double>();
-        };
-        for (Tag& t : scroll.tags) {
-            if (!IsPlace(t)) continue;
-            const Place p = ReadPlace(t);
-            if (p.depth != 1 || p.name || !p.character || !p.matrix) continue;
-            const auto x = centre(*p.character, 0);
-            if (!x) throw Error("NormalItem's scroll markers are not 1.09's");
-            Matrix at = *p.matrix;
-            at.tx += std::llround((bar_mid - (double(at.tx) / 20 + *x)) * 20);
-            t = Changed(t.code, Rewrite(t, p, {}, {}, at, {}));
-        }
+        markers_on_bar(scroll, bar_mid);
         // Thumb: frame 1 + size * 21 + position; the Bar's height times (size + 1) / 10 (10 .. 90 % of the track,
         // the share of the list shown), at 0 .. 20 twentieths of its travel
         const double top = double(thumb_part->matrix->ty) / 20, high = double(thumb_box.y1 - thumb_box.y0) / 20;
@@ -2657,6 +2659,31 @@ Tag BlendPlacement(std::uint16_t id, std::uint16_t depth, const Matrix& at, std:
 // The parts keep Environment's layout relative to its rows (Text_0 at (-29, 19.15) of a row, Widgets at
 // (410.95, -11) ...); the slots are that row scaled to the book's list (kScale) and kPitch apart.
 constexpr int kSettingsSlots = 13;
+// The choices pop-up (gpu/shim/bbport_settings_screen.cpp has the same numbers): up to kPopupLines choices
+// kPopupPitch apart under kPopupPad, kPopupW wide at kPopupX of a row; its box moves in kPopupStep steps.
+constexpr int kPopupLines = 14, kPopupFrames = 180;
+constexpr double kPopupPitch = 38, kPopupPad = 10, kPopupW = 300, kPopupX = 440, kPopupStep = 4;
+constexpr double kHitLeft = -250, kHitRight = 790;  // a line's mouse target, from a row's origin
+
+// A part placed with its alpha times `alpha` / 256 (PlaceObject3: matrix, colour transform, name, visibility).
+Tag AlphaPlacement(std::uint16_t id, std::uint16_t depth, const Matrix& at, const std::optional<std::string>& name,
+                   int alpha, bool visible) {
+    Bytes b{std::uint8_t(0x02 | 0x04 | 0x08 | (name ? 0x20 : 0)), std::uint8_t(0x20)};
+    PutLe(b, depth, 2);
+    PutLe(b, id, 2);
+    Append(b, WriteMatrix(at));
+    BitWriter cx;
+    cx.Put(0, 1), cx.Put(1, 1), cx.Put(10, 4);  // multiply terms only, 10 bits each
+    for (const int v : {256, 256, 256, alpha}) cx.Put(std::uint64_t(v) & 0x3ff, 10);
+    Append(b, cx.out);
+    if (name) {
+        b.insert(b.end(), name->begin(), name->end());
+        b.push_back(0);
+    }
+    b.push_back(visible ? 1 : 0);
+    return Changed(kPlace3, std::move(b));
+}
+
 std::vector<Tag> SettingsRowsSprite(const Movie& m, std::uint16_t& next, std::uint16_t, double bx, double by,
                                     std::int64_t, std::int64_t, std::int64_t, std::uint8_t, std::uint16_t* sprite_id,
                                     const Movie& option, const Movie& inventory) {
@@ -2666,6 +2693,7 @@ std::vector<Tag> SettingsRowsSprite(const Movie& m, std::uint16_t& next, std::ui
     constexpr double kTopY = -10;  // the first line's origin under the list's top: its heading padded as the sides
     Copied c = CopyParts(option, m, {kName, kNameLine, kCursor, kCombo, kSlider, kHead, kButton}, next);
     std::vector<Tag> defs = std::move(c.defs);
+    std::uint16_t stats_line = 0;  // the Stats panel's gold line, once copied (HeadLine)
     const auto at = [&](double x, double y) { return At(x, y); };
     // Environment's offsets of each part from a row's origin (EnvironmentSetting / 97 / 96, px)
     const double widgets_x = 410.95, widgets_y = -11;
@@ -2732,6 +2760,31 @@ std::vector<Tag> SettingsRowsSprite(const Movie& m, std::uint16_t& next, std::ui
         slot.tags.push_back(Placement(line.id.at(kStatsLine), 8,
                                       WithScale(At(kHeadX - 2, 46), kHeadLineW / kStatsLineW, 1),
                                       std::string("HeadLine"), false));
+        stats_line = line.id.at(kStatsLine);
+    }
+    // Hit: the whole line, invisible (alpha 0): the mouse's target for the line (the screen tests the pointer on
+    // its bounds). BarHit: the slider's bar (its track, 69, in Bar 73 in Slider 74), where a click sets the value.
+    // (a sprite around the 100 x 100 px square: a shape has no name the screen could find it by)
+    const std::uint16_t square = ++next;
+    defs.push_back(RectShape(square, 20 * 100, 20 * 100));
+    Sprite hit_area{++next, 1, {}};
+    hit_area.tags.push_back(Placement(square, 1, At(0, 0), std::nullopt, true));
+    hit_area.tags.push_back(Tag{kShowFrame, {}, {}});
+    hit_area.tags.push_back(Tag{kEnd, {}, {}});
+    defs.push_back(WriteSprite(hit_area));
+    const std::uint16_t hit = hit_area.id;
+    slot.tags.push_back(AlphaPlacement(hit, 10, WithScale(At(kHitLeft, 0), (kHitRight - kHitLeft) / 100, kPitch / kScale / 100),
+                                       std::string("Hit"), 0, true));
+    {
+        const double kSliderX = widgets_x + 62.55, kSliderY = widgets_y + 40.5, kBarX = -47.5, kBarY = -0.05;
+        constexpr double kTrackX = -3.25, kTrackY = -3.65;
+        const Box track = Bounds(option, 69);
+        const double x0 = kSliderX + kBarX + kTrackX + double(track.x0) / 20;
+        const double x1 = kSliderX + kBarX + kTrackX + double(track.x1) / 20;
+        const double y0 = kSliderY + kBarY + kTrackY + double(track.y0) / 20 - 8;
+        const double y1 = kSliderY + kBarY + kTrackY + double(track.y1) / 20 + 8;
+        slot.tags.push_back(AlphaPlacement(hit, 11, WithScale(At(x0, y0), (x1 - x0) / 100, (y1 - y0) / 100),
+                                           std::string("BarHit"), 0, true));
     }
     slot.tags.push_back(Tag{kShowFrame, {}, {}});
     slot.tags.push_back(Tag{kEnd, {}, {}});
@@ -2741,6 +2794,89 @@ std::vector<Tag> SettingsRowsSprite(const Movie& m, std::uint16_t& next, std::ui
         rows.tags.push_back(Placement(slot.id, std::uint16_t(1 + i),
                                       WithScale(At(bx + kRowX, by + kTopY + kPitch * i), kScale, kScale),
                                       "Slot_" + std::to_string(i), true));
+    // Popup (hidden): a list's choices in a box under (or over) its row, as a PC game's drop-down. In the slots'
+    // space (placed as Slot_0, without its line offset): Popup's frame 1 + n puts Box n * kPopupStep below Slot_0's
+    // origin. Box: Frame (frame n: the dark ground and the bottom gold line for n choices), the top gold line, and
+    // Item_0 .. Item_N (Hit, the pulsing Cursor, Text = the On / Off box's text part: Text/Text_0).
+    {
+        const Box glow = Bounds(option, kCursor);
+        Box text{};
+        for (const Tag& t : option.tags)
+            if (t.code == 37 && U16(t.body, 0) == 52) {  // the On / Off box's text field (in Item_0_0, 53, at 2, 2)
+                BitReader r{t.body, 2};
+                const int n = int(r.Unsigned(5));
+                text.x0 = r.Signed(n), text.x1 = r.Signed(n), text.y0 = r.Signed(n), text.y1 = r.Signed(n);
+            }
+        if (text.x1 <= text.x0 || glow.x1 <= glow.x0) throw Error("optionsetting.gfx's On / Off box is not 1.09's");
+        const std::uint16_t ground = ++next;
+        defs.push_back(RectShape(ground, 20 * 100, 20 * 100, 0x0b0a08));
+        Sprite frame{++next, std::uint16_t(kPopupLines), {}};
+        for (int n = 1; n <= kPopupLines; ++n) {
+            const double high = 2 * kPopupPad + n * kPopupPitch;
+            const Matrix back = WithScale(At(0, 0), kPopupW / 100, high / 100);
+            const Matrix bottom = WithScale(At(0, high - 1.5), kPopupW / 425.0, 1);
+            if (n == 1) {
+                frame.tags.push_back(AlphaPlacement(ground, 1, back, std::nullopt, 235, true));
+                frame.tags.push_back(Placement(stats_line, 2, bottom, std::nullopt, true));
+            } else {
+                for (const auto& [depth, where] : {std::pair{1, back}, std::pair{2, bottom}}) {
+                    Bytes move{std::uint8_t(0x01 | 0x04)};  // PlaceObject2: the depth's character moved
+                    PutLe(move, depth, 2);
+                    Append(move, WriteMatrix(where));
+                    frame.tags.push_back(Changed(kPlace2, std::move(move)));
+                }
+            }
+            frame.tags.push_back(Tag{kShowFrame, {}, {}});
+        }
+        frame.tags.push_back(Tag{kEnd, {}, {}});
+        defs.push_back(WriteSprite(frame));
+        Sprite item{++next, 1, {}};
+        item.tags.push_back(AlphaPlacement(hit, 1, WithScale(At(0, 0), kPopupW / 100, kPopupPitch / 100),
+                                           std::string("Hit"), 0, true));
+        {  // the glow over the item, a little wider and taller than it
+            const double gw = double(glow.x1 - glow.x0) / 20, gh = double(glow.y1 - glow.y0) / 20;
+            const double sx = (kPopupW - 6) / gw, sy = kPopupPitch * 1.25 / gh;
+            item.tags.push_back(Placement(c.id.at(kCursor), 2,
+                                          WithScale(At(kPopupW / 2 - sx * double(glow.x0 + glow.x1) / 40,
+                                                       kPopupPitch / 2 - sy * double(glow.y0 + glow.y1) / 40),
+                                                    sx, sy),
+                                          std::string("Cursor"), false));
+        }
+        item.tags.push_back(Placement(c.id.at(53), 3,
+                                      At(kPopupW / 2 - 2 - double(text.x0 + text.x1) / 40,
+                                         kPopupPitch / 2 - 2 - double(text.y0 + text.y1) / 40),
+                                      std::string("Text"), true));
+        item.tags.push_back(Tag{kShowFrame, {}, {}});
+        item.tags.push_back(Tag{kEnd, {}, {}});
+        defs.push_back(WriteSprite(item));
+        Sprite box{++next, 1, {}};
+        box.tags.push_back(Placement(frame.id, 1, At(0, 0), std::string("Frame"), true));
+        box.tags.push_back(Placement(stats_line, 2, WithScale(At(0, 0), kPopupW / 425.0, 1), std::nullopt, true));
+        for (int k = 0; k < kPopupLines; ++k)
+            box.tags.push_back(Placement(item.id, std::uint16_t(3 + k), At(0, kPopupPad + kPopupPitch * k),
+                                         "Item_" + std::to_string(k), true));
+        box.tags.push_back(Tag{kShowFrame, {}, {}});
+        box.tags.push_back(Tag{kEnd, {}, {}});
+        defs.push_back(WriteSprite(box));
+        Sprite popup{++next, std::uint16_t(kPopupFrames), {}};
+        for (int f = 0; f < kPopupFrames; ++f) {
+            const Matrix where = At(kPopupX, kPopupStep * f);
+            if (f == 0) {
+                popup.tags.push_back(Placement(box.id, 1, where, std::string("Box"), true));
+            } else {
+                Bytes move{std::uint8_t(0x01 | 0x04)};
+                PutLe(move, 1, 2);
+                Append(move, WriteMatrix(where));
+                popup.tags.push_back(Changed(kPlace2, std::move(move)));
+            }
+            popup.tags.push_back(Tag{kShowFrame, {}, {}});
+        }
+        popup.tags.push_back(Tag{kEnd, {}, {}});
+        defs.push_back(WriteSprite(popup));
+        rows.tags.push_back(Placement(popup.id, std::uint16_t(kSettingsSlots + 10),
+                                      WithScale(At(bx + kRowX, by + kTopY), kScale, kScale), std::string("Popup"),
+                                      false));
+    }
     rows.tags.push_back(Tag{kShowFrame, {}, {}});
     rows.tags.push_back(Tag{kEnd, {}, {}});
     defs.push_back(WriteSprite(rows));

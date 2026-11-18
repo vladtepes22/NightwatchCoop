@@ -33,10 +33,23 @@ bool PointerOnStage(float& x, float& y);
 bool TextEntryOpen();
 
 PadState LastPad();
-/// Nightwatch: the Settings screen, each frame while it is up: for the next quarter second the game gets L1 / R1 as
-/// the d-pad's Left / Right (its book switches tabs with those) and never the real Left / Right or the left stick's
-/// sideways tilt (the screen's own rows take them, through LastPad, which stays as pressed).
-void HoldTabRemap();
+/// Nightwatch: our item-list screens (Settings, the glyph browser), each frame while one is up (a call lasts a
+/// quarter second):
+/// - the left stick moves the rows: tilted up / down past half way it is the d-pad's Up / Down, in LastPad and for
+///   the game (the stick itself rests: the hunter does not walk);
+/// - the mouse wheel never moves the cursor: its turns are kept for TakeWheelLines (the view scrolls, nothing else);
+/// - the game gets L1 / R1 as the d-pad's Left / Right (the book switches tabs with those).
+struct ScreenInput {
+    /// The screen's own rows (Settings): the stick's sideways tilt is Left / Right too (in LastPad); the game never
+    /// gets the real Left / Right.
+    bool own_rows = false;
+    /// The game gets no buttons and rests the sticks (a pop-up takes every button).
+    bool all = false;
+};
+void HoldScreenInput(const ScreenInput& how);
+/// The wheel's turns while HoldScreenInput holds, since the last call, in lines (down positive).
+int TakeWheelLines();
+
 }
 
 extern "C" {

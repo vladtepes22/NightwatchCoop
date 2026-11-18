@@ -4,6 +4,7 @@
 
 #include "bbport_menu_widgets.h"
 #include "input/input.h"
+#include "input/menu_pointer.h"
 #include "input/pad.h"
 
 #include <algorithm>
@@ -41,6 +42,8 @@ struct Row {
     const char16_t* help;
     int value = 0;                              // Toggle 0/1, Slider 0..10, Pick an index
     std::vector<const char16_t*> choices = {};  // Pick
+    bool drop = false;                          // Pick: its choices in a pop-up (Confirm / a click opens it)
+    int def = 0;                                // its default (Defaults; set from `value` when the tab is made)
 };
 using Rows = std::vector<Row>;
 
@@ -51,8 +54,10 @@ Rows DisplayRows() {
         {Kind::Toggle, u"Ambient Occlusion", u"Screen-space ambient occlusion.", 1},
         {Kind::Slider, u"AO Strength", u"How dark corners and contact get. 5 is the game's own.", 5},
         {Kind::Slider, u"Shadow Distance", u"How far sun and moon shadows reach. 0 is the game's own.", 0},
-        {Kind::Pick, u"Output Resolution", u"Existing upscaler output setting.", 3,
-         {u"1280x720", u"1600x900", u"1920x1080", u"2560x1440", u"3840x2160"}},
+        {Kind::Pick, u"Output Resolution", u"Existing upscaler output setting.", 2,
+         {u"1280x720", u"1600x900", u"1920x1080", u"2560x1440", u"3840x2160", u"2560x1080", u"3440x1440",
+          u"3840x1600", u"3840x1080", u"5120x1440", u"5120x2160", u"7680x2160", u"Auto", u"Custom"},
+         true},
         {Kind::Slider, u"Fog", u"How thick the haze over distant streets is. 10 is the game's own.", 10},
         {Kind::Head, u"Effects", nullptr},
         {Kind::Toggle, u"Motion Blur", u"The blur on fast camera and character movement.", 0},
@@ -101,6 +106,11 @@ Rows SystemRows() {
 }
 
 constexpr int kSlots = 13;  // tools/engine/menu_assets.cpp kSettingsSlots
+// The slots' layout and the choices pop-up's (tools/engine/menu_assets.cpp SettingsRowsSprite: the same numbers), in
+// the slots' own units (a line kPitch / kScale tall).
+constexpr double kLine = 49 / 0.9;
+constexpr int kPopupLines = 14, kPopupFrames = 180;
+constexpr double kPopupPitch = 38, kPopupPad = 10, kPopupStep = 4;
 
 // What one slot shows, laid out as the Environment screen: a section's heading shares the line of its first row
 // (left, above), a divider line separates two sections, Defaults and commands are buttons.
@@ -118,7 +128,26 @@ struct State {
     int scroll_shown = -2;         // the scroll bar's thumb frame shown (0: hidden; -2: not yet set)
     std::uint32_t held = 0;
     std::chrono::steady_clock::time_point next{};
+    // Confirm / Back as last seen (for their presses); at first every button counts as held: the one that opened
+    // the screen (the pause menu's Confirm) acts only once let go and pressed again
+    std::uint32_t buttons = ~0u;
+    // the choices pop-up
+    bool popup = false;
+    int popup_line = -1;   // the line of the row it belongs to
+    int popup_cursor = 0;  // the highlighted choice
+    int popup_top = 0;     // the first choice shown
+    std::u16string popup_shown = u"\x1";
+    bool swallow = false;  // the Confirm / Back that closed it, until let go (the game never sees them)
+    // the mouse
+    bool pointer_seen = false;
+    float pointer_x = 0, pointer_y = 0;
+    // a direction moved the cursor: the mouse highlights again once it moved kNavigatedSlack px from here
+    bool navigated = false;
+    float navigated_x = 0, navigated_y = 0;
+    std::chrono::steady_clock::time_point navigated_at{};
 };
+constexpr float kNavigatedSlack = 24;  // as input/menu_pointer.cpp
+constexpr auto kNavigatedQuiet = std::chrono::milliseconds(500);
 std::mutex g_mu;
 State g_state;
 
@@ -258,6 +287,114 @@ void Change(State& s, int dir) {
     }
     if (r.value != before) BbMenuWidgets::TypeSound();
 }
+Row* CurrentRow(State& s) {
+    if (s.cursor < 0 || s.cursor >= int(s.lines.size()) || s.lines[std::size_t(s.cursor)].row < 0) return nullptr;
+    return &s.rows[std::size_t(s.lines[std::size_t(s.cursor)].row)];
+}
+
+// ---- the choices pop-up ----
+int PopupShown(const Row& r) { return std::min(int(r.choices.size()), kPopupLines); }
+void PopupScroll(State& s, const Row& r) {
+    const int shown = PopupShown(r);
+    s.popup_top = std::clamp(s.popup_top, std::max(0, s.popup_cursor - shown + 1), s.popup_cursor);
+    s.popup_top = std::clamp(s.popup_top, 0, std::max(0, int(r.choices.size()) - shown));
+}
+void OpenPopup(State& s) {
+    Row* r = CurrentRow(s);
+    if (!r || r->choices.empty()) return;
+    s.popup = true;
+    s.popup_line = s.cursor;
+    s.popup_cursor = std::clamp(r->value, 0, int(r->choices.size()) - 1);
+    s.popup_top = s.popup_cursor - PopupShown(*r) / 2;
+    PopupScroll(s, *r);
+    s.popup_shown = u"\x1";
+    BbMenuWidgets::EnterSound();
+    std::printf("Settings screen: the %s pop-up is open\n", "choices");
+    std::fflush(stdout);
+}
+void ClosePopup(State& s, bool pick) {
+    Row* r = CurrentRow(s);
+    if (pick && r) {
+        r->value = s.popup_cursor;
+        BbMenuWidgets::DecideSound();
+    } else {
+        BbMenuWidgets::CancelSound();
+    }
+    s.popup = false;
+    s.swallow = true;
+    s.popup_shown = u"\x1";
+    s.shown[std::size_t(std::clamp(s.popup_line - s.top, 0, kSlots - 1))] = u"\x1";  // its row redrawn
+    std::printf("Settings screen: the choices pop-up closed (%s)\n", pick ? "a choice" : "cancelled");
+    std::fflush(stdout);
+}
+// Under its row when it fits in the list, else over it, else as low as fits.
+int PopupFrame(const State& s, const Row& r) {
+    const double row = (s.popup_line - s.top) * kLine;
+    const double high = 2 * kPopupPad + PopupShown(r) * kPopupPitch, list = kSlots * kLine;
+    double top = row + 50;
+    if (top + high > list) top = row + 4 - high >= 0 ? row + 4 - high : std::max(0.0, list - high);
+    return 1 + std::clamp(int(std::lround(top / kPopupStep)), 0, kPopupFrames - 1);
+}
+std::string PopupPath(int item, const char* part) {
+    return "ItemList/SettingsRows/Popup/Box/Item_" + std::to_string(item) + "/" + part;
+}
+void DrawPopup(std::uint64_t root, State& s) {
+    const Row* r = RowOf(s, s.popup_line);
+    std::u16string key;
+    if (s.popup && r) {
+        key = Number(s.popup_line - s.top) + u"|" + Number(s.popup_top) + u"|" + Number(s.popup_cursor) + u"|" +
+              r->name;
+    }
+    if (key == s.popup_shown) return;
+    const bool was_open = !s.popup_shown.empty() && s.popup_shown != u"\x1";
+    s.popup_shown = key;
+    BbMenuWidgets::ShowPart(root, "ItemList/SettingsRows/Popup", !key.empty());
+    if (key.empty()) return;
+    (void)was_open;
+    const int shown = PopupShown(*r);
+    BbMenuWidgets::GotoPartFrame(root, "ItemList/SettingsRows/Popup", PopupFrame(s, *r));
+    BbMenuWidgets::GotoPartFrame(root, "ItemList/SettingsRows/Popup/Box/Frame", shown);
+    for (int k = 0; k < kPopupLines; ++k) {
+        const int choice = s.popup_top + k;
+        const bool on = k < shown && choice < int(r->choices.size());
+        BbMenuWidgets::ShowPart(root, ("ItemList/SettingsRows/Popup/Box/Item_" + std::to_string(k)).c_str(), on);
+        if (!on) continue;
+        const bool lit = choice == s.popup_cursor;
+        const char16_t* color = lit ? u"#ffffff" : choice == r->value ? u"#b49762" : u"#cccccc";
+        BbMenuWidgets::SetFieldText(root, PopupPath(k, "Text/Text_0").c_str(),
+                                    Html(u"center", 22, color, Escaped(r->choices[std::size_t(choice)])).c_str());
+        BbMenuWidgets::ShowPart(root, PopupPath(k, "Cursor").c_str(), lit);
+    }
+}
+
+// Every row of the tab back to its default.
+void Defaults(State& s) {
+    for (Row& r : s.rows) r.value = r.def;
+    for (auto& k : s.shown) k = u"\x1";
+    BbMenuWidgets::DecideSound();
+    std::printf("Settings screen: tab %d back to its defaults\n", s.tab);
+    std::fflush(stdout);
+}
+// Confirm (or a click) on the selected row: a toggle switches, a list steps on or opens its pop-up, Defaults resets
+// the tab; a command is not wired yet.
+void Activate(State& s) {
+    Row* r = CurrentRow(s);
+    if (!r) return;
+    switch (r->kind) {
+    case Kind::Toggle: Change(s, 1); break;
+    case Kind::Pick:
+        if (r->drop) OpenPopup(s);
+        else Change(s, 1);
+        break;
+    case Kind::Defaults: Defaults(s); break;
+    case Kind::Command:
+        BbMenuWidgets::DecideSound();
+        std::printf("Settings screen: %s (not wired yet)\n", r->name == std::u16string(u"Exit Game") ? "Exit Game" : "Quit to Desktop");
+        std::fflush(stdout);
+        break;
+    default: break;
+    }
+}
 
 // A press, then held: again after 0.5 s, then 20 a second (as the on-screen keyboard).
 std::uint32_t Pressed(State& s, std::uint32_t now_held) {
@@ -303,19 +440,42 @@ const char16_t* Text(std::uint32_t category, std::uint32_t id) {
     return nullptr;
 }
 
+void Selected(const char16_t** name, const char16_t** help) {
+    std::lock_guard<std::mutex> lk(g_mu);
+    const Row* r = RowOf(g_state, g_state.cursor);
+    *name = r ? r->name : nullptr;
+    *help = r ? r->help : nullptr;
+}
+
 void Opened() {
     std::lock_guard<std::mutex> lk(g_mu);
     g_state = State{};
 }
 
-bool Update(std::uint64_t root, int tab) {
-    BbInput::HoldTabRemap();  // L1 / R1 switch the tabs here, the d-pad's Left / Right are the rows'
+bool Update(std::uint64_t root, int tab, const Pointer& pointer) {
     std::lock_guard<std::mutex> lk(g_mu);
     State& s = g_state;
+    using namespace PadBits;
+    const PadState pad = BbInput::LastPad();
+    const std::uint32_t confirm = menu_confirm_button(), back = menu_back_button();
+    if (s.swallow && !(pad.buttons & (confirm | back))) s.swallow = false;
+    // L1 / R1 switch the tabs here, the d-pad's Left / Right (and the left stick) are the rows'; the wheel scrolls
+    // the view; the pop-up (and the button that closed it, until let go) takes every button
+    BbInput::ScreenInput how;
+    how.own_rows = true;
+    how.all = s.popup || s.swallow;
+    BbInput::HoldScreenInput(how);
+    const int wheel = BbInput::TakeWheelLines();
+    const std::uint32_t fresh_buttons = pad.buttons & ~s.buttons;
+    s.buttons = pad.buttons;
     bool help_changed = false;
+    if (s.tab < 0 && pointer.take_click) pointer.take_click();  // opening: the pause menu's click is not ours
     if (tab != s.tab) {
         s.tab = tab;
         s.rows = RowsOf(tab);
+        for (Row& r : s.rows) r.def = r.value;
+        s.popup = false;
+        s.popup_shown = u"\x1";
         s.lines = LinesOf(s.rows);
         s.cursor = FirstSelectable(s);
         s.top = 0;
@@ -326,17 +486,102 @@ bool Update(std::uint64_t root, int tab) {
         std::printf("Settings screen: tab %d, %zu rows on %zu lines\n", tab, s.rows.size(), s.lines.size());
         std::fflush(stdout);
     }
-    using namespace PadBits;
-    const PadState pad = BbInput::LastPad();
-    std::uint32_t dirs = pad.buttons & (kUp | kDown | kLeft | kRight);
-    if (pad.ly < 64) dirs |= kUp;  // the left stick, as the game's menus take it
-    if (pad.ly > 192) dirs |= kDown;
-    if (pad.lx < 64) dirs |= kLeft;
-    if (pad.lx > 192) dirs |= kRight;
+    const std::uint32_t dirs = pad.buttons & (kUp | kDown | kLeft | kRight);  // the left stick's too (input.cpp)
     const std::uint32_t go = Pressed(s, dirs);
-    if (!s.lines.empty()) {
+    // the mouse: moved, it highlights what it is on; a click there acts on it
+    bool moved = pointer.on && s.pointer_seen && (pointer.x != s.pointer_x || pointer.y != s.pointer_y);
+    if (dirs) {
+        s.navigated = true;
+        s.navigated_x = pointer.x, s.navigated_y = pointer.y;
+        s.navigated_at = std::chrono::steady_clock::now();
+    } else if (s.navigated) {
+        const float dx = pointer.x - s.navigated_x, dy = pointer.y - s.navigated_y;
+        if (std::chrono::steady_clock::now() - s.navigated_at > kNavigatedQuiet &&
+            dx * dx + dy * dy > kNavigatedSlack * kNavigatedSlack)
+            s.navigated = false;
+        else
+            moved = false;
+    }
+    s.pointer_seen = pointer.on;
+    s.pointer_x = pointer.x, s.pointer_y = pointer.y;
+    const auto on = [&](const std::string& path, float* fx = nullptr) {
+        return pointer.on && pointer.at && pointer.at(root, path.c_str(), pointer.x, pointer.y, fx);
+    };
+    const auto click = [&] { return pointer.take_click && pointer.take_click(); };
+    if (s.popup) {
+        const Row* r = RowOf(s, s.popup_line);
+        if (!r) {
+            s.popup = false;
+        } else {
+            const int count = int(r->choices.size()), shown = PopupShown(*r);
+            int over = -1;  // the choice the mouse is on
+            for (int k = 0; k < shown && pointer.on; ++k)
+                if (s.popup_top + k < count && on(PopupPath(k, "Hit"))) over = s.popup_top + k;
+            if (moved && over >= 0 && over != s.popup_cursor) {
+                s.popup_cursor = over;
+                BbMenuWidgets::CursorMoveSound();
+            }
+            if (pointer.on && click()) {
+                if (over >= 0) {
+                    s.popup_cursor = over;
+                    ClosePopup(s, true);
+                } else if (!on("ItemList/SettingsRows/Popup/Box/Frame")) {
+                    ClosePopup(s, false);  // a click off the pop-up
+                }
+            } else if (fresh_buttons & confirm) {
+                ClosePopup(s, true);
+            } else if (fresh_buttons & back) {
+                ClosePopup(s, false);
+            } else if (go & (kUp | kDown)) {
+                const int was = s.popup_cursor;
+                s.popup_cursor = std::clamp(s.popup_cursor + (go & kUp ? -1 : 1), 0, count - 1);
+                PopupScroll(s, *r);
+                if (s.popup_cursor != was) BbMenuWidgets::CursorMoveSound();
+            }
+        }
+    } else if (!s.lines.empty()) {
         const int was = s.cursor;
-        if (go & kUp) Move(s, -1);
+        // the wheel: the view only, the cursor stays (out of view, the next key or button brings it back)
+        if (wheel) {  // the cursor's move sound for each scroll that moved the view, as the game's lists
+            const int top = std::clamp(s.top + wheel, 0, std::max(0, int(s.lines.size()) - kSlots));
+            if (top != s.top) BbMenuWidgets::CursorMoveSound();
+            s.top = top;
+        }
+        if ((go || (fresh_buttons & confirm)) && (s.cursor < s.top || s.cursor >= s.top + kSlots)) Scroll(s);
+        int over = -1, over_slot = -1;  // the row line the mouse is on
+        for (int i = 0; i < kSlots && pointer.on; ++i) {
+            const int at = s.top + i;
+            if (RowOf(s, at) && on(SlotPath(i, "Hit"))) over = at, over_slot = i;
+        }
+        if (moved && over >= 0 && over != s.cursor) {
+            s.cursor = over;  // no scrolling: the line is in view, and the list stays under the mouse
+            BbMenuWidgets::CursorMoveSound();
+        }
+        if (over >= 0 && click()) {
+            if (over != s.cursor) {
+                s.cursor = over;
+                BbMenuWidgets::CursorMoveSound();
+            }
+            Row* r = CurrentRow(s);
+            float fx = 0;
+            if (r && r->kind == Kind::Slider) {
+                if (on(SlotPath(over_slot, "Slider/LeftArrow"))) Change(s, -1);
+                else if (on(SlotPath(over_slot, "Slider/RightArrow"))) Change(s, 1);
+                else if (on(SlotPath(over_slot, "BarHit"), &fx)) {
+                    const int v = std::clamp(int(std::lround(fx * 10)), 0, 10);
+                    if (v != r->value) {
+                        r->value = v;
+                        BbMenuWidgets::TypeSound();
+                    }
+                }
+            } else if (r && r->kind == Kind::Pick && !r->drop && on(SlotPath(over_slot, "Combo"), &fx)) {
+                Change(s, fx < 0.5f ? -1 : 1);
+            } else {
+                Activate(s);
+            }
+        } else if (fresh_buttons & confirm) {
+            Activate(s);
+        } else if (go & kUp) Move(s, -1);
         else if (go & kDown) Move(s, 1);
         else if (go & kLeft) Change(s, -1);
         else if (go & kRight) Change(s, 1);
@@ -347,6 +592,7 @@ bool Update(std::uint64_t root, int tab) {
         const Line* line = at < int(s.lines.size()) ? &s.lines[std::size_t(at)] : nullptr;
         DrawSlot(root, i, line, line ? RowOf(s, at) : nullptr, at == s.cursor, s);
     }
+    DrawPopup(root, s);
     // the scroll bar: shown while the tab has more lines than slots, its thumb at how far the list is scrolled
     const int more = int(s.lines.size()) - kSlots;
     // the thumb: frame 1 + size * 21 + position (tools/engine/menu_assets.cpp Thumb): size from the share of the

@@ -296,6 +296,15 @@ bool DirectionHeld() {
     return pushed(pad.lx) || pushed(pad.ly);
 }
 
+// Nightwatch: a direction (the d-pad, the keys, the stick, the mouse wheel) moves the cursor away from the mouse:
+// the mouse takes it back only once it has moved more than kNavigatedSlack stage px from where it was then (a
+// still or barely touched mouse no longer pulls a scrolled list back to the item under it).
+bool g_navigated = false;
+float g_navigated_x = 0, g_navigated_y = 0;
+std::int64_t g_navigated_ms = 0;
+constexpr float kNavigatedSlack = 24;
+constexpr std::int64_t kNavigatedQuietMs = 500;
+
 struct Seen {
     const std::uint8_t* list = nullptr;
     float x = 0, y = 0;
@@ -363,9 +372,20 @@ void PointerStep(std::uint8_t* list, const std::uint8_t* focus) {
     if (!BbInput::MouseIsMenuPointer() || !BbInput::PointerOnStage(x, y)) return;
     bool fresh;
     Seen& seen = SeenBy(list, fresh);
-    const bool moved = !fresh && (x != seen.x || y != seen.y);
+    bool moved = !fresh && (x != seen.x || y != seen.y);
     seen.x = x;
     seen.y = y;
+    if (DirectionHeld()) {
+        g_navigated = true;
+        g_navigated_x = x, g_navigated_y = y;
+        g_navigated_ms = NowMs();
+    } else if (g_navigated) {
+        const float dx = x - g_navigated_x, dy = y - g_navigated_y;
+        if (NowMs() - g_navigated_ms > kNavigatedQuietMs && dx * dx + dy * dy > kNavigatedSlack * kNavigatedSlack)
+            g_navigated = false;
+        else
+            moved = false;
+    }
 
     if (BbInput::TextEntryOpen()) return;
     if (g_log && !seen.described) {
