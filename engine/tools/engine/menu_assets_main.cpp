@@ -50,7 +50,8 @@ int main(int argc, char** argv) {
         const menu_assets::Bytes made =
             args[1] == "movie"     ? menu_assets::OptionMovie(source)
             : args[1] == "rebirth" ? menu_assets::AltarScripts(source)
-            : args[1] == "glyph-panel" ? menu_assets::GlyphPanelMovie(source)
+            : args[1] == "glyph-panel" ? menu_assets::GlyphPanelMovie(source, read(args[2].parent_path() / "optionsetting.gfx"),
+                                                                    read(args[2].parent_path() / "common.tpf.dcx"))
             // the Settings rows copy the game's options movie's row parts (beside the list movie)
             : args[1] == "glyph-list"  ? menu_assets::GlyphListMovie(source, read(args[2].parent_path() / "optionsetting.gfx"),
                                                                   read(args[2].parent_path() / "inventory.gfx"))

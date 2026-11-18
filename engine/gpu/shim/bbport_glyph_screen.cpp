@@ -539,6 +539,27 @@ BB_COOP_SYSV u64 GlyphItem(u64 out, u64 ctx) {
     return r;
 }
 
+// An item screen's destructor (0x1bab350, both item screen classes' vtable +8 / +0x10 call it): what we keep about
+// the screen goes with it (a new screen made at its address is not taken for it).
+constexpr u64 kScreenDestructor = 0x1bab350;
+BB_COOP_SYSV void ScreenDestroyed(u64 screen, u64, u64, u64, u64, u64) {
+    const bool settings = g_settings_screen.load(std::memory_order_acquire) == screen;
+    if (settings) g_settings_screen.store(0, std::memory_order_release);
+    if (settings) {
+        // The Settings screen gone: its book's menu and the tab list it empties are forgotten too (unless a new
+        // Settings screen is already opening). Kept, a later book made at the same addresses (the inventory's tabs)
+        // was taken for Settings' and had every row turned away: an empty inventory, at random.
+        std::lock_guard<std::mutex> lk(g_mu);
+        if (!g_settings_opening && !g_settings_setup_pending) {
+            g_settings_menu = 0;
+            g_settings_list = 0;
+            g_settings.store(false, std::memory_order_release);
+        }
+    }
+    if (g_panel_screen.load(std::memory_order_acquire) == screen) g_panel_screen.store(0, std::memory_order_release);
+    if (g_list_screen == screen) g_list_screen = 0;
+}
+
 // An item screen's setup: the first after the glyph item is the glyph screen's; a later setup of the same object is
 // another screen's.
 BB_COOP_SYSV void ScreenSetup(u64 screen, u64, u64, u64, u64, u64) {
@@ -610,6 +631,7 @@ bool g_glyph_panel_shown = false;  // the movie now shows GlyphDetailText's part
 constexpr const char* kKeyboardHides[] = {"GlyphPart_15", "GlyphPart_19", "GlyphPart_23", "GlyphPart_34",
                                           "DetailDesc",   "ItemName",     "GlyphDepth",   "GlyphArea"};
 constexpr const char* kSettingsHides[] = {"GlyphDepth", "GlyphArea"};  // the Settings screen's page has no such rows
+constexpr const char* kSampleHides[] = {"BrightnessSample"};  // the Settings screen's brightness picture
 std::atomic<bool> g_keyboard_shown{false};
 std::atomic<bool> g_panel_blank{false};  // the game asked the glyph screen's panel hidden: no card to show (PanelShown)
 // The keyboard's cursor (any thread): its view (<< 8: 0 the A-Z grid, 1 QWERTY; kept for the session, through
@@ -703,6 +725,7 @@ BB_COOP_SYSV u64 PanelFetch(u64 out, u64 parent, u64 path) {
         const int glyph_parts = glyph.Fetch(parent, "GlyphDetailText") ? ShowParts(glyph.at(), kGlyphParts, ours) : 0;
         if (ours && glyph_parts && IsSettingsScreen(t_getter_screen))  // no Depth / Area rows on Settings
             ShowParts(glyph.at(), kSettingsHides, false);
+        if (glyph_parts && !IsSettingsScreen(t_getter_screen)) ShowParts(glyph.at(), kSampleHides, false);
         if (ours && (g_keyboard_shown.load(std::memory_order_acquire) || g_panel_blank.load(std::memory_order_acquire)) &&
             glyph_parts)
             ShowParts(glyph.at(), kKeyboardHides, false);
@@ -1689,8 +1712,9 @@ void SettingsPanel(u64 screen) {
     if (!IsSettingsScreen(screen)) return;
     const char16_t* name = nullptr;
     const char16_t* help = nullptr;
-    BbSettingsScreen::Selected(&name, &help);
-    const std::u16string want = std::u16string(name ? name : u"") + u"\x1" + (help ? help : u"");
+    bool picture = false;
+    BbSettingsScreen::Selected(&name, &help, &picture);
+    const std::u16string want = std::u16string(name ? name : u"") + u"\x1" + (help ? help : u"") + (picture ? u"*" : u"");
     if (screen == g_panel_text_screen && want == g_panel_text) return;
     Wrapper root;
     reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kResolveHandle))(root.at(), screen + kPanelHandle);
@@ -1706,6 +1730,8 @@ void SettingsPanel(u64 screen) {
     }
     SetFieldText(root.at(), "GlyphDetailText/ItemName/Value_0", PanelHtml(24, u"#a0895f", name).c_str());
     SetFieldText(root.at(), "GlyphDetailText/DetailDesc/Value_0", PanelHtml(22, u"#cccccc", help).c_str());
+    // Brightness (Legacy): the game's Brightness screen's picture under the help (menu_assets.cpp BrightnessSample)
+    BbMenuWidgets::ShowPart(root.at(), "GlyphDetailText/BrightnessSample", picture);
     if (screen != g_panel_text_screen) {
         std::printf("Settings screen: its details page is up\n");
         std::fflush(stdout);
@@ -1937,6 +1963,10 @@ BB_COOP_SYSV u64 TabCollect(u64 out, u64 src_ref, u64 filter) {
         coop::SafeGet(src + 0x18, &begin);
         coop::SafeGet(src + 0x20, &end);
         const std::size_t rows = end > begin ? (end - begin) / kRowSize : 0;
+        std::printf("Settings screen: its tab's %zu game rows turned away (list 0x%llx, the Settings screen 0x%llx)\n",
+                    rows, static_cast<unsigned long long>(src),
+                    static_cast<unsigned long long>(g_settings_screen.load(std::memory_order_acquire)));
+        std::fflush(stdout);
         std::vector<u32> kinds(rows, 0);
         for (std::size_t i = 0; i < rows; ++i) {
             u32* kind = reinterpret_cast<u32*>(begin + i * kRowSize + 0x50);
@@ -2332,7 +2362,9 @@ void Install() {
     ok = ok && coop::HookCallSite(kDescCall, kGoodsDesc, reinterpret_cast<const void*>(&DescText),
                                   "glyph screen: descriptions");
     if (ok && MountPanel()) {
-        g_panel = coop::HookPrologue(kScreenSetup, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &ScreenSetup,
+        g_panel = coop::HookPrologue(kScreenDestructor, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &ScreenDestroyed,
+                                     "glyph screen: item screen destructor");
+        g_panel = g_panel && coop::HookPrologue(kScreenSetup, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &ScreenSetup,
                                      "glyph screen: item screen setup");
         g_panel = g_panel && coop::HookPrologue(kPanelGetter, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &PanelGetter,
                                                 "glyph screen: item screen panel getter");

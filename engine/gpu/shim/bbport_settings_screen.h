@@ -28,7 +28,8 @@ inline constexpr std::size_t kBookTabs = 4;
 /// the selected row's).
 const char16_t* Text(std::uint32_t category, std::uint32_t id);
 /// The selected row's name and help (for the details page; null when the tab has no row).
-void Selected(const char16_t** name, const char16_t** help);
+/// `picture`: the row's details page shows the game's brightness picture (Brightness (Legacy)).
+void Selected(const char16_t** name, const char16_t** help, bool* picture = nullptr);
 
 /// The screen opened (its cursor and rows start over).
 void Opened();

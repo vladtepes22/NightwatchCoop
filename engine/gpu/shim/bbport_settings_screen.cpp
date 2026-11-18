@@ -3,9 +3,13 @@
 #include "bbport_settings_screen.h"
 
 #include "bbport_menu_widgets.h"
+#include "bbport_settings.h"
+#include "engine/option_menu.h"
 #include "input/input.h"
 #include "input/menu_pointer.h"
 #include "input/pad.h"
+#include "party/coop_hooks.h"
+#include "party/game_state.h"
 
 #include <algorithm>
 #include <chrono>
@@ -34,7 +38,8 @@ constexpr Tab kTabs[] = {
 };
 static_assert(std::size(kTabs) >= kBookTabs);
 
-// ---- the rows (step 2a: the layout and the cursor; values are the screen's own until they are wired) ----
+// ---- the rows: a PC row's value is the PC pages' setting (engine/option_menu.cpp, by its name's text id), read when
+// the tab is made and saved as it changes; the others are the screen's own until they are wired ----
 enum class Kind { Head, Toggle, Slider, Pick, Command, Defaults };
 struct Row {
     Kind kind;
@@ -44,47 +49,93 @@ struct Row {
     std::vector<const char16_t*> choices = {};  // Pick
     bool drop = false;                          // Pick: its choices in a pop-up (Confirm / a click opens it)
     int def = 0;                                // its default (Defaults; set from `value` when the tab is made)
+    std::uint32_t pc = 0;                       // a PC row: its text id (BbEngine::Options::PcValue)
+    bool auto_hud = false;                      // Auto-Hide HUD (BbSettings auto_hide_hud)
+    int game = -1;                              // a game option: its byte in the game's options (GameOption)
+    bool picture = false;                       // the details page shows the game's brightness picture
+    int stored = -1;                            // the value the setting has (a change is saved once)
 };
+Row Pc(std::uint32_t id, Row r) {
+    r.pc = id;
+    return r;
+}
+// The game's own options: one object, [[0x553b130] + 0x48] (the System pages copy it out with 0x14ef730 and back with
+// 0x14ef550 through 0x1bb5040: nothing else is applied or saved there; the save data keeps it). Its bytes (the
+// pages' copy has them one lower from Subtitles on): +2 Brightness (0 .. 10), +4 Music, +5 Sound Effects, +6 Voice
+// (0 .. 10), +8 Subtitles, +9 Display HUD (1 On, 0 Off: the game's On / Off list, 0x1b2b3b0). Defaults as the game's
+// (0x1c8af20): Brightness 5, the volumes 10, Subtitles Off, Display HUD On.
+constexpr int kBrightness = 2, kMusic = 4, kSoundEffects = 5, kVoice = 6, kSubtitles = 8, kDisplayHud = 9;
+constexpr std::uint64_t kGameOptionsOwner = 0x553b130, kGameOptions = 0x48;
+std::uint64_t GameOptions() {
+    std::uint64_t owner = 0, options = 0;
+    return coop::SafeGet(coop::Guest(kGameOptionsOwner), &owner) && owner &&
+                   coop::SafeGet(owner + kGameOptions, &options) && options
+               ? options
+               : 0;
+}
+Row Game(int byte, Row r) {
+    r.game = byte;
+    return r;
+}
 using Rows = std::vector<Row>;
 
 Rows DisplayRows() {
     return {
         {Kind::Head, u"Graphics", nullptr},
-        {Kind::Toggle, u"Anti-Aliasing", u"The game's own anti-aliasing pass.", 1},
-        {Kind::Toggle, u"Ambient Occlusion", u"Screen-space ambient occlusion.", 1},
-        {Kind::Slider, u"AO Strength", u"How dark corners and contact get. 5 is the game's own.", 5},
-        {Kind::Slider, u"Shadow Distance", u"How far sun and moon shadows reach. 0 is the game's own.", 0},
-        {Kind::Pick, u"Output Resolution", u"Existing upscaler output setting.", 2,
-         {u"1280x720", u"1600x900", u"1920x1080", u"2560x1440", u"3840x2160", u"2560x1080", u"3440x1440",
-          u"3840x1600", u"3840x1080", u"5120x1440", u"5120x2160", u"7680x2160", u"Auto", u"Custom"},
-         true},
-        {Kind::Slider, u"Fog", u"How thick the haze over distant streets is. 10 is the game's own.", 10},
+        Pc(117001, {Kind::Toggle, u"Anti-Aliasing", u"The game's own anti-aliasing pass.", 1}),
+        Pc(117000, {Kind::Toggle, u"Ambient Occlusion", u"Screen-space ambient occlusion.", 1}),
+        Pc(117007, {Kind::Slider, u"AO Strength", u"How dark corners and contact get. 5 is the game's own.", 5}),
+        Pc(117006, {Kind::Slider, u"Shadow Distance", u"How far sun and moon shadows reach. 0 is the game's own.", 0}),
+        // the choices: bbport_settings.h OutputWidths' order (the PC page's 117010.. texts)
+        Pc(117004, {Kind::Pick, u"Output Resolution",
+                    u"Existing upscaler output setting. Restart required unless Live Resolution is enabled.", 2,
+                    {u"1280x720", u"1600x900", u"1920x1080", u"2560x1440", u"3840x2160", u"2560x1080 (21:9)",
+                     u"3440x1440 (21:9)", u"3840x1600 (24:10)", u"3840x1080 (32:9)", u"5120x1440 (32:9)",
+                     u"5120x2160 (21:9)", u"7680x2160 (32:9)", u"Display (auto)", u"Custom (bbport.ini)"},
+                    true}),
+        Pc(117008, {Kind::Slider, u"Fog", u"How thick the haze over distant streets is. 10 is the game's own.", 10}),
         {Kind::Head, u"Effects", nullptr},
-        {Kind::Toggle, u"Motion Blur", u"The blur on fast camera and character movement.", 0},
-        {Kind::Toggle, u"Depth of Field", u"Blurs distant scenery. Off keeps far views sharp.", 0},
-        {Kind::Toggle, u"Chromatic Aberration", u"The colour fringing at the edges of the frame.", 0},
-        {Kind::Toggle, u"Vignette", u"The darkened frame edges some areas use.", 1},
-        {Kind::Slider, u"Bloom", u"The glow around bright light. 10 is the game's own.", 10},
+        Pc(117005, {Kind::Toggle, u"Motion Blur",
+                    u"The blur on fast camera and character movement. Requires a restart in this renderer.", 0}),
+        Pc(117002, {Kind::Toggle, u"Depth of Field",
+                    u"Blurs distant scenery. Off keeps far views sharp. Requires a restart in this renderer.", 0}),
+        Pc(117003, {Kind::Toggle, u"Chromatic Aberration",
+                    u"The colour fringing at the edges of the frame. Requires a restart in this renderer.", 0}),
+        Pc(120001, {Kind::Toggle, u"Vignette", u"The darkened frame edges some areas use.", 1}),
+        Pc(120000, {Kind::Slider, u"Bloom", u"The glow around bright light. 10 is the game's own.", 10}),
         {Kind::Head, u"Colour", nullptr},
-        {Kind::Toggle, u"Picture Tuning", u"Applies the picture settings live. Off: the game's own picture.", 0},
-        {Kind::Slider, u"Brightness (Legacy)", u"Adjust the brightness level.", 5},
-        {Kind::Slider, u"Brightness (New)", u"How bright the picture is. 5 is the game's own.", 5},
-        {Kind::Slider, u"Contrast", u"The difference between dark and bright. 5 is the game's own.", 5},
-        {Kind::Slider, u"Saturation", u"Colour. 5 is the game's own; 0 is black and white.", 5},
-        {Kind::Slider, u"Hue", u"Shifts every colour. 5 is the game's own.", 5},
+        Pc(125004, {Kind::Toggle, u"Picture Tuning",
+                    u"Applies the picture settings live. Off: the game's own picture. Moving one of them turns it on.",
+                    0}),
+        [] {
+            // the game's Brightness screen's instruction (112010) and picture
+            Row r = Game(kBrightness, {Kind::Slider, u"Brightness (Legacy)",
+                                       u"Adjust slider until the man is visible and beast invisible.", 5});
+            r.picture = true;
+            return r;
+        }(),
+        Pc(125000, {Kind::Slider, u"Brightness (New)", u"How bright the picture is. 5 is the game's own.", 5}),
+        Pc(125001, {Kind::Slider, u"Contrast", u"The difference between dark and bright. 5 is the game's own.", 5}),
+        Pc(125002, {Kind::Slider, u"Saturation", u"Colour. 5 is the game's own; 0 is black and white.", 5}),
+        Pc(125003, {Kind::Slider, u"Hue", u"Shifts every colour. 5 is the game's own.", 5}),
         {Kind::Head, u"HUD", nullptr},
-        {Kind::Toggle, u"Subtitles", u"Turn subtitles ON/OFF.", 1},
-        {Kind::Toggle, u"Display HUD", u"Turn HUD ON/OFF.", 1},
-        {Kind::Toggle, u"Auto-Hide HUD", u"Hides the HUD until something happens.", 0},
+        Game(kSubtitles, {Kind::Toggle, u"Subtitles", u"Turn subtitles ON/OFF.", 0}),
+        Game(kDisplayHud, {Kind::Toggle, u"Display HUD", u"Turn HUD ON/OFF.", 1}),
+        [] {
+            Row r{Kind::Toggle, u"Auto-Hide HUD",
+                  u"Bars and slots fade out when idle; damage, fights, lock-on, items and menus bring them back.", 0};
+            r.auto_hud = true;
+            return r;
+        }(),
         {Kind::Defaults, u"Defaults", u"Every setting on this tab back to its default."},
     };
 }
 Rows SoundRows() {
     return {
         {Kind::Head, u"Sound", nullptr},
-        {Kind::Slider, u"Music", u"Adjust music volume.", 3},
-        {Kind::Slider, u"Sound Effects", u"Adjust sound effects volume.", 3},
-        {Kind::Slider, u"Voice", u"Adjust voice volume.", 3},
+        Game(kMusic, {Kind::Slider, u"Music", u"Adjust music volume.", 10}),
+        Game(kSoundEffects, {Kind::Slider, u"Sound Effects", u"Adjust sound effects volume.", 10}),
+        Game(kVoice, {Kind::Slider, u"Voice", u"Adjust voice volume.", 10}),
         {Kind::Defaults, u"Defaults", u"Every setting on this tab back to its default."},
     };
 }
@@ -150,6 +201,53 @@ constexpr float kNavigatedSlack = 24;  // as input/menu_pointer.cpp
 constexpr auto kNavigatedQuiet = std::chrono::milliseconds(500);
 std::mutex g_mu;
 State g_state;
+
+// The settings' values into the rows (when the tab is made, and after a change: Picture Tuning may have followed).
+void LoadValues(Rows& rows, bool defaults) {
+    for (Row& r : rows) {
+        std::int32_t v = 0, d = 0;
+        if (r.pc && BbEngine::Options::PcValue(r.pc, &v, &d)) {
+            r.value = r.stored = v;
+            if (defaults) r.def = d;
+        } else if (r.auto_hud) {
+            r.value = r.stored = BbSettings::Get().auto_hide_hud ? 1 : 0;
+            if (defaults) r.def = 0;
+        } else if (r.game >= 0) {
+            std::uint8_t b = 0;
+            const std::uint64_t options = GameOptions();
+            if (!options || !coop::SafeGet(options + std::uint64_t(r.game), &b)) continue;  // not wired: the screen's
+            r.value = r.stored = std::clamp(int(b), 0, r.kind == Kind::Toggle ? 1 : 10);
+        }
+    }
+}
+// What the player changed, saved (each row once per change); true when one was.
+constexpr std::uint32_t kPictureTuning = 125004;  // a picture row's change turns it on: written after them
+bool SaveValues(Rows& rows) {
+    bool saved = false;
+    for (int pass = 0; pass < 2; ++pass)
+    for (Row& r : rows) {
+        if ((r.pc == kPictureTuning) != (pass == 1)) continue;
+        if (r.value == r.stored || (!r.pc && !r.auto_hud && r.game < 0)) continue;  // (a row that is not wired)
+        if (r.pc) {
+            BbEngine::Options::SetPcValue(r.pc, r.value);
+        } else if (r.game >= 0) {
+            const std::uint64_t options = GameOptions();
+            const std::uint8_t b = std::uint8_t(r.value);
+            const bool done = options && coop::SafeWrite(options + std::uint64_t(r.game), &b, 1);
+            std::printf("Settings screen: the game's option +%d now %d%s\n", r.game, r.value,
+                        done ? "" : ": the game's options are not there, not changed");
+            std::fflush(stdout);
+        } else {
+            BbSettings::Get().auto_hide_hud = r.value != 0;
+            BbSettings::Save();
+            std::printf("Settings screen: Auto-Hide HUD %s; saved to bbport.ini\n", r.value ? "on" : "off");
+            std::fflush(stdout);
+        }
+        r.stored = r.value;
+        saved = true;
+    }
+    return saved;
+}
 
 Rows RowsOf(int tab) {
     switch (tab) {
@@ -369,7 +467,10 @@ void DrawPopup(std::uint64_t root, State& s) {
 
 // Every row of the tab back to its default.
 void Defaults(State& s) {
-    for (Row& r : s.rows) r.value = r.def;
+    for (Row& r : s.rows) {
+        r.value = r.def;
+        r.stored = -1;  // every one written (Picture Tuning too, after the picture rows that turn it on)
+    }
     for (auto& k : s.shown) k = u"\x1";
     BbMenuWidgets::DecideSound();
     std::printf("Settings screen: tab %d back to its defaults\n", s.tab);
@@ -440,11 +541,12 @@ const char16_t* Text(std::uint32_t category, std::uint32_t id) {
     return nullptr;
 }
 
-void Selected(const char16_t** name, const char16_t** help) {
+void Selected(const char16_t** name, const char16_t** help, bool* picture) {
     std::lock_guard<std::mutex> lk(g_mu);
     const Row* r = RowOf(g_state, g_state.cursor);
     *name = r ? r->name : nullptr;
     *help = r ? r->help : nullptr;
+    if (picture) *picture = r && r->picture;
 }
 
 void Opened() {
@@ -474,6 +576,7 @@ bool Update(std::uint64_t root, int tab, const Pointer& pointer) {
         s.tab = tab;
         s.rows = RowsOf(tab);
         for (Row& r : s.rows) r.def = r.value;
+        LoadValues(s.rows, true);
         s.popup = false;
         s.popup_shown = u"\x1";
         s.lines = LinesOf(s.rows);
@@ -587,6 +690,7 @@ bool Update(std::uint64_t root, int tab, const Pointer& pointer) {
         else if (go & kRight) Change(s, 1);
         help_changed = help_changed || s.cursor != was;
     }
+    if (SaveValues(s.rows)) LoadValues(s.rows, false);
     for (int i = 0; i < kSlots; ++i) {
         const int at = s.top + i;
         const Line* line = at < int(s.lines.size()) ? &s.lines[std::size_t(at)] : nullptr;

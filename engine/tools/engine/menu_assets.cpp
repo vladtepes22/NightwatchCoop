@@ -1401,7 +1401,18 @@ std::uint16_t KeyboardBoard(const Movie& m, std::uint16_t font_text, std::uint16
 // no longer follows the timeline's fade. GlyphDetailText's parts start hidden (the glyph screen shows them), and the
 // unnamed parts of both panels get names (GlyphPart_<depth>) so that bbport_glyph_screen.cpp can reach them.
 // ItemDetailText otherwise stays as it is.
-Bytes GlyphPanelMovie(const Bytes& gfx) {
+namespace {
+// The game's Brightness screen's picture copied into `m` (BrightnessSampleSprite, after CopyParts): its sprite and
+// its box in its own units (px).
+struct Sample {
+    std::uint16_t id;
+    double left, top, width, height;
+};
+Sample BrightnessSampleSprite(const Movie& m, std::uint16_t& next, std::vector<Tag>& defs, const Movie& option,
+                              const Bytes& tpf);
+}  // namespace
+
+Bytes GlyphPanelMovie(const Bytes& gfx, const Bytes& option_gfx, const Bytes& common_tpf_dcx) {
     constexpr std::uint16_t kPanelDepth = 1, kGlyphDepth = 2;
     // px: the panel moved right so the column's frame (from x 440 in the panel) starts at ~948 on screen
     constexpr double kShift = 298;
@@ -1631,6 +1642,29 @@ Bytes GlyphPanelMovie(const Bytes& gfx) {
         const std::uint16_t board = KeyboardBoard(m, *name_text, next_id, row_defs, spec);
         rows.push_back(HiddenPlacement(board, 90, Matrix{}, "GlyphKeyboard"));
     }
+    // BrightnessSample (hidden): the game's Brightness screen's picture, for the Settings screen's Brightness (Legacy)
+    // row (bbport_glyph_screen.cpp SettingsPanel shows it): in the description box (the ruled lines, depth 34, as
+    // widened above) under its first text line, centred, at most its own size.
+    {
+        std::optional<Place> lines;
+        for (const Tag& t : game.tags)
+            if (IsPlace(t) && ReadPlace(t).depth == 34) lines = ReadPlace(t);
+        if (!lines || !lines->character || !lines->matrix || lines->matrix->scaled || lines->matrix->rotated)
+            throw Error("ItemDetailText's ruled lines are not 1.09's");
+        const Box box = Bounds(m, *lines->character);
+        const double left = double(lines->matrix->tx + box.x0) / 20, right = double(lines->matrix->tx + box.x1 + kWider) / 20;
+        const double top = double(lines->matrix->ty + box.y0) / 20, bottom = double(lines->matrix->ty + box.y1) / 20;
+        constexpr double kTextRoom = 56, kMargin = 14;  // px: the help's line above it; the box's edges around it
+        const Sample sample =
+            BrightnessSampleSprite(m, next_id, row_defs, ReadMovie(option_gfx), DcxRead(common_tpf_dcx).data);
+        const double scale = std::min({1.0, (bottom - top - kTextRoom - kMargin) / sample.height,
+                                       (right - left - 2 * kMargin) / sample.width});
+        if (scale < 0.5) throw Error("ItemDetailText's description box is too small for the brightness picture");
+        Matrix at = WithScale(Matrix{}, scale, scale);
+        at.tx = std::llround(((left + right) / 2 - (sample.left + sample.width / 2) * scale) * 20);
+        at.ty = std::llround((top + kTextRoom - sample.top * scale) * 20);
+        rows.push_back(HiddenPlacement(sample.id, 92, at, "BrightnessSample"));
+    }
     {
         const auto frame = std::find_if(column.tags.begin(), column.tags.end(), [](const Tag& t) { return t.code == kShowFrame; });
         column.tags.insert(frame, rows.begin(), rows.end());
@@ -1783,6 +1817,23 @@ Bytes GlyphListMovie(const Bytes& gfx, const Bytes& option_gfx, const Bytes& inv
             t = Changed(t.code, Rewrite(t, p, {}, {}, at, {}));
         }
     };
+    // The game's own scroll bar (NormalItem's: the inventory, Chalice Ritual): its blinking "more" markers (its first
+    // part, at the list's left edge in the game's art) moved onto the bar's line, as on our screens.
+    {
+        const std::size_t at = FindSprite(m, *bar_at->character);
+        Sprite game_bar = ReadSprite(m.tags[at]);
+        std::optional<double> bar_mid;
+        for (const Tag& t : game_bar.tags) {
+            if (!IsPlace(t)) continue;
+            const Place p = ReadPlace(t);
+            if (p.name != "Bar" || !p.character || !p.matrix) continue;
+            const Box b = Bounds(m, *p.character);
+            bar_mid = double(p.matrix->tx + (b.x0 + b.x1) / 2) / 20;
+        }
+        if (!bar_mid) throw Error("ScrollBarV is not 1.09's");
+        markers_on_bar(game_bar, *bar_mid);
+        m.tags[at] = WriteSprite(game_bar);
+    }
     // The scroll bar: the game's, where the game has it (the search bar's top to the last card's bottom, as on the
     // Settings screen), its blinking "more" markers (its first part) just outside the list's frame, as the game's,
     // moved onto the bar's line.
@@ -2015,9 +2066,11 @@ struct Picture {  // kCell x kCell RGBA
     const std::uint8_t* at(int x, int y) const { return &px[(std::size_t(y) * kCell + x) * 4]; }
 };
 
-// One 80 px cell of a PS4-tiled BC1 (TPF format 0) or BC7 (format 0x66, the item icon sheets) texture: 4x4 blocks,
-// 8x8-block tiles in Morton order, tiles row-major.
-Picture SheetCell(const Bytes& tpf, const std::string& name, int x0, int y0) {
+// A region (x0, y0, cw x ch, multiples of 4; cw or ch 0: the texture's rest) of a PS4-tiled BC1 (TPF format 0) or
+// BC7 (format 0x66, the item icon sheets) texture as RGBA rows: 4x4 blocks, 8x8-block tiles in Morton order, tiles
+// row-major. *out_w / *out_h: the region's size.
+std::vector<std::uint8_t> SheetPixels(const Bytes& tpf, const std::string& name, int x0, int y0, int cw, int ch,
+                                      int* out_w, int* out_h) {
     if (!Has(tpf, 0, "TPF\0", 4)) throw Error("common.tpf.dcx holds no TPF");
     const std::uint32_t count = U32(tpf, 8);
     for (std::uint32_t i = 0; i < count; ++i) {
@@ -2029,15 +2082,20 @@ Picture SheetCell(const Bytes& tpf, const std::string& name, int x0, int y0) {
         if (n != name) continue;
         const std::size_t off = U32(tpf, h), size = U32(tpf, h + 4);
         const int w = U16(tpf, h + 0xc), hh = U16(tpf, h + 0xe);
+        if (!cw) cw = w - x0;
+        if (!ch) ch = hh - y0;
         const bool bc7 = tpf[h + 8] == 0x66;
-        if ((tpf[h + 8] != 0 && !bc7) || w % 32 || x0 < 0 || y0 < 0 || x0 + kCell > w || y0 + kCell > hh ||
-            off > tpf.size() || size > tpf.size() - off)
+        if ((tpf[h + 8] != 0 && !bc7) || w % 32 || x0 < 0 || y0 < 0 || cw <= 0 || ch <= 0 || cw % 4 || ch % 4 ||
+            x0 + cw > w || y0 + ch > hh || off > tpf.size() || size > tpf.size() - off)
             throw Error(name + " is not 1.09's BC1 / BC7 sheet");
         const int bw = w / 4;
         const std::size_t block_size = bc7 ? 16 : 8;
-        Picture out;
-        for (int by = 0; by < kCell / 4; ++by)
-            for (int bx = 0; bx < kCell / 4; ++bx) {
+        std::vector<std::uint8_t> pixels(std::size_t(cw) * ch * 4);
+        const auto at = [&](int x, int y) { return &pixels[(std::size_t(y) * cw + x) * 4]; };
+        if (out_w) *out_w = cw;
+        if (out_h) *out_h = ch;
+        for (int by = 0; by < ch / 4; ++by)
+            for (int bx = 0; bx < cw / 4; ++bx) {
                 const int x = x0 / 4 + bx, y = y0 / 4 + by;
                 int k = 0;
                 for (int b = 0; b < 3; ++b) k |= ((x >> b) & 1) << (2 * b) | ((y >> b) & 1) << (2 * b + 1);
@@ -2047,7 +2105,7 @@ Picture SheetCell(const Bytes& tpf, const std::string& name, int x0, int y0) {
                 if (bc7) {
                     std::uint8_t px[64];
                     Bc7DecodeBlock(&tpf[block], px);
-                    for (int i = 0; i < 16; ++i) std::memcpy(out.at(bx * 4 + i % 4, by * 4 + i / 4), px + i * 4, 4);
+                    for (int i = 0; i < 16; ++i) std::memcpy(at(bx * 4 + i % 4, by * 4 + i / 4), px + i * 4, 4);
                     continue;
                 }
                 const std::uint16_t c0 = U16(tpf, block), c1 = U16(tpf, block + 2);
@@ -2065,13 +2123,19 @@ Picture SheetCell(const Bytes& tpf, const std::string& name, int x0, int y0) {
                 pal[2][3] = 255, pal[3][3] = c0 > c1 ? 255 : 0;
                 for (int i = 0; i < 16; ++i) {
                     const auto& p = pal[(bits >> (2 * i)) & 3];
-                    std::uint8_t* d = out.at(bx * 4 + i % 4, by * 4 + i / 4);
+                    std::uint8_t* d = at(bx * 4 + i % 4, by * 4 + i / 4);
                     for (int c = 0; c < 4; ++c) d[c] = std::uint8_t(p[c]);
                 }
             }
-        return out;
+        return pixels;
     }
     throw Error("common.tpf.dcx has no " + name);
+}
+// One 80 px cell of such a sheet.
+Picture SheetCell(const Bytes& tpf, const std::string& name, int x0, int y0) {
+    Picture out;
+    out.px = SheetPixels(tpf, name, x0, y0, kCell, kCell, nullptr, nullptr);
+    return out;
 }
 
 // Pillow's RGB -> L (ITU-R 601-2 luma, fixed point), as the approved mockups were made with.
@@ -2633,6 +2697,34 @@ Copied CopyParts(const Movie& from, const Movie& to, const std::vector<std::uint
                 }
     }
     return out;
+}
+// The game's Brightness screen's picture (optionsetting.gfx: BrightnessSetting's unnamed part 123, the bright and
+// the dark figure of MENU_Common_00111 (shape 121, 637 x 256) with the dark panel over the dark one (122)), copied.
+// Its image is not the game's external one (loaded by name when it first shows) but the same texture's pixels, made
+// here from the player's own common.tpf.dcx and kept in the movie (DefineBitsLossless2, the external image's
+// 512 x 256): the panel movie, kept for the whole session, loads nothing of its own.
+Sample BrightnessSampleSprite(const Movie& m, std::uint16_t& next, std::vector<Tag>& defs, const Movie& option,
+                              const Bytes& tpf) {
+    constexpr std::uint16_t kSample = 123;
+    const Box b = Bounds(option, kSample);
+    if (std::abs(b.x1 - b.x0 - 637 * 20) > 40 || std::abs(b.y1 - b.y0 - 256 * 20) > 40)
+        throw Error("optionsetting.gfx's brightness picture is not 1.09's");
+    Copied c = CopyParts(option, m, {kSample}, next);
+    int replaced = 0;
+    for (Tag& t : c.defs) {
+        if (t.code != kExternalImage) continue;
+        const std::string name = ExternalImageName(t);
+        if (name != "MENU_Common_00111") throw Error("the brightness picture uses an image other than MENU_Common_00111");
+        const int want_w = int(U16(t.body, 6)), want_h = int(U16(t.body, 8));
+        int w = 0, h = 0;
+        const std::vector<std::uint8_t> px = SheetPixels(tpf, name, 0, 0, 0, 0, &w, &h);
+        if (w != want_w || h != want_h) throw Error("MENU_Common_00111 is not the brightness picture's size");
+        t = BitmapTag(U16(t.body, 0), w, h, px.data());
+        ++replaced;
+    }
+    if (replaced != 1) throw Error("the brightness picture's image is not 1.09's");
+    defs.insert(defs.end(), c.defs.begin(), c.defs.end());
+    return {c.id.at(kSample), double(b.x0) / 20, double(b.y0) / 20, double(b.x1 - b.x0) / 20, double(b.y1 - b.y0) / 20};
 }
 // PlaceObject3 of `id` with a blend mode (8: add), as the game places its glowing parts.
 Tag BlendPlacement(std::uint16_t id, std::uint16_t depth, const Matrix& at, std::uint8_t blend) {
