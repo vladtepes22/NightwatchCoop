@@ -27,6 +27,7 @@
 // chalice_glyphdb), read each time the altar's glyph item is chosen: the hooks are always in and do nothing while it
 // is off. BB_GLYPH_SCREEN_TEST=1 turns it on whatever the setting (the test scripts).
 #include "bbport_glyph_screen.h"
+#include "bbport_settings_screen.h"
 #include "bbport_game_menu.h"
 #include "bbport_settings.h"
 #include "bbport_menu_widgets.h"
@@ -137,6 +138,15 @@ bool g_opening = false;
 bool g_from_glyph = false;
 u64 g_glyph_menu = 0;
 HandlerFn g_glyph_item_original = nullptr;
+
+// Nightwatch: the Settings screen (bbport_settings_screen.h) is the same book in a second mode: set by OpenSettings
+// (the pause menu's System), its menu object taken by MakeTabs, cleared by any other opening of the book. While it is
+// up the glyph screen's own state stays off. Under g_mu, except the flag.
+std::atomic<bool> g_settings{false};
+bool g_settings_opening = false;
+bool g_from_settings = false;
+u64 g_settings_menu = 0;
+u64 g_settings_list = 0;  // the tab's fresh list (after the screen filter), its rows turned away by TabCollect
 PickedFn g_picked_original = nullptr;
 
 // The glyph screen's own description panel (GlyphDetailText, a second panel in the generated itemdetailtext.gfx:
@@ -399,33 +409,29 @@ u32 TabFrame(u32 tab) {
         default: return 0;
     }
 }
-void SetTabIcons(u64 menu) {
+void SetTabIcons(u64 menu, bool settings = false) {
     const u64 tabs = menu + ((0 - menu) & 0xf);
     const u64 count = std::min<u64>(*reinterpret_cast<const u64*>(menu + kTabCount), kMostTabs);
     for (u64 i = 0; i < count; ++i) {
         const u64 t = tabs + kTabSize * i;
-        if (const u32 frame = TabFrame(*reinterpret_cast<const u32*>(t))) *reinterpret_cast<u32*>(t + kTabFrame) = frame;
+        const u32 id = *reinterpret_cast<const u32*>(t);
+        u32 frame = settings ? 0 : TabFrame(id);
+        if (settings)
+            for (const auto& s : BbSettingsScreen::Tabs())
+                if (s.id == id) frame = g_tab_icons ? s.frame : s.fallback;
+        if (frame) *reinterpret_cast<u32*>(t + kTabFrame) = frame;
     }
 }
 
-BB_COOP_SYSV u64 MakeTabs(u64 a0, u64 menu) {
-    const u64 r = g_make_tabs_original(a0, menu);
-    bool opening = false;
-    {
-        std::lock_guard<std::mutex> lk(g_mu);
-        opening = g_opening;
-    }
+// A tab after the book's own: the first tab's descriptor (its maker) with the id `id`, added at the end of the menu's
+// tab array. False when the array is full.
+bool AddTabLike(u64 menu, u32 id) {
     const u64 count = *reinterpret_cast<const u64*>(menu + kTabCount);
-    if (!opening) return r;
-    struct TabIcons {  // the icons once the tabs are all in, whichever way MakeTabs leaves
-        u64 menu;
-        ~TabIcons() { SetTabIcons(menu); }
-    } icons{menu};
-    if (count + 1 >= kMostTabs) return r;
+    if (count + 1 >= kMostTabs) return false;
     alignas(16) std::uint8_t tab[kTabSize]{};
     const u64 t = reinterpret_cast<u64>(tab);
     reinterpret_cast<u64(BB_COOP_SYSV*)(u64)>(coop::Guest(kFirstTabMaker))(t);
-    *reinterpret_cast<u32*>(t) = kCustomTab;
+    *reinterpret_cast<u32*>(t) = id;
     const u64 tabs = menu + ((0 - menu) & 0xf);
     reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kAddTab))(tabs + kTabSize * count, t);
     *reinterpret_cast<u64*>(menu + kTabCount) = count + 1;
@@ -435,12 +441,52 @@ BB_COOP_SYSV u64 MakeTabs(u64 a0, u64 menu) {
         const u64 destroy = *reinterpret_cast<const u64*>(*reinterpret_cast<const u64*>(f) + 0x20);
         reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64)>(destroy)(f, f != t + at - 0x20 ? 1 : 0);
     }
+    return true;
+}
+
+BB_COOP_SYSV u64 MakeTabs(u64 a0, u64 menu) {
+    const u64 r = g_make_tabs_original(a0, menu);
+    bool opening = false, settings = false;
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        opening = g_opening;
+        if (g_settings_opening) {  // the Settings screen's book: this menu is it
+            g_settings_opening = false;
+            g_settings_menu = menu;
+            settings = true;
+        }
+    }
+    if (settings) {
+        std::size_t added = 0;
+        const auto tabs = BbSettingsScreen::Tabs();
+        for (std::size_t i = BbSettingsScreen::kBookTabs; i < tabs.size(); ++i) added += AddTabLike(menu, tabs[i].id);
+        SetTabIcons(menu, true);
+        std::printf("Settings screen: menu 0x%llx, %llu tabs (%zu added)\n", static_cast<unsigned long long>(menu),
+                    static_cast<unsigned long long>(*reinterpret_cast<const u64*>(menu + kTabCount)), added);
+        std::fflush(stdout);
+        return r;
+    }
+    if (!opening) return r;
+    struct TabIcons {  // the icons once the tabs are all in, whichever way MakeTabs leaves
+        u64 menu;
+        ~TabIcons() { SetTabIcons(menu); }
+    } icons{menu};
+    const u64 count = *reinterpret_cast<const u64*>(menu + kTabCount);
+    if (!AddTabLike(menu, kCustomTab)) return r;
     std::printf("Glyph screen: the Custom tab added (tab %llu)\n", static_cast<unsigned long long>(count + 1));
     std::fflush(stdout);
     return r;
 }
 BB_COOP_SYSV u64 TabName(u64 out, u64 tab) {
-    if (*reinterpret_cast<const u32*>(tab) == kCustomTab && g_screen.load(std::memory_order_acquire))
+    const u32 id = *reinterpret_cast<const u32*>(tab);
+    if (g_settings.load(std::memory_order_acquire)) {
+        const auto tabs = BbSettingsScreen::Tabs();
+        for (std::size_t i = BbSettingsScreen::kBookTabs; i < tabs.size(); ++i)
+            if (tabs[i].id == id)
+                return reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64, u64)>(coop::Guest(0x1ae8cc0))(out, 0xc8,
+                                                                                                    tabs[i].text);
+    }
+    if (id == kCustomTab && g_screen.load(std::memory_order_acquire))
         return reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64, u64)>(coop::Guest(0x1ae8cc0))(out, 0xc8, kCustomTabText);
     return g_tab_name_original(out, tab);
 }
@@ -1486,6 +1532,10 @@ void ShowList(u64 screen) {
     if (bar_active.Fetch(root.at(), "ItemList/GlyphSearch/Active")) bar_active.SetVisible(false);
     g_bar_active_shown = false;
     g_bar_cursor_shown = false;
+    // The "No Chalice Glyphs match ..." line starts hidden on every screen of this movie (Inventory, Chalice Ritual,
+    // the glyph screen again): the last search's line would otherwise stay over their lists.
+    Wrapper no_match;
+    if (no_match.Fetch(root.at(), "ItemList/GlyphNoMatch")) no_match.SetVisible(false);
     g_pointer_seen = false;
     g_typed.clear();
     g_matched_for.clear();
@@ -1589,11 +1639,24 @@ BB_COOP_SYSV void RitualEntry(u64, u64, u64, u64, u64, u64) {
     g_opening = false;
     g_glyph_menu = 0;
     g_screen.store(false, std::memory_order_release);
+    if (g_from_settings) return;  // the Settings screen's book: the glyph screen is off, Settings stays
+    g_settings_opening = false;
+    g_settings_menu = 0;
+    g_settings_list = 0;
+    g_settings.store(false, std::memory_order_release);
 }
 
 // After the screen filter: `tab` = the tab descriptor (the game's r12), `frame` = the builder's rbp (the fresh list
 // at -0x2d8), `menu` = the menu object (r15).
 BB_COOP_SYSV u64 AfterScreenFilter(u64 tab, u64 frame, u64 menu) {
+    {  // the Settings screen: no rows of the game's (TabCollect turns this list's rows away)
+        std::lock_guard<std::mutex> lk(g_mu);
+        if (menu && menu == g_settings_menu) {
+            u64 list = 0;
+            g_settings_list = coop::SafeGet(frame - 0x2d8, &list) ? list : 0;
+            return 0;
+        }
+    }
     u32 tab_id = 0;
     if (!coop::SafeGet(tab, &tab_id) || tab_id < kFirstPickerTab || tab_id > kLastPickerTab) return 0;
     std::lock_guard<std::mutex> lk(g_mu);
@@ -1676,6 +1739,26 @@ BB_COOP_SYSV u64 TabCollect(u64 out, u64 src_ref, u64 filter) {
     const auto collect = reinterpret_cast<CollectFn>(coop::Guest(kCollect));
     std::unique_lock<std::mutex> lk(g_mu);
     u64 src = 0;
+    // The Settings screen's tab: every row turned away (kind 0 while the collector runs), so the list is empty.
+    if (g_settings_list && coop::SafeGet(src_ref, &src) && src == g_settings_list) {
+        g_settings_list = 0;
+        u64 begin = 0, end = 0;
+        coop::SafeGet(src + 0x18, &begin);
+        coop::SafeGet(src + 0x20, &end);
+        const std::size_t rows = end > begin ? (end - begin) / kRowSize : 0;
+        std::vector<u32> kinds(rows, 0);
+        for (std::size_t i = 0; i < rows; ++i) {
+            u32* kind = reinterpret_cast<u32*>(begin + i * kRowSize + 0x50);
+            kinds[i] = *kind;
+            *kind = 0;
+        }
+        lk.unlock();
+        const u64 r = collect(out, src_ref, filter);
+        lk.lock();
+        for (std::size_t i = 0; i < rows; ++i) *reinterpret_cast<u32*>(begin + i * kRowSize + 0x50) = kinds[i];
+        return r;
+    }
+    src = 0;
     if (!g_pending.list || !coop::SafeGet(src_ref, &src) || src != g_pending.list) {
         lk.unlock();
         return collect(out, src_ref, filter);
@@ -1896,8 +1979,34 @@ BB_COOP_SYSV u64 GlyphNetCheck(u64 net, u64) {
 
 } // namespace
 
+bool SettingsReady() { return g_installed.load(std::memory_order_acquire); }
+
+std::uint64_t OpenSettings(std::uint64_t out, std::uint64_t arg) {
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        g_settings_opening = true;
+        g_from_settings = true;
+        g_settings_menu = 0;
+        g_settings_list = 0;
+        g_settings.store(true, std::memory_order_release);  // before the book's setup asks for its title
+    }
+    std::printf("Settings screen: the pause menu's System opens the Settings screen\n");
+    std::fflush(stdout);
+    const u64 r = reinterpret_cast<HandlerFn>(coop::Guest(kRitualItem))(out, arg);
+    std::lock_guard<std::mutex> lk(g_mu);
+    g_from_settings = false;
+    if (g_settings_opening) {  // the book made no tabs: not ours after all
+        g_settings_opening = false;
+        std::printf("Settings screen: the book made no tabs\n");
+        std::fflush(stdout);
+    }
+    return r;
+}
+
 const char16_t* Text(std::uint32_t category, std::uint32_t id) {
-    if (!g_installed.load(std::memory_order_acquire) || !g_screen.load(std::memory_order_acquire)) return nullptr;
+    if (!g_installed.load(std::memory_order_acquire)) return nullptr;
+    if (g_settings.load(std::memory_order_acquire)) return BbSettingsScreen::Text(category, id);
+    if (!g_screen.load(std::memory_order_acquire)) return nullptr;
     // The chalice picker's own texts (the title and help at 0x1c74d2a / 0x1c74db8, the tab names at 0x1c69a05..):
     // names 0xc8, help lines 0xc9.
     if (category == 0xc8) {

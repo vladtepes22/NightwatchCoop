@@ -28,6 +28,7 @@
 //  - New pages: add them in Pages::DefineAll (MaxPages below caps the System items).
 #include "bbport_game_menu.h"
 #include "bbport_glyph_screen.h"
+#include "bbport_settings_screen.h"
 #include "bbport_name_entry.h"
 #include "party/party_give.h"
 #include "party/party_flow.h"
@@ -159,6 +160,7 @@ const u8 TitleLogInCallCode[] = {0xe8, 0xa7, 0x17, 0x00, 0x00};  // call AddComm
 // Nightwatch: the title's System list (the System builder 0x1bb3ad0 called at 0x1b46e51 with flag 0) has no Quit to
 // Desktop: the title menu has its own. The builder is hooked to know whose list it builds.
 constexpr u64 SystemBuilder = 0x1bb3ad0, TitleSystemCall = 0x1b46e51;
+constexpr u64 PauseSystemCall = 0x1bdba09;  // the pause menu's System item: call 0x1bb3ad0, flag 1 (visible run, 2026-11-17)
 const u8 SystemBuilderPrologue[] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54, 0x53};
 const u8 TitleSystemCallCode[] = {0xe8, 0x7a, 0xcc, 0x06, 0x00};  // call 0x1bb3ad0
 const u8 AddCommandItemPrologue[] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57};
@@ -1302,8 +1304,14 @@ void VTraceAll() {
 
 /// The System builder: whether it builds the title's System list (called from the title, 0x1b46e51).
 BB_SYSV void* SystemBuilderHook(void* out, void* arg, u64 flag) {
+    const u64 from = reinterpret_cast<u64>(__builtin_return_address(0)) - image_base;
+    // Nightwatch: the pause menu's System (the builder called at 0x1bdba09, flag 1) opens the Settings screen
+    // (bbport_settings_screen.h: the glyph browser's item-list book with its own title, tabs and rows) when it is on
+    // and every hook of the book is in.
+    if (flag == 1 && from == PauseSystemCall + 5 && BbSettingsScreen::Enabled() && BbGlyphScreen::SettingsReady())
+        return reinterpret_cast<void*>(BbGlyphScreen::OpenSettings(reinterpret_cast<u64>(out), reinterpret_cast<u64>(arg)));
     const bool was = title_system;
-    title_system = reinterpret_cast<u64>(__builtin_return_address(0)) - image_base == TitleSystemCall + 5;
+    title_system = from == TitleSystemCall + 5;
     void* result = system_builder_original(out, arg, flag);
     title_system = was;
     return result;

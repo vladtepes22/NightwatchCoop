@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "menu_assets.h"
 #include "rebirth_script.h"
+#include "bc7_decode.h"
 #include <zlib.h>
 #include <algorithm>
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <set>
 
@@ -1897,8 +1899,8 @@ struct Picture {  // kCell x kCell RGBA
     const std::uint8_t* at(int x, int y) const { return &px[(std::size_t(y) * kCell + x) * 4]; }
 };
 
-// One 80 px cell of a PS4-tiled BC1 texture (TPF format 0): 4x4 blocks, 8x8-block tiles in Morton order, tiles
-// row-major.
+// One 80 px cell of a PS4-tiled BC1 (TPF format 0) or BC7 (format 0x66, the item icon sheets) texture: 4x4 blocks,
+// 8x8-block tiles in Morton order, tiles row-major.
 Picture SheetCell(const Bytes& tpf, const std::string& name, int x0, int y0) {
     if (!Has(tpf, 0, "TPF\0", 4)) throw Error("common.tpf.dcx holds no TPF");
     const std::uint32_t count = U32(tpf, 8);
@@ -1911,18 +1913,27 @@ Picture SheetCell(const Bytes& tpf, const std::string& name, int x0, int y0) {
         if (n != name) continue;
         const std::size_t off = U32(tpf, h), size = U32(tpf, h + 4);
         const int w = U16(tpf, h + 0xc), hh = U16(tpf, h + 0xe);
-        if (tpf[h + 8] != 0 || w % 32 || x0 < 0 || y0 < 0 || x0 + kCell > w || y0 + kCell > hh ||
+        const bool bc7 = tpf[h + 8] == 0x66;
+        if ((tpf[h + 8] != 0 && !bc7) || w % 32 || x0 < 0 || y0 < 0 || x0 + kCell > w || y0 + kCell > hh ||
             off > tpf.size() || size > tpf.size() - off)
-            throw Error(name + " is not 1.09's BC1 sheet");
+            throw Error(name + " is not 1.09's BC1 / BC7 sheet");
         const int bw = w / 4;
+        const std::size_t block_size = bc7 ? 16 : 8;
         Picture out;
         for (int by = 0; by < kCell / 4; ++by)
             for (int bx = 0; bx < kCell / 4; ++bx) {
                 const int x = x0 / 4 + bx, y = y0 / 4 + by;
                 int k = 0;
                 for (int b = 0; b < 3; ++b) k |= ((x >> b) & 1) << (2 * b) | ((y >> b) & 1) << (2 * b + 1);
-                const std::size_t block = off + (std::size_t((y / 8) * ((bw + 7) / 8) + x / 8) * 64 + k) * 8;
-                if (block + 8 > off + size) throw Error(name + " is shorter than its size");
+                const std::size_t block =
+                    off + (std::size_t((y / 8) * ((bw + 7) / 8) + x / 8) * 64 + k) * block_size;
+                if (block + block_size > off + size) throw Error(name + " is shorter than its size");
+                if (bc7) {
+                    std::uint8_t px[64];
+                    Bc7DecodeBlock(&tpf[block], px);
+                    for (int i = 0; i < 16; ++i) std::memcpy(out.at(bx * 4 + i % 4, by * 4 + i / 4), px + i * 4, 4);
+                    continue;
+                }
                 const std::uint16_t c0 = U16(tpf, block), c1 = U16(tpf, block + 2);
                 const std::uint32_t bits = U32(tpf, block + 4);
                 const auto rgb = [](std::uint16_t c) {
@@ -2163,6 +2174,122 @@ std::array<Picture, 2> GlyphTabPictures(const Bytes& tpf) {
     return {system, Composite(lighter, status_quiet, FigureMask(status_src))};
 }
 
+// Nightwatch: the in-game Settings screen's tab icons (Display, Sound, Enhancements, Party): game item icons (BC7 sheets
+// MENU_Icon_*) on the menu sheet's empty ornament cell (720, 160), made to sit beside the grey grip (240, 0) and the
+// glyph screen's grey gear above. The approved recipe (work/helpers/re/tabref.py is the reference, matched pixel for
+// pixel): the ground's luma scaled so its outer ring is as bright as the references'; the icon's luma shrunk 80 -> 67
+// px by exact area average (alpha weighted), centred, times the largest gain (1/1000 steps from 1) that keeps the
+// tile's brightest 1 % at the references'; then the tile's 2 / 5 / 10 / 25 % luma points moved onto the references'
+// (the median and up unchanged); then the references' colour cast per brightness band (Tinted).
+constexpr int kSettingsIcons[] = {31, 138, 119, 3};  // Monocular, Tiny Music Box, Blood Gem Workshop Tool, Beckoning Bell
+constexpr int kIconSmall = 67;
+
+// The 2 / 5 / 10 / 25 / 50 % (or any) points of a cell's values: the first value whose running count reaches `need`.
+int CountPoint(const Plane& l, int need) {
+    std::array<int, 256> h{};
+    for (const int v : l) ++h[std::size_t(v)];
+    int acc = 0;
+    for (int v = 0; v < 256; ++v)
+        if ((acc += h[std::size_t(v)]) >= need) return v;
+    return 255;
+}
+constexpr int kPointNeeds[5] = {128, 320, 640, 1600, 3200};  // of 6400
+constexpr int kP99Need = 6336;
+int RingSum(const Plane& l) {
+    int sum = 0;
+    for (int y = 0; y < kCell; ++y)
+        for (int x = 0; x < kCell; ++x)
+            if (x < kRing || y < kRing || x >= kCell - kRing || y >= kCell - kRing) sum += l[std::size_t(y * kCell + x)];
+    return sum;
+}
+
+std::array<Picture, 4> SettingsTabPictures(const Bytes& tpf) {
+    const std::string sheet = "MENU_Common_00100";
+    const Picture grip = SheetCell(tpf, sheet, 240, 0);
+    const Picture gear =
+        Greyed(SheetCell(tpf, sheet, 0, 240),
+               ToneOf({SheetCell(tpf, sheet, 80, 0), SheetCell(tpf, sheet, 240, 0), SheetCell(tpf, sheet, 480, 0)}));
+    const Tone tone = ToneOf({grip, gear});
+    const Plane ref[2] = {LumaPlane(grip), LumaPlane(gear)};
+    const int ref_p99 = (CountPoint(ref[0], kP99Need) + CountPoint(ref[1], kP99Need) + 1) / 2;
+    int ref_points[4];
+    for (int i = 0; i < 4; ++i)
+        ref_points[i] = (CountPoint(ref[0], kPointNeeds[i]) + CountPoint(ref[1], kPointNeeds[i]) + 1) / 2;
+    const Plane empty = LumaPlane(SheetCell(tpf, sheet, 720, 160));
+    const std::int64_t g_num = RingSum(ref[0]) + RingSum(ref[1]), g_den = 2 * std::int64_t(RingSum(empty));
+    if (g_den <= 0) throw Error("the menu sheet's empty cell is black");
+    Plane ground(empty.size());
+    for (std::size_t i = 0; i < empty.size(); ++i)
+        ground[i] = int(std::min<std::int64_t>(255, (empty[i] * g_num + g_den / 2) / g_den));
+    // Area weights: destination d covers source [d * 80 / 67, (d + 1) * 80 / 67), in 1/67 source pixels.
+    std::array<std::vector<std::pair<int, int>>, kIconSmall> weights;
+    for (int d = 0; d < kIconSmall; ++d)
+        for (int s = 0; s < kCell; ++s) {
+            const int lo = std::max(d * kCell, s * kIconSmall), hi = std::min((d + 1) * kCell, (s + 1) * kIconSmall);
+            if (hi > lo) weights[std::size_t(d)].emplace_back(s, hi - lo);
+        }
+    constexpr std::int64_t kTotal = kCell * kCell;  // the weights' sum for one destination pixel
+    std::array<Picture, 4> out;
+    for (std::size_t k = 0; k < std::size(kSettingsIcons); ++k) {
+        const int id = kSettingsIcons[k], group = id / 1000, index = id % 1000;
+        char name[32];
+        std::snprintf(name, sizeof name, "MENU_Icon_%02d%03d", group, index / 144 + 1);
+        const Picture icon = SheetCell(tpf, name, (index % 144 % 12) * kCell, (index % 144 / 12) * kCell);
+        const Plane il = LumaPlane(icon);
+        const auto tile_at = [&](int gain) {
+            Plane tile = ground;
+            constexpr int off = (kCell - kIconSmall) / 2;
+            for (int dy = 0; dy < kIconSmall; ++dy)
+                for (int dx = 0; dx < kIconSmall; ++dx) {
+                    std::int64_t p = 0, a = 0;
+                    for (const auto& [sy, wy] : weights[std::size_t(dy)])
+                        for (const auto& [sx, wx] : weights[std::size_t(dx)]) {
+                            const std::int64_t w = std::int64_t(wx) * wy;
+                            const std::size_t i = std::size_t(sy * kCell + sx);
+                            const int alpha = icon.px[i * 4 + 3];
+                            p += std::int64_t(il[i]) * alpha * w;
+                            a += std::int64_t(alpha) * w;
+                        }
+                    if (a == 0) continue;
+                    std::int64_t v = (2 * p + a) / (2 * a);
+                    v = std::min<std::int64_t>(255, (v * gain + 500) / 1000);
+                    const std::int64_t alpha = (a + kTotal / 2) / kTotal;
+                    int& g = tile[std::size_t((off + dy) * kCell + off + dx)];
+                    g = int((v * alpha + g * (255 - alpha) + 127) / 255);
+                }
+            return tile;
+        };
+        int gain = 1000;
+        while (gain < 4000 && CountPoint(tile_at(gain + 1), kP99Need) <= ref_p99) ++gain;
+        Plane tile = tile_at(gain);
+        int ours[5];
+        for (int i = 0; i < 5; ++i) ours[i] = CountPoint(tile, kPointNeeds[i]);
+        const std::array<std::pair<int, int>, 7> pts = {{{0, 0},
+                                                         {ours[0], ref_points[0]},
+                                                         {ours[1], ref_points[1]},
+                                                         {ours[2], ref_points[2]},
+                                                         {ours[3], ref_points[3]},
+                                                         {ours[4], ours[4]},
+                                                         {255, 255}}};
+        std::array<int, 256> lut{};
+        for (int v = 0; v < 256; ++v)
+            for (std::size_t j = 0; j + 1 < pts.size(); ++j) {
+                const auto [x0, y0] = pts[j];
+                const auto [x1, y1] = pts[j + 1];
+                if (x0 <= v && v <= x1) {
+                    const int d = std::max(x1 - x0, 1);
+                    lut[std::size_t(v)] = (2 * (y0 * d + (y1 - y0) * (v - x0)) + d) / (2 * d);
+                    break;
+                }
+            }
+        for (int& v : tile) v = lut[std::size_t(v)];
+        Picture base;
+        for (int i = 0; i < kCell * kCell; ++i) base.px[std::size_t(i) * 4 + 3] = 255;
+        out[k] = Tinted(base, tile, tone, [](int v) { return double(v); });
+    }
+    return out;
+}
+
 // DefineBitsLossless2 (tag 36): a 32-bit ARGB bitmap, premultiplied, zlib-packed.
 Tag BitmapTag(std::uint16_t id, const Picture& p) {
     Bytes argb;
@@ -2371,7 +2498,12 @@ Bytes GlyphTabsMovie(const Bytes& gfx, const Bytes& common_tpf_dcx) {
             if (after + 1 < t.body.size() && t.body[after] == 1) fill_type = t.body[after + 1];
         }
     if (!fill_type || *fill_type < 0x40 || *fill_type > 0x43) throw Error("inventory.gfx's tab pictures are not 1.09's");
-    const auto pictures = GlyphTabPictures(DcxRead(common_tpf_dcx).data);
+    // Frames 61, 62: the glyph screen's Testing / Your Dungeons; 63..66: the Settings screen's Display, Sound,
+    // Enhancements and Party (bbport_settings_screen.cpp names them).
+    const Bytes tpf = DcxRead(common_tpf_dcx).data;
+    std::vector<Picture> pictures;
+    for (const Picture& p : GlyphTabPictures(tpf)) pictures.push_back(p);
+    for (const Picture& p : SettingsTabPictures(tpf)) pictures.push_back(p);
     std::uint16_t next = HighestCharacter(m);
     std::vector<Tag> defs;
     std::vector<std::uint16_t> shapes;

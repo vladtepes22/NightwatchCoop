@@ -533,7 +533,7 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/../tools/engine/pc_option_messages.tsv BB_ENGINE_MESSAGES)
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/include/pc_option_messages.inc "R\"tsv(${BB_ENGINE_MESSAGES})tsv\"\n")
 set(BB_MENU_ASSETS ../tools/engine/menu_assets.cpp ../tools/engine/esd.cpp ../tools/engine/rebirth_script.cpp
-    ../tools/engine/sha256.cpp)
+    ../tools/engine/sha256.cpp ../tools/engine/bc7_decode.cpp)
 add_executable(bb-engine-assets ../tools/engine/menu_assets_main.cpp ${BB_MENU_ASSETS})
 target_include_directories(bb-engine-assets PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/include)
 target_link_libraries(bb-engine-assets PRIVATE ZLIB::ZLIB)
