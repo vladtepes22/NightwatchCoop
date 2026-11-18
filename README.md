@@ -239,6 +239,7 @@ clipboard (addresses, user folder, player name and passwords hidden); paste them
 |---|---|
 | Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.7+e3169e38 |
 | **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)** | the engine and launcher this project started from. Nightwatch Co-op is a modified version, not an official Lantern Engine release |
+| Optional lighting (ambient occlusion, indirect lighting, contact and soft sun shadows, improved reflections, deeper surfaces, volumetric sunlight, fog around lamps, point light shadows), shadow resolution choices and motion blur quality | [fromsoftserve/BBFSS](https://github.com/fromsoftserve/BBFSS) by fromsoftserve, by way of Lantern Engine |
 | Save editor: | [Noxde/Bloodborne-save-editor](https://github.com/Noxde/Bloodborne-save-editor) by Noxde |
 | The map: its generator, drawing, art and controls | [Hunter's Atlas](https://github.com/MikeTat1988/HuntersAtlas) by MikeTat1988 |
 | Engine starting point | [DarkIzuku/bloodborne_pc](https://github.com/DarkIzuku/bloodborne_pc) (built on [bbport](https://github.com/deadinside28/bloodborne_pc) and [shadPS4](https://github.com/shadps4-emu/shadPS4)) |
