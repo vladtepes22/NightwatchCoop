@@ -131,11 +131,11 @@
             // Optional lighting (engine Effects[10..18], bbport_settings.h; all off, none in any preset). Ray traced
             // lighting is not in this build and has no row. Each hint: what it does, what it needs, when it applies.
             new("effect_gtao", L.T("Better ambient occlusion (GTAO)") + L.T(" (experimental)"), false,
-                Hint(L.T("Replaces the game's SSAO shader"), NeedsAo, NeedsUpscaler, AfterRestart)),
+                Hint(L.T("Replaces the game's SSAO shader"), NeedsAo, AfterRestart)),
             new("effect_modern_ssr", L.T("Improved reflections"), false,
                 Hint(L.T("Cleaner screen-space reflections"), NeedsSsr, NeedsUpscaler, AfterRestart)),
             new("effect_pom_cavity", L.T("Deeper parallax surfaces"), false,
-                Hint(L.T("Parallax-mapped surfaces look deeper"), NeedsUpscaler, AfterRestart)),
+                Hint(L.T("Parallax-mapped surfaces look deeper"), AfterRestart)),
             new("effect_contact_shadows", L.T("Contact shadows"), false,
                 Hint(L.T("Small shadows where objects meet the ground"), NeedsUpscaler, AtOnce)),
             new("effect_pcss", L.T("Soft sun shadows (PCSS)"), false,
