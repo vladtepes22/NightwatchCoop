@@ -103,6 +103,27 @@ int main() {
         d.startup_effects[BbSettings::EffectGtao] = false;
     }
     {
+        // Smooth normals for GTAO and indirect lighting (BBFSS 2bcc33d): off by default; any non-zero
+        // number is on; frozen at start (the shader modules are picked once) for the restart check.
+        auto& d = BbSettings::Get();
+        assert(d.graphics_smooth_normals == 0 && d.startup_smooth_normals == 0);
+        { std::ofstream file(path); file << "graphics_smooth_normals=1\n"; }
+        BbSettings::Load();
+        assert(d.graphics_smooth_normals == 1 && d.startup_smooth_normals == 1);
+        BbSettings::Save();
+        assert(Read(path).find("graphics_smooth_normals=1\n") != std::string::npos);
+        d.graphics_smooth_normals = 0;
+        assert(d.graphics_smooth_normals != d.startup_smooth_normals); // the overlay asks for a restart
+        BbSettings::Save();
+        assert(Read(path).find("graphics_smooth_normals=0\n") != std::string::npos);
+        { std::ofstream file(path); file << "graphics_smooth_normals=7\n"; }
+        BbSettings::Load();
+        assert(d.graphics_smooth_normals == 1);
+        { std::ofstream file(path); file << "graphics_smooth_normals=0\n"; }
+        BbSettings::Load();
+        assert(d.graphics_smooth_normals == 0 && d.startup_smooth_normals == 0);
+    }
+    {
         // The keys from visy 0.7.5: defaults first, then each one read from and written to bbport.ini.
         auto& d = BbSettings::Get();
         assert(d.party_level_sync && !d.party_phantom_hp && d.party_pvp_full_hp && d.party_boss_drops && !d.party_skip_prologue && d.party_vpn == 0 &&

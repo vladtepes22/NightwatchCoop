@@ -67,7 +67,7 @@ private:
         vk::DescriptorImageInfo normals{};
     };
     void CreatePass(Pass&, std::span<const u32>);
-    void CreateFullPass();
+    void CreateFullPass(std::span<const u32> code);
     bool EnsureScratch(Scratch&, u32 width, u32 height, const char* name);
     /// The image the target's current content lives in (its proxy when reduced), in the
     /// general layout for compute access; null when it lacks storage or sampled usage.

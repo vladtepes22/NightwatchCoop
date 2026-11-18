@@ -550,6 +550,11 @@ struct Values {
     /// graphics_ao_quality (after a restart; 0 regular GTAO, 1 high: three directions, denoised, full internal
     /// resolution): which gtao.frag replaces the game's SSAO shader (vk_effect_shaders.cpp).
     std::atomic<int> graphics_ao_quality{0};
+    /// graphics_smooth_normals (after a restart; 0 off, 1 on; BBFSS 2bcc33d): GTAO and indirect lighting
+    /// use a normal averaged over a few pixels of the same surface: the SMOOTH_NORMALS shader modules
+    /// (vk_effect_shaders.cpp, vk_ao_spatial.cpp, vk_ssgi.cpp). An int so the game's Options page can
+    /// show it as a choice (engine/option_lighting.h).
+    std::atomic<int> graphics_smooth_normals{0};
     std::atomic<int> output_res{OutputDefault};
     int custom_output_w = 1920, custom_output_h = 1080;
     std::atomic<int> cheat_vials{CheatOff}, cheat_bullets{CheatOff};
@@ -600,6 +605,7 @@ struct Values {
     int startup_texture_quality = 0;
     int startup_shadow_resolution = 0, startup_local_shadow_resolution = 0, startup_motion_blur_quality = 0;
     int startup_ao_quality = 0;
+    int startup_smooth_normals = 0;
     int startup_output_res = OutputDefault;
     int startup_live_resolution = 0;
     std::atomic<float> hdr_exposure{1.0f};

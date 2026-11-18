@@ -7,7 +7,10 @@
 #include "video_core/host_shaders/gtao_copy_comp.h"
 #include "video_core/host_shaders/gtao_denoise_comp.h"
 #include "video_core/host_shaders/gtao_denoise_full_comp.h"
+#include "video_core/host_shaders/gtao_denoise_full_smooth_comp.h"
+#include "video_core/host_shaders/gtao_denoise_smooth_comp.h"
 #include "video_core/host_shaders/gtao_full_comp.h"
+#include "video_core/host_shaders/gtao_full_smooth_comp.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_runtime.h"
 #include "video_core/renderer_vulkan/vk_scene_resolution.h"
@@ -61,10 +64,15 @@ SpatialAo::SpatialAo(const Instance& instance_, Scheduler& scheduler_, Runtime& 
     const auto& settings = BbSettings::Get();
     enabled = settings.startup_ao_quality == 1 && settings.startup_effects[BbSettings::EffectGtao];
     if (!enabled) return;
-    CreatePass(denoise, GTAO_DENOISE_COMP);
+    // graphics_smooth_normals (BBFSS 2bcc33d): frozen at start, as vk_effect_shaders.cpp's pick is.
+    const bool smooth = settings.startup_smooth_normals != 0;
+    CreatePass(denoise, smooth ? std::span<const u32>(GTAO_DENOISE_SMOOTH_COMP)
+                               : std::span<const u32>(GTAO_DENOISE_COMP));
     CreatePass(copy, GTAO_COPY_COMP);
-    CreatePass(full_denoise, GTAO_DENOISE_FULL_COMP);
-    CreateFullPass();
+    CreatePass(full_denoise, smooth ? std::span<const u32>(GTAO_DENOISE_FULL_SMOOTH_COMP)
+                                    : std::span<const u32>(GTAO_DENOISE_FULL_COMP));
+    CreateFullPass(smooth ? std::span<const u32>(GTAO_FULL_SMOOTH_COMP)
+                          : std::span<const u32>(GTAO_FULL_COMP));
 }
 
 void SpatialAo::CreatePass(Pass& pass, std::span<const u32> code) {
@@ -88,7 +96,7 @@ void SpatialAo::CreatePass(Pass& pass, std::span<const u32> code) {
     device.destroyShaderModule(module);
 }
 
-void SpatialAo::CreateFullPass() {
+void SpatialAo::CreateFullPass(std::span<const u32> code) {
     const auto device = instance.GetDevice();
     const std::array<vk::DescriptorSetLayoutBinding, 6> bindings{{
         {0, vk::DescriptorType::eUniformBuffer, 1, vk::ShaderStageFlagBits::eCompute},
@@ -104,7 +112,7 @@ void SpatialAo::CreateFullPass() {
     full.layout = Check<"create full AO layout">(device.createPipelineLayoutUnique({
         .setLayoutCount = 1, .pSetLayouts = &*full.set,
         .pushConstantRangeCount = 1, .pPushConstantRanges = &push}));
-    const auto module = CompileSPV(GTAO_FULL_COMP, device);
+    const auto module = CompileSPV(code, device);
     full.pipeline = Check<"create full AO pipeline">(device.createComputePipelineUnique({}, {
         .stage = {.stage = vk::ShaderStageFlagBits::eCompute, .module = module, .pName = "main"},
         .layout = *full.layout}));

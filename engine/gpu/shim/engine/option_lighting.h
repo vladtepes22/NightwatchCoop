@@ -68,6 +68,8 @@ inline constexpr Row kRows[] = {
     Slider(Lighting, 126003, BbSettings::EffectModernSsr, &BbSettings::Values::graphics_ssr_intensity, 0, 0.2f, 5),
     // Surfaces
     Toggle(Lighting, 126004, BbSettings::EffectPomCavity),
+    // Normals for ambient occlusion and indirect lighting (graphics_smooth_normals; after a restart)
+    Pick(Lighting, 126005, BbSettings::EffectGtao, &BbSettings::Values::graphics_smooth_normals, 126012, 2, 0, true),
 
     // PC Shadows
     Toggle(Shadows, 127000, BbSettings::EffectContactShadows),

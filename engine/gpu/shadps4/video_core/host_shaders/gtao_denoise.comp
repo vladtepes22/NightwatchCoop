@@ -19,6 +19,16 @@ layout(push_constant) uniform Params {
     uint buf_off;
 };
 
+// graphics_smooth_normals (BBFSS 2bcc33d; the *_smooth_* modules) tolerates normal-map variation
+// within a surface.
+#ifdef SMOOTH_NORMALS
+#define MIN_COSINE 0.7
+#define SHARPNESS 8.0
+#else
+#define MIN_COSINE 0.9
+#define SHARPNESS 32.0
+#endif
+
 float depth(vec4 packed) {
     return packed.a + packed.b / 255.0 + packed.g / 65025.0;
 }
@@ -62,10 +72,10 @@ void main() {
             float relative = abs(depth(sampleAO) - z) / max(z, 1e-4);
             if (relative >= 0.02) continue;
             float cosine = dot(n, normalAt(q));
-            if (cosine <= 0.9 && (x != 0 || y != 0)) continue;
+            if (cosine <= MIN_COSINE && (x != 0 || y != 0)) continue;
             float w = weights[x + 2] * weights[y + 2] *
                       (1.0 - smoothstep(0.0, 0.02, relative)) *
-                      (x == 0 && y == 0 ? 1.0 : pow(max(cosine, 0.0), 32.0));
+                      (x == 0 && y == 0 ? 1.0 : pow(max(cosine, 0.0), SHARPNESS));
             sum += w * sampleAO.r;
             total += w;
         }

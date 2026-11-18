@@ -559,6 +559,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.graphics_local_shadow_resolution = std::clamp(i, 0, 2);
     } else if (key == "graphics_motion_blur_quality") {
         v.graphics_motion_blur_quality = std::clamp(i, 0, 1);
+    } else if (key == "graphics_smooth_normals") {
+        v.graphics_smooth_normals = i != 0 ? 1 : 0;
     } else if (key == "graphics_ao_quality") {
         if (value != "0" && value != "1") {
             std::printf("Settings: unknown graphics_ao_quality '%s' (expected 0 or 1); regular GTAO\n",
@@ -1043,6 +1045,7 @@ void Load() {
     v.startup_local_shadow_resolution = v.graphics_local_shadow_resolution;
     v.startup_motion_blur_quality = v.graphics_motion_blur_quality;
     v.startup_ao_quality = v.graphics_ao_quality;
+    v.startup_smooth_normals = v.graphics_smooth_normals;
     v.startup_output_res = v.output_res;
     v.startup_live_resolution = v.live_resolution;
     v.startup_hdr = v.hdr;
@@ -1346,6 +1349,7 @@ void Save() {
         std::to_string(std::clamp(v.graphics_local_shadow_resolution.load(), 0, 2)));
     put("graphics_motion_blur_quality", std::to_string(std::clamp(v.graphics_motion_blur_quality.load(), 0, 1)));
     put("graphics_ao_quality", std::to_string(std::clamp(v.graphics_ao_quality.load(), 0, 1)));
+    put("graphics_smooth_normals", v.graphics_smooth_normals.load() != 0 ? "1" : "0");
     put("cheat_vials", CheatText(v.cheat_vials));
     put("cheat_bullets", CheatText(v.cheat_bullets));
     put("cheat_stamina", flag(v.cheat_stamina));

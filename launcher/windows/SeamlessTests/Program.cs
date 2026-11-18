@@ -243,6 +243,9 @@ var lightingIni = new IniFile();
 foreach (var key in lightingKeys) lightingIni.Set(key, "1");
 lightingIni.Set("graphics_ao_quality", "1");
 lightingIni.Set("graphics_point_fog_falloff", "1");
+Check(!lightingIni.Flag("graphics_smooth_normals") && !string.IsNullOrWhiteSpace(Choices.SmoothNormalsHint), "Smooth normals is on without its key, or has no hint");
+lightingIni.Set("graphics_smooth_normals", "1");
+Check(lightingIni.Flag("graphics_smooth_normals") && lightingIni.Raw("graphics_smooth_normals") == "1", "The smooth normals key was not written");
 Check(lightingKeys.All(k => lightingIni.Raw(k) == "1") && lightingIni.Raw("graphics_ao_quality") == "1" && lightingIni.Get("graphics_point_fog_falloff") == "1",
     "The lighting keys were not written");
 Check(Choices.AoQualities.Select(c => c.Value).SequenceEqual(new[] { "0", "1" }) && Choices.PointFogFalloff.Select(c => c.Value).SequenceEqual(new[] { "0", "1" }),

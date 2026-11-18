@@ -999,6 +999,35 @@ void AoQualityItem() {
     }
 }
 
+// graphics_smooth_normals (BBFSS 2bcc33d): off by default, after a restart (the shader modules are
+// picked at start); used by GTAO and indirect lighting.
+void SmoothNormalsItem() {
+    auto& s = BbSettings::Get();
+    const char* label = Item("Smooth normals for AO and indirect light",
+                             "Сглаженные нормали для AO и непрямого света");
+    if (!label) {
+        return;
+    }
+    bool on = s.graphics_smooth_normals.load() != 0;
+    const bool changed = ImGui::Checkbox(label, &on);
+    Store(s.graphics_smooth_normals, on ? 1 : 0, changed);
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", BbSettings::MenuText("(after a restart)", "(после перезапуска)"));
+    Hint(BbSettings::MenuText(
+        "Off by default. GTAO and Indirect lighting (GI) use a normal averaged over a few pixels "
+        "of the same surface instead of the per-pixel normal map. Less crawling occlusion and "
+        "blotchy bounced light on bumpy stone; fine bump detail in those two effects is softer.",
+        "По умолчанию выключено. GTAO и непрямое освещение (GI) используют нормаль, усреднённую по "
+        "нескольким пикселям той же поверхности, вместо попиксельной карты нормалей. Меньше "
+        "мерцания затенения и пятен отражённого света на неровном камне; мелкий рельеф в этих двух "
+        "эффектах мягче."));
+    if (s.graphics_smooth_normals != s.startup_smooth_normals) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", BbSettings::MenuText("Applied when the game restarts.",
+                                                       "Применяется после перезапуска игры."));
+    }
+}
+
 void EffectsSection() {
     auto& s = BbSettings::Get();
     Section("Game effects (restart required)", "Эффекты игры (после перезапуска)");
@@ -1112,6 +1141,7 @@ void EffectsSection() {
         if (!label) {
             if (e == BbSettings::EffectGtao) {
                 AoQualityItem(); // matches a search on its own
+                SmoothNormalsItem();
             }
             continue;
         }
@@ -1136,6 +1166,7 @@ void EffectsSection() {
                                                                "Нужно включённое затенение SSAO"));
             }
             AoQualityItem();
+            SmoothNormalsItem();
         }
         if (std::strcmp(effect.key, "effect_dynamic_shadows") == 0) {
             Hint(BbSettings::MenuText(
@@ -2358,6 +2389,9 @@ void Menu() {
         s.graphics_motion_blur_quality != s.startup_motion_blur_quality ||
         (s.graphics_ao_quality != s.startup_ao_quality &&
          (s.effects[BbSettings::EffectGtao] || s.startup_effects[BbSettings::EffectGtao])) ||
+        (s.graphics_smooth_normals != s.startup_smooth_normals &&
+         (s.effects[BbSettings::EffectGtao] || s.startup_effects[BbSettings::EffectGtao] ||
+          s.effects[BbSettings::EffectGi] || s.startup_effects[BbSettings::EffectGi])) ||
         s.live_resolution != s.startup_live_resolution || s.hdr != s.startup_hdr ||
         ((s.hdr_mode == BbSettings::HdrModePsychoV30) != s.startup_psychov30) ||
         BbSettings::ResolutionNeedsRestart();

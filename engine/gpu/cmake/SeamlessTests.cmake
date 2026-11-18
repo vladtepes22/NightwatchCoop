@@ -980,6 +980,14 @@ target_compile_definitions(fog-scale-test PRIVATE BB_FOG_SCALE_MUTANTS)
 add_test(NAME fog-scale-test COMMAND fog-scale-test)
 add_dependencies(seamless-tests fog-scale-test)
 
+# Occlusion query batching (renderer_vulkan/occlusion_batch.h, BB_OCCLUSION_BATCH; BBFSS 1451700): merged
+# reads give every block today's sum.
+add_executable(occlusion-batch-test EXCLUDE_FROM_ALL ../tests/test_occlusion_batch.cpp)
+target_include_directories(occlusion-batch-test PRIVATE ..)
+target_compile_options(occlusion-batch-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME occlusion-batch-test COMMAND occlusion-batch-test)
+add_dependencies(seamless-tests occlusion-batch-test)
+
 # UI art filtered linearly off the 1:1 stage (renderer_vulkan/ui_smooth.h, header only). Mutants as above.
 add_executable(ui-smooth-test EXCLUDE_FROM_ALL ../tests/test_ui_smooth.cpp)
 target_include_directories(ui-smooth-test PRIVATE ..)

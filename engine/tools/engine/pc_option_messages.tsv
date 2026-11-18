@@ -86,6 +86,9 @@
 126002	Improved Reflections	Sharper, steadier reflections; Screen-space Reflections must be on in the launcher. Requires a restart.	增强反射	更清晰稳定的反射；需在启动器中开启屏幕空间反射。需要重启。	Улучшенные отражения	Более чёткие и стабильные отражения; экранные отражения должны быть включены в лаунчере. Нужен перезапуск.
 126003	Reflection Strength	Needs Improved Reflections. 5 is the default.	反射强度	需要增强反射。5 为默认值。	Сила отражений	Нужны улучшенные отражения. 5 по умолчанию.
 126004	Deeper Parallax Surfaces	Deeper, shaded cavities on some surfaces. Requires a restart.	更深的视差表面	部分表面的凹陷更深并带有阴影。需要重启。	Глубокие параллакс-поверхности	Более глубокие затенённые углубления на некоторых поверхностях. Нужен перезапуск.
+126005	Smooth Lighting Normals	Steadier Better AO and indirect lighting on bumpy surfaces, with softer fine detail. Requires a restart.	平滑光照法线	增强环境光遮蔽和间接光照在凹凸表面上更稳定，细节更柔和。需要重启。	Сглаженные нормали	Улучшенное затенение и непрямой свет стабильнее на неровных поверхностях, мелкие детали мягче. Нужен перезапуск.
+126012	Off		关		Выкл
+126013	On		开		Вкл
 127020	PC Shadows		PC 阴影		Тени (ПК)
 127000	Contact Shadows	Fine shadows where objects meet surfaces.	接触阴影	物体与表面接触处的细腻阴影。	Контактные тени	Тонкие тени там, где предметы касаются поверхностей.
 127001	Soft Sun Shadows	PCSS: shadows soften the farther they fall from what casts them.	柔和太阳阴影	PCSS：阴影离投射物越远越柔和。	Мягкие тени от солнца	PCSS: чем дальше от предмета, тем мягче тень.

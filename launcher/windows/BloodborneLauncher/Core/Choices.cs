@@ -164,6 +164,10 @@
         private static string HeavyNote => L.T("Heavy");
         public static string Hint(params string[] parts) => string.Join(". ", parts);
 
+        /// <summary>graphics_smooth_normals: averaged normals for GTAO and indirect lighting; off by default, read at start.</summary>
+        public static string SmoothNormalsHint => Hint(L.T("Less crawling occlusion and blotchy bounced light on bumpy surfaces"),
+            L.T("Used by Better ambient occlusion (GTAO) and Indirect lighting (GI)"), AfterRestart);
+
         /// <summary>graphics_ao_quality: the GTAO replacement's quality (effect_gtao); read at start.</summary>
         public static readonly Choice[] AoQualities =
         {

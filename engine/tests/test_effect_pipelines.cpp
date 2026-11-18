@@ -12,12 +12,19 @@
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 #include <vulkan/vulkan.hpp>
 #include "video_core/host_shaders/contact_shadow_comp.h"
+#include "video_core/host_shaders/gtao_denoise_comp.h"
+#include "video_core/host_shaders/gtao_denoise_full_comp.h"
+#include "video_core/host_shaders/gtao_denoise_full_smooth_comp.h"
+#include "video_core/host_shaders/gtao_denoise_smooth_comp.h"
+#include "video_core/host_shaders/gtao_full_comp.h"
+#include "video_core/host_shaders/gtao_full_smooth_comp.h"
 #include "video_core/host_shaders/point_shadow_comp.h"
 #include "video_core/host_shaders/point_shadow_f16_comp.h"
 #include "video_core/host_shaders/ssgi_composite_comp.h"
 #include "video_core/host_shaders/ssgi_denoise_comp.h"
 #include "video_core/host_shaders/ssgi_gather_comp.h"
 #include "video_core/host_shaders/ssgi_prep_comp.h"
+#include "video_core/host_shaders/ssgi_prep_smooth_comp.h"
 #include "video_core/host_shaders/ssr_frag.h"
 #include "video_core/host_shaders/ssr_temporal_copy_comp.h"
 #include "video_core/host_shaders/ssr_temporal_resolve_comp.h"
@@ -121,6 +128,25 @@ int main() {
          {eStorageBuffer, eCombinedImageSampler, eStorageImage, eStorageImage, eStorageImage, eStorageImage},
          64},
         {"ssgi prep", SSGI_PREP_COMP, {eSampledImage, eStorageImage, eSampledImage}, 128},
+        {"ssgi prep (smooth normals)", SSGI_PREP_SMOOTH_COMP, {eSampledImage, eStorageImage, eSampledImage}, 128},
+        {"gtao denoise", GTAO_DENOISE_COMP, {eSampledImage, eSampledImage, eStorageImage, eUniformBuffer}, 24},
+        {"gtao denoise (smooth normals)",
+         GTAO_DENOISE_SMOOTH_COMP,
+         {eSampledImage, eSampledImage, eStorageImage, eUniformBuffer},
+         24},
+        {"gtao denoise full", GTAO_DENOISE_FULL_COMP, {eSampledImage, eSampledImage, eStorageImage, eUniformBuffer}, 24},
+        {"gtao denoise full (smooth normals)",
+         GTAO_DENOISE_FULL_SMOOTH_COMP,
+         {eSampledImage, eSampledImage, eStorageImage, eUniformBuffer},
+         24},
+        {"gtao full",
+         GTAO_FULL_COMP,
+         {eUniformBuffer, eUniformBuffer, eSampledImage, eSampledImage, eSampler, eStorageImage},
+         16},
+        {"gtao full (smooth normals)",
+         GTAO_FULL_SMOOTH_COMP,
+         {eUniformBuffer, eUniformBuffer, eSampledImage, eSampledImage, eSampler, eStorageImage},
+         16},
         {"ssgi gather",
          SSGI_GATHER_COMP,
          {eSampledImage, eSampledImage, eSampledImage, eStorageImage, eSampledImage},

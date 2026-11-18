@@ -138,6 +138,9 @@ namespace BloodborneLauncher.Views
                         Choices.Hint(L.T("High looks sharper and steadier but costs more GPU time"),
                             L.T("Needs Better ambient occlusion (GTAO) on"), L.T("Applies after a restart")),
                         Choices.AoQualities, "graphics_ao_quality");
+                if (effect.Key == "effect_gtao")
+                    IniToggle(SymbolRegular.Lightbulb24, L.T("Smooth normals for AO and indirect light"), Choices.SmoothNormalsHint,
+                        "graphics_smooth_normals");
             }
             IniSlider(SymbolRegular.Lightbulb24, L.T("Indirect lighting strength"), 0, 12, "graphics_gi_strength", fallback: 6);
             IniSlider(SymbolRegular.Lightbulb24, L.T("Reflection strength"), 0, 3, "graphics_ssr_intensity");

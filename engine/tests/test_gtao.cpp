@@ -21,6 +21,9 @@
 #include "video_core/host_shaders/gtao_reference_frag.h"
 #include "video_core/host_shaders/gtao_denoise_comp.h"
 #include "video_core/host_shaders/gtao_copy_comp.h"
+#include "video_core/host_shaders/gtao_denoise_smooth_comp.h"
+#include "video_core/host_shaders/gtao_hq_smooth_frag.h"
+#include "video_core/host_shaders/gtao_smooth_frag.h"
 
 using u32 = uint32_t;
 using Pixel = std::array<float, 4>;
@@ -77,6 +80,12 @@ Scene MakeScene(u32 mode) {
             }
         }
         if (mode == 3 && (x % 23 < 2 || y % 37 < 2)) z = 1.75f;
+        if (mode == 6) { // graphics_smooth_normals: a flat floor with a noisy normal map
+            const u32 h = (x * 73856093u) ^ (y * 19349663u);
+            normal = {float(int(h % 61u) - 30) / 60.0f, float(int((h / 61u) % 61u) - 30) / 60.0f, -1};
+            const float length = std::sqrt(normal[0] * normal[0] + normal[1] * normal[1] + 1);
+            for (auto& c : normal) c /= length;
+        }
         if (mode == 4) {
             const int cx = int(x % 29) - 14, cy = int(y % 31) - 15;
             if (cx * cx + cy * cy < 60 && (x + y) % 5 != 0) z = 1.82f;
@@ -187,8 +196,9 @@ public:
         graphics_layout = Check(device->createPipelineLayoutUnique({.setLayoutCount = 1,
             .pSetLayouts = &*graphics_set, .pushConstantRangeCount = 1, .pPushConstantRanges = &gp},
             nullptr, d));
-        const std::array<std::span<const u32>, 4> codes{
-            GTAO_FRAG, GTAO_HQ_FRAG, GTAO_REFERENCE_FRAG, GTAO_SINGLE_HQ_FRAG};
+        const std::array<std::span<const u32>, 6> codes{
+            GTAO_FRAG, GTAO_HQ_FRAG, GTAO_REFERENCE_FRAG, GTAO_SINGLE_HQ_FRAG, GTAO_SMOOTH_FRAG,
+            GTAO_HQ_SMOOTH_FRAG};
         for (u32 i = 0; i < codes.size(); ++i) pipelines[i] = GraphicsPipeline(codes[i]);
         const std::array<vk::DescriptorSetLayoutBinding, 4> filter_bindings{{
             {0, vk::DescriptorType::eSampledImage, 1, vk::ShaderStageFlagBits::eCompute},
@@ -202,7 +212,8 @@ public:
         filter_layout = Check(device->createPipelineLayoutUnique({.setLayoutCount = 1,
             .pSetLayouts = &*filter_set, .pushConstantRangeCount = 1, .pPushConstantRanges = &fp},
             nullptr, d));
-        const std::array<std::span<const u32>, 2> filters{GTAO_DENOISE_COMP, GTAO_COPY_COMP};
+        const std::array<std::span<const u32>, 3> filters{GTAO_DENOISE_COMP, GTAO_COPY_COMP,
+                                                          GTAO_DENOISE_SMOOTH_COMP};
         for (u32 i = 0; i < filters.size(); ++i) {
             const auto module = Check(device->createShaderModuleUnique({
                 .codeSize = filters[i].size_bytes(), .pCode = filters[i].data()}, nullptr, d));
@@ -224,6 +235,7 @@ public:
     }
 
     std::vector<Packed> Run(const Scene& scene, u32 mode, bool filter = false, float strength = 1) {
+        smooth = mode >= 4;
         Upload(scene);
         Begin();
         Draw(mode, filter, strength);
@@ -233,6 +245,7 @@ public:
     std::vector<Packed> Filter(const Scene& scene, const std::vector<Packed>& pixels,
                                const Params& params = {},
                                std::array<float, 2> uv_size = {float(W), float(H)}) {
+        smooth = false;
         auto* cb = static_cast<float*>(mapped[1]);
         cb[16] = uv_size[0]; cb[17] = uv_size[1];
         Upload(scene);
@@ -434,7 +447,8 @@ private:
             const vk::DescriptorBufferInfo cb{*buffers[1], 0, 65536};
             writes[3] = {.dstBinding = 3, .descriptorCount = 1,
                          .descriptorType = vk::DescriptorType::eUniformBuffer, .pBufferInfo = &cb};
-            command.bindPipeline(vk::PipelineBindPoint::eCompute, *filter_pipelines[i], d);
+            command.bindPipeline(vk::PipelineBindPoint::eCompute,
+                                 *filter_pipelines[i == 0 && smooth ? 2 : i], d);
             command.pushDescriptorSetKHR(vk::PipelineBindPoint::eCompute, *filter_layout, 0, writes, d);
             command.pushConstants(*filter_layout, vk::ShaderStageFlagBits::eCompute, 0,
                                   sizeof(params), &params, d);
@@ -471,8 +485,9 @@ private:
     std::array<vk::UniqueSampler, 2> samplers;
     vk::UniqueDescriptorSetLayout graphics_set, filter_set;
     vk::UniquePipelineLayout graphics_layout, filter_layout;
-    std::array<vk::UniquePipeline, 4> pipelines;
-    std::array<vk::UniquePipeline, 2> filter_pipelines;
+    std::array<vk::UniquePipeline, 6> pipelines;
+    std::array<vk::UniquePipeline, 3> filter_pipelines;
+    bool smooth = false; ///< modes 4 and 5: the denoiser is the SMOOTH_NORMALS module
 };
 
 double Error(const std::vector<Packed>& a, const std::vector<Packed>& b) {
@@ -566,6 +581,44 @@ int main(int argc, char** argv) {
     assert(filtered_error < standard_error * 0.85);
     assert(filtered_error < single_error * 0.85);
     assert(filtered_error <= raw_error * 1.05);
+    {   // graphics_smooth_normals (BBFSS 2bcc33d): the packed depth is the same to its last bit (another
+        // module, so the driver may round the depth's lowest byte the other way); on a flat floor (one
+        // normal) the AO is what the regular modules give; on a floor with a noisy normal map the AO
+        // varies less from pixel to pixel.
+        const auto near_depth = [](const std::vector<Packed>& a, const std::vector<Packed>& b) {
+            for (u32 i = 0; i < N; ++i) {
+                const double da = a[i][3] / 255.0 + a[i][2] / 65025.0 + a[i][1] / 16581375.0;
+                const double db = b[i][3] / 255.0 + b[i][2] / 65025.0 + b[i][1] / 16581375.0;
+                assert(std::abs(da - db) <= 1.5 / 16581375.0);
+            }
+        };
+        const auto variation = [](const std::vector<Packed>& p) {
+            double sum = 0;
+            for (u32 y = 0; y < H; ++y) for (u32 x = 1; x < W; ++x) {
+                const double step = (int(p[y * W + x][0]) - int(p[y * W + x - 1][0])) / 255.0;
+                sum += step * step;
+            }
+            return sum / double(N);
+        };
+        const auto flat = MakeScene(0), bumpy = MakeScene(6);
+        const auto standard = gpu.Run(flat, 0), smooth_standard = gpu.Run(flat, 4);
+        const auto hq = gpu.Run(flat, 1, true), smooth_hq = gpu.Run(flat, 5, true);
+        near_depth(standard, smooth_standard);
+        near_depth(hq, smooth_hq);
+        for (u32 p = 0; p < N; ++p) {
+            assert(std::abs(int(standard[p][0]) - int(smooth_standard[p][0])) <= 1);
+            assert(std::abs(int(hq[p][0]) - int(smooth_hq[p][0])) <= 1);
+        }
+        const auto noisy = gpu.Run(bumpy, 0), noisy_hq = gpu.Run(bumpy, 1, true);
+        const auto smoothed = gpu.Run(bumpy, 4), smoothed_hq = gpu.Run(bumpy, 5, true);
+        near_depth(noisy, smoothed);
+        near_depth(noisy_hq, smoothed_hq);
+        std::printf("Bumpy floor, pixel-to-pixel AO variation: Standard %.8f -> smooth %.8f, "
+                    "HQ %.8f -> smooth %.8f\n", variation(noisy), variation(smoothed),
+                    variation(noisy_hq), variation(smoothed_hq));
+        assert(variation(smoothed) < variation(noisy) * 0.8);
+        assert(variation(smoothed_hq) < variation(noisy_hq) * 0.8);
+    }
     auto scene = MakeScene(0);
     std::vector<Packed> pixels(N);
     for (u32 y = 0; y < H; ++y) for (u32 x = 0; x < W; ++x)
@@ -610,6 +663,6 @@ int main(int argc, char** argv) {
     gpu.FiniteFar(false);
     std::printf("PASS: six scenes; open plane, packed depth, AO off, no history, "
                 "linear strength, sky, all packed-byte values, noise reduction, "
-                "depth/normal edges, odd-size/partial/padded/proxy UV guards\n");
+                "depth/normal edges, odd-size/partial/padded/proxy UV guards, smooth normals\n");
     if (argc == 3 && std::string(argv[2]) != "--native") gpu.Benchmark(MakeScene(1));
 }

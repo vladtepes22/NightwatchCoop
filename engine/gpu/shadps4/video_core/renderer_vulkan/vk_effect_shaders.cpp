@@ -14,6 +14,8 @@
 #include "bbport_settings.h"
 #include "video_core/host_shaders/gtao_frag.h"
 #include "video_core/host_shaders/gtao_hq_frag.h"
+#include "video_core/host_shaders/gtao_hq_smooth_frag.h"
+#include "video_core/host_shaders/gtao_smooth_frag.h"
 #include "video_core/host_shaders/native_motion_blur_frag.h"
 #include "video_core/host_shaders/ssr_frag.h"
 #include "video_core/renderer_vulkan/vk_ssr_composite_patch.h"
@@ -125,6 +127,16 @@ std::span<const u32> Replacement(const Shader::Info& info, const Shader::Profile
                 std::printf(high ? "GTAO: in use in place of the game's SSAO shader (High: three "
                                    "directions, spatial denoise, full internal resolution)\n"
                                  : "GTAO: in use in place of the game's SSAO shader\n");
+            }
+            // graphics_smooth_normals (BBFSS 2bcc33d): frozen at start, as the quality is, so this
+            // and vk_ao_spatial.cpp's passes agree. Off: the two modules above, unchanged.
+            if (BbSettings::Get().startup_smooth_normals != 0) {
+                static std::atomic<bool> said{false};
+                if (!said.exchange(true, std::memory_order_relaxed)) {
+                    std::printf("GTAO: smoothed normals (graphics_smooth_normals=1)\n");
+                }
+                return high ? std::span<const u32>(GTAO_HQ_SMOOTH_FRAG)
+                            : std::span<const u32>(GTAO_SMOOTH_FRAG);
             }
             return high ? std::span<const u32>(GTAO_HQ_FRAG) : std::span<const u32>(GTAO_FRAG);
         }

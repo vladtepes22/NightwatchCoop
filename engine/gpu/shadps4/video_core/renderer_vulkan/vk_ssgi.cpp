@@ -13,6 +13,7 @@
 #include "video_core/host_shaders/ssgi_gather_comp.h"
 #include "video_core/host_shaders/ssgi_gather_ray_comp.h"
 #include "video_core/host_shaders/ssgi_prep_comp.h"
+#include "video_core/host_shaders/ssgi_prep_smooth_comp.h"
 #include "video_core/renderer_vulkan/vk_camera_motion.h"
 #include "video_core/renderer_vulkan/vk_effect_pass.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
@@ -144,7 +145,11 @@ bool ScreenSpaceGI::Ready() {
     const bool made =
         EffectPass::StorageFormat(instance, vk::Format::eR16G16B16A16Sfloat) &&
         EffectPass::StorageFormat(instance, vk::Format::eR32G32B32A32Sfloat) &&
-        CreatePass(prep, {SampledImage, StorageImage, SampledImage}, SSGI_PREP_COMP,
+        // graphics_smooth_normals (BBFSS 2bcc33d): frozen at start, as GTAO's modules are.
+        CreatePass(prep, {SampledImage, StorageImage, SampledImage},
+                   BbSettings::Get().startup_smooth_normals != 0
+                       ? std::span<const u32>(SSGI_PREP_SMOOTH_COMP)
+                       : std::span<const u32>(SSGI_PREP_COMP),
                    "SSGI prep") &&
         CreatePass(gather, {SampledImage, SampledImage, SampledImage, StorageImage, SampledImage},
                    SSGI_GATHER_COMP, "SSGI gather") &&
