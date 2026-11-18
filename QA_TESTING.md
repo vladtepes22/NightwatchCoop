@@ -45,7 +45,8 @@ world could be made; `world` is the check for that whole class, and it runs long
 - `world` without `--package` (**tree mode**; change and merge level) stages the tree's own generator the way
   `tools/package-seamless.ps1` ships it (`tools/randomizer/*.py`, no tests) next to the embedded Python that
   script pins (its archive is kept in `work/downloads`, fetched from python.org once, signature checked), then
-  makes one world through the tree's launcher code into the run folder. About 25 s (the generator itself ~20 s).
+  makes one world through the tree's launcher code into the run folder (removed after a pass, kept on a
+  failure, whose note names the folder the generator wrote). About 25 s (the generator itself ~20 s).
   It proves the pair in the tree; it says nothing about a package.
 - `world --package <dir>` (**package mode**; release) does the same with the package's generator and Python,
   and first fails when the package's `randomizer/source` is not byte for byte the tree's `tools/randomizer`
@@ -56,9 +57,9 @@ world could be made; `world` is the check for that whole class, and it runs long
   written and no game or launcher window opens.
 - Without the game, `python` still holds two source-only checks (`engine/tests/test_qa_tools.py`): the folder
   name the generator writes matches the launcher's pattern, and both carry the same generator major.
-- At change level `tools/randomizer/**` selects `generator` + `world`; the launcher's side (`Core/Randomizer.cs`,
+- At change level `tools/randomizer/**` selects `python` + `generator` + `world`; the launcher's side (`Core/Randomizer.cs`,
   `Core/WorldCode.cs`, `Core/Paths.cs`, `Views/RandomizerPage.cs`, `SeamlessTests/Randomizer*.cs`,
-  `SeamlessTests/Program.cs`) selects `launcher` + `world`. The two sides change and ship from one commit.
+  `SeamlessTests/Program.cs`) selects `python` + `launcher` + `world`. The two sides change and ship from one commit.
 
 **For agents: the harness does the work, you read its stdout.** One `qa.py` command per check; no
 hand-built director chains, loops or log greps. A PASS is the table line: paste `report.md`. A FAIL prints a

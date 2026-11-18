@@ -41,12 +41,12 @@ class LayerChoice(unittest.TestCase):
         self.assertEqual(qa.layers_for(['engine/docs/party/items.md', 'README.md']), [])
 
     def test_either_side_of_a_world_needs_a_world(self):
-        self.assertEqual(qa.layers_for(['tools/randomizer/generate.py']), ['generator', 'world'])
-        self.assertEqual(qa.layers_for(['tools/randomizer/tests/test_randomizer.py']), ['generator', 'world'])
+        self.assertEqual(qa.layers_for(['tools/randomizer/generate.py']), ['python', 'generator', 'world'])
+        self.assertEqual(qa.layers_for(['tools/randomizer/tests/test_randomizer.py']), ['python', 'generator', 'world'])
         for name in ('BloodborneLauncher/Core/Randomizer.cs', 'BloodborneLauncher/Core/WorldCode.cs',
                      'BloodborneLauncher/Core/Paths.cs', 'BloodborneLauncher/Views/RandomizerPage.cs',
                      'SeamlessTests/RandomizerTests.cs', 'SeamlessTests/Program.cs'):
-            self.assertEqual(qa.layers_for(['launcher/windows/' + name]), ['launcher', 'world'], name)
+            self.assertEqual(qa.layers_for(['launcher/windows/' + name]), ['python', 'launcher', 'world'], name)
         self.assertEqual(qa.layers_for(['launcher/windows/BloodborneLauncher/Core/WorldSaves.cs']), ['launcher'])
 
     def test_a_merge_makes_a_world_from_the_tree(self):

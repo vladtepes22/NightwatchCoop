@@ -56,11 +56,11 @@ RULES = [
     (r'^engine/(gpu|src|start)/', ['native', 'smoke']),
     (r'^engine/(scripts/|tools/|tests/.*\.py$)', ['python']),
     # The launcher's side of a world (its folder name, manifest, code, the generator's command line) and the generator
-    # change together: either side alone needs a world made through both.
+    # change together: either side alone needs a world made through both (python: the source-only checks of the pair).
     (r'^launcher/windows/(BloodborneLauncher/(Core/(Randomizer|WorldCode|Paths)|Views/RandomizerPage)|SeamlessTests/(Randomizer\w*|Program))\.cs$',
-     ['launcher', 'world']),
+     ['python', 'launcher', 'world']),
     (r'^launcher/', ['launcher']),
-    (r'^tools/randomizer/', ['generator', 'world']),
+    (r'^tools/randomizer/', ['python', 'generator', 'world']),
     (r'^tools/(package-seamless|release)\.ps1$', ['smoke']),
     (r'^tools/(smoke-|qa)', ['python']),
 ]
@@ -378,6 +378,9 @@ class Run:
         made = re.search(r"^generated .*$", out, re.M)
         passed = code == 0 and 'world-generate ok' in out
         problems = pick(out, r'FAIL|Exception|error [A-Z]+\d+|TIMEOUT', 8)
+        problems.append('the generator wrote: ' + (', '.join(f"'{p.name}'" for p in sorted(mods.iterdir())[:6]) or 'nothing'))
+        if passed:
+            shutil.rmtree(mods, ignore_errors=True)  # ~50 MB a world; a failed run keeps it
         summary = made.group(0) if made else f'exit {code}'
         if not passed and problems:
             summary += ': ' + re.sub(r'^Unhandled exception\. ', '', problems[0])[:160]
