@@ -394,6 +394,14 @@ bool PipelineCache::LoadGraphicsPipeline(Serialization::Archive& ar, bool legacy
           vs_runtime.hw_stage == Shader::HwStage::Vertex && vs_runtime.hw.vs.motion_vectors)) {
         return false;
     }
+    // bbport: a stored vertex shader whose position-capture mode differs from its key's (a shader
+    // slot rewritten by a run with the ray tracing row the other way) would read its parameter
+    // index or address block wrongly: leave the pipeline out, it is compiled again when drawn.
+    if (sel.graphics_key.stage_hashes[u32(Shader::SwStage::Vertex)] &&
+        vs_runtime.hw_stage == Shader::HwStage::Vertex &&
+        ((vs_runtime.hw.vs.motion_vectors ^ sel.graphics_key.motion_vectors) & 2u) != 0) {
+        return false;
+    }
     static const bool motion_layout_guard = [] {
         const char* env = std::getenv("BB_WARMUP_MOTION_GUARD");
         return !(env && env[0] == '0');
