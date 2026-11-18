@@ -142,9 +142,11 @@ Rows SoundRows() {
 Rows EnhancementRows() {
     return {
         {Kind::Head, u"Enhancements", nullptr},
-        {Kind::Toggle, u"Hunter's Dream Mirror", u"Requires a restart. The Dream's mirror opens the appearance editor.", 0},
-        {Kind::Toggle, u"Rebirth at the Altar", u"Requires a restart. The Altar of Despair resets level and attributes.", 0},
-        {Kind::Toggle, u"PC Camera Controls", u"Requires a restart. Adds the Camera section to Controls.", 0},
+        Pc(124001, {Kind::Toggle, u"Hunter's Dream Mirror",
+                    u"Requires a restart. The Dream's mirror opens the appearance editor (the unused \"Put on Disguise\").", 0}),
+        Pc(124002, {Kind::Toggle, u"Rebirth at the Altar",
+                    u"Requires a restart. The Altar of Despair resets level and attributes.", 0}),
+        Pc(124004, {Kind::Toggle, u"PC Camera Controls", u"Requires a restart. Adds the Camera section to Controls.", 0}),
         {Kind::Defaults, u"Defaults", u"Every setting on this tab back to its default."},
     };
 }
@@ -224,8 +226,9 @@ void LoadValues(Rows& rows, bool defaults) {
 constexpr std::uint32_t kPictureTuning = 125004;  // a picture row's change turns it on: written after them
 bool SaveValues(Rows& rows) {
     bool saved = false;
-    for (int pass = 0; pass < 2; ++pass)
-    for (Row& r : rows) {
+    for (int k = 0; k < 2 * int(rows.size()); ++k) {  // two passes: Picture Tuning's row in the second
+        const int pass = k / int(rows.size());
+        Row& r = rows[std::size_t(k % int(rows.size()))];
         if ((r.pc == kPictureTuning) != (pass == 1)) continue;
         if (r.value == r.stored || (!r.pc && !r.auto_hud && r.game < 0)) continue;  // (a row that is not wired)
         if (r.pc) {
