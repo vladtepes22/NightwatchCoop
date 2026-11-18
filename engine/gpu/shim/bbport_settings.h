@@ -100,13 +100,25 @@ static_assert(EffectCount == EffectRayTracing + 1);
 /// read from bbport.ini and not written to it, so it can never be on.
 inline constexpr bool EffectAvailable(int effect) {
     return effect < EffectFirstLighting || effect == EffectGtao || effect == EffectPomCavity || effect == EffectGi ||
-           effect == EffectContactShadows || effect == EffectPcss || effect == EffectPointShadows;
+           effect == EffectContactShadows || effect == EffectPcss || effect == EffectPointShadows ||
+           effect == EffectVolumetricLight || effect == EffectPointFog;
 }
 /// Lighting passes from contact shadows on switch while the game runs; the rest are built into
 /// cached pipelines at start. Ray tracing needs its device extensions, so turning it on restarts.
 inline constexpr bool EffectIsLive(int effect) { return effect >= EffectContactShadows; }
 inline constexpr bool EffectChangeNeedsRestart(int effect, bool now, bool at_start) {
     return now != at_start && (!EffectIsLive(effect) || (effect == EffectRayTracing && now));
+}
+/// Lamp fog's shader (graphics_point_fog_falloff): classic (1 - d/r)^2 or the inverse-square glow,
+/// whose core is graphics_point_fog_glow_size of each light's radius.
+inline constexpr int PointFogFalloffClassic = 0;
+inline constexpr int PointFogFalloffInverseSquare = 1;
+inline constexpr float PointFogGlowSizeMin = 0.03f, PointFogGlowSizeMax = 0.20f, PointFogGlowSizeDefault = 0.08f;
+inline constexpr float PointFogGlowSize(float value) {
+    return value >= PointFogGlowSizeMin && value <= PointFogGlowSizeMax ? value
+           : value > PointFogGlowSizeMax                                ? PointFogGlowSizeMax
+           : value < PointFogGlowSizeMin                                ? PointFogGlowSizeMin
+                                                                        : PointFogGlowSizeDefault;
 }
 inline constexpr int OutputWidths[] = {1280,1600,1920,2560,3840,2560,3440,3840,3840,5120,5120,7680,0,0};
 inline constexpr int OutputHeights[] = {720,900,1080,1440,2160,1080,1440,1600,1080,1440,2160,2160,0,0};
@@ -517,6 +529,10 @@ struct Values {
     std::atomic<bool> change_appearance{true}, rebirth{true};  // on by default since 0.2.5 (settings_rev 3)
     std::atomic<bool> graphics_controls{false}, graphics_vignette{true};
     std::atomic<float> graphics_ao_strength{1},graphics_shadow_scale{1},graphics_bloom{1},graphics_saturation{1};
+    /// Volumetric sunlight and lamp fog strengths (0-3), lamp fog's falloff and glow size (live).
+    std::atomic<float> graphics_volumetric_intensity{1}, graphics_point_fog_intensity{1};
+    std::atomic<float> graphics_point_fog_glow_size{PointFogGlowSizeDefault};
+    std::atomic<int> graphics_point_fog_falloff{PointFogFalloffClassic};
     /// Indirect lighting (effect_gi) strength, 0-12 (vk_ssgi.cpp multiplies its base 8 by it).
     std::atomic<float> graphics_gi_strength{6};
     std::atomic<float> graphics_fog{1},graphics_brightness{1},graphics_contrast{1},graphics_hue{0};

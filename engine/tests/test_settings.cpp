@@ -757,6 +757,43 @@ int main() {
         Load();
         assert(d.graphics_gi_strength == 7.5f && d.effects[EffectGi]);
     }
+    {
+        // Volumetric sunlight and lamp fog (upstream 0.9.43): rows 16 and 17 are in the build; the
+        // strengths read clamped to 0-3 (1 when unreadable), the falloff 0 or 1 (classic otherwise),
+        // the glow size clamped to 0.03-0.20 (0.08 when unreadable).
+        using namespace BbSettings;
+        static_assert(EffectAvailable(EffectVolumetricLight) && EffectAvailable(EffectPointFog));
+        static_assert(std::string_view(Effects[EffectVolumetricLight].key) == "effect_volumetric_light");
+        static_assert(std::string_view(Effects[EffectPointFog].key) == "effect_point_fog");
+        static_assert(PointFogGlowSize(0.5f) == PointFogGlowSizeMax && PointFogGlowSize(0.0f) == PointFogGlowSizeMin);
+        static_assert(PointFogGlowSize(0.15f) == 0.15f);
+        auto& d = Get();
+        assert(d.graphics_volumetric_intensity == 1.0f && d.graphics_point_fog_intensity == 1.0f);
+        assert(d.graphics_point_fog_falloff == PointFogFalloffClassic);
+        assert(d.graphics_point_fog_glow_size == PointFogGlowSizeDefault);
+        { std::ofstream file(path); file << "graphics_volumetric_intensity=7\ngraphics_point_fog_intensity=-1\n"
+                                            "graphics_point_fog_falloff=1\ngraphics_point_fog_glow_size=0.15\n"
+                                            "effect_volumetric_light=1\neffect_point_fog=1\n"; }
+        Load();
+        assert(d.graphics_volumetric_intensity == 3.0f && d.graphics_point_fog_intensity == 0.0f);
+        assert(d.graphics_point_fog_falloff == PointFogFalloffInverseSquare);
+        assert(d.graphics_point_fog_glow_size == 0.15f);
+        assert(d.effects[EffectVolumetricLight] && d.effects[EffectPointFog]);
+        Save();
+        const std::string saved = Read(path);
+        for (const char* line : {"graphics_volumetric_intensity=3.00", "graphics_point_fog_intensity=0.00",
+                                 "graphics_point_fog_falloff=1", "graphics_point_fog_glow_size=0.150",
+                                 "effect_volumetric_light=1", "effect_point_fog=1"}) {
+            assert(saved.find(line) != std::string::npos);
+        }
+        { std::ofstream file(path); file << "graphics_volumetric_intensity=x\ngraphics_point_fog_intensity=nan\n"
+                                            "graphics_point_fog_falloff=2\ngraphics_point_fog_glow_size=nan\n"; }
+        Load();
+        assert(d.graphics_volumetric_intensity == 0.0f); // atof("x") is 0, a readable 0
+        assert(d.graphics_point_fog_intensity == 1.0f);
+        assert(d.graphics_point_fog_falloff == PointFogFalloffClassic);
+        assert(d.graphics_point_fog_glow_size == PointFogGlowSizeDefault);
+    }
     std::filesystem::remove(temporary);
     std::puts("PASS: settings save keeps other keys, menu position");
 }

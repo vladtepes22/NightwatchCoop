@@ -51,6 +51,7 @@
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_shader_hle.h"
 #include "video_core/renderer_vulkan/vk_shader_util.h"
+#include "video_core/renderer_vulkan/vk_volumetric_light.h"
 #include "video_core/host_shaders/indirect_clamp_comp.h"
 #include "video_core/texture_cache/image_view.h"
 #include "video_core/texture_cache/overlap_diagnostics.h"
@@ -100,6 +101,8 @@ Rasterizer::Rasterizer(const Instance& instance_, Scheduler& scheduler_, Runtime
                                                  *scene_targets, *camera_motion, *rt_shadow);
     upscaler = std::make_unique<TemporalUpscaler>(instance, scheduler, texture_cache, runtime,
                                                   *camera_motion, *scene_targets, *hdr_native);
+    volumetric_light = std::make_unique<VolumetricLight>(instance, scheduler, texture_cache,
+                                                         runtime, *scene_targets);
     // bbport: graphics_ao_quality=1; creates nothing unless High GTAO is on at start.
     spatial_ao = std::make_unique<SpatialAo>(instance, scheduler, runtime, *scene_targets,
                                              texture_cache);
@@ -2356,6 +2359,7 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
         HdrChannel::NoteTarget(ps->pgm_hash, cb.Address(), cb.Pitch(), cb.Height(),
             LiverpoolToVK::SurfaceFormat(cb.GetDataFmt(), cb.GetNumberFmt()));
     }
+    EffectsAfterDraw(regs, pipeline, is_indexed, num_indices, num_instances, first_vertex);
     if (spatial_ao->Enabled()) {
         HqAoAfterDraw(pipeline, state);
     }

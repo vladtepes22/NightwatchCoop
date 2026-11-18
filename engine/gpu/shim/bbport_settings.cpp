@@ -514,6 +514,18 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.graphics_vignette=i!=0;
     } else if (key == "graphics_ao_strength") {
         v.graphics_ao_strength=Clamp(std::isfinite(f)?f:1.0f,0.0f,5.0f);
+    } else if (key == "graphics_volumetric_intensity") {
+        v.graphics_volumetric_intensity=Clamp(std::isfinite(f)?f:1.0f,0.0f,3.0f);
+    } else if (key == "graphics_point_fog_intensity") {
+        v.graphics_point_fog_intensity=Clamp(std::isfinite(f)?f:1.0f,0.0f,3.0f);
+    } else if (key == "graphics_point_fog_glow_size") {
+        v.graphics_point_fog_glow_size=PointFogGlowSize(f);
+    } else if (key == "graphics_point_fog_falloff") {
+        if (value != "0" && value != "1") {
+            std::printf("Settings: unknown graphics_point_fog_falloff '%s' (expected 0 or 1); classic\n",
+                        value.c_str());
+        }
+        v.graphics_point_fog_falloff = value == "1" ? PointFogFalloffInverseSquare : PointFogFalloffClassic;
     } else if (key == "graphics_gi_strength") {
         v.graphics_gi_strength=Clamp(std::isfinite(f)?f:6.0f,0.0f,12.0f);
     } else if (key == "graphics_shadow_scale") {
@@ -1294,6 +1306,10 @@ void Save() {
     put("graphics_controls",flag(v.graphics_controls));
     put("graphics_vignette",flag(v.graphics_vignette));
     put("graphics_ao_strength",fixed(v.graphics_ao_strength,2));
+    put("graphics_volumetric_intensity",fixed(v.graphics_volumetric_intensity,2));
+    put("graphics_point_fog_intensity",fixed(v.graphics_point_fog_intensity,2));
+    put("graphics_point_fog_glow_size",fixed(PointFogGlowSize(v.graphics_point_fog_glow_size),3));
+    put("graphics_point_fog_falloff",std::to_string(std::clamp(v.graphics_point_fog_falloff.load(),0,1)));
     put("graphics_shadow_scale",fixed(v.graphics_shadow_scale,2));
     put("graphics_gi_strength",fixed(v.graphics_gi_strength,2));
     put("graphics_bloom",fixed(v.graphics_bloom,2));

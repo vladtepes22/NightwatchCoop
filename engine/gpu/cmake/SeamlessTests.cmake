@@ -784,9 +784,27 @@ target_include_directories(directional-shadow-test PRIVATE ${SHADER_INCLUDE})
 target_compile_options(directional-shadow-test PRIVATE -UNDEBUG -Wall -Werror)
 target_link_libraries(directional-shadow-test PRIVATE Vulkan::Vulkan)
 add_dependencies(directional-shadow-test host_shaders)
+# Volumetric sunlight and lamp fog (upstream 0.9.43): the lamp fog's light memory (pure), and on a
+# GPU the sun colour pass and the lamp fog's two falloffs against a 20000-step reference.
+add_executable(lamp-fog-lights-test EXCLUDE_FROM_ALL ../tests/test_lamp_fog_lights.cpp)
+target_compile_options(lamp-fog-lights-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(lamp-fog-lights-test PRIVATE ..)
+add_test(NAME lamp-fog-lights-test COMMAND lamp-fog-lights-test)
+add_dependencies(seamless-tests lamp-fog-lights-test)
+foreach(effect_test
+        "point-volumetric-test;test_point_volumetric.cpp"
+        "volumetric-tint-test;test_volumetric_tint.cpp")
+    list(GET effect_test 0 effect_test_name)
+    list(GET effect_test 1 effect_test_source)
+    add_executable(${effect_test_name} EXCLUDE_FROM_ALL ../tests/${effect_test_source})
+    target_include_directories(${effect_test_name} PRIVATE ${SHADER_INCLUDE})
+    target_compile_options(${effect_test_name} PRIVATE -UNDEBUG -Wall -Werror)
+    target_link_libraries(${effect_test_name} PRIVATE Vulkan::Vulkan)
+    add_dependencies(${effect_test_name} host_shaders)
+endforeach()
 set(bb_gpu_tests scene-resolution-test taa-shader-test camera-motion-test indirect-clamp-test
     hdr-native-shader-test motion-shader-test motion-blur-shader-test effect-pipelines-test
-    directional-shadow-test)
+    directional-shadow-test point-volumetric-test volumetric-tint-test)
 foreach(target IN LISTS bb_engine_tests bb_gpu_tests)
     add_test(NAME ${target} COMMAND ${target})
     add_dependencies(seamless-tests ${target})

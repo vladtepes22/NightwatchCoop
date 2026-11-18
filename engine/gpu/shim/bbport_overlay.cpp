@@ -910,6 +910,23 @@ void PictureSection() {
     slider("Ambient occlusion strength", "Сила затенения (AO)", s.graphics_ao_strength, 0.0f, 3.0f);
     slider("Shadow distance", "Дальность теней", s.graphics_shadow_scale, 0.5f, 4.0f);
     slider("Indirect lighting strength", "Сила непрямого освещения (GI)", s.graphics_gi_strength, 0.0f, 12.0f);
+    slider("Volumetric sunlight strength", "Сила объёмного света", s.graphics_volumetric_intensity, 0.0f, 3.0f);
+    slider("Lamp fog strength", "Сила тумана ламп", s.graphics_point_fog_intensity, 0.0f, 3.0f);
+    if (const char* label = Item("Lamp fog falloff", "Спад тумана ламп")) {
+        const char* modes[] = {BbSettings::MenuText("Classic", "Классический"),
+                               BbSettings::MenuText("Inverse-square", "Обратный квадрат")};
+        int mode = std::clamp(s.graphics_point_fog_falloff.load(), 0, 1);
+        if (ImGui::Combo(label, &mode, modes, 2)) {
+            Store(s.graphics_point_fog_falloff, mode, true);
+        }
+        Hint(BbSettings::MenuText(
+            "Classic is the original lamp fog. Inverse-square gives a bright, tight glow at each flame that falls off fast, and costs more GPU time than classic. Needs Fog around lamps.",
+            "Классический — исходный туман ламп. Обратный квадрат даёт яркое плотное свечение у каждого огня, быстро спадающее, и нагружает GPU сильнее классического. Нужен туман вокруг ламп."));
+    }
+    ImGui::BeginDisabled(s.graphics_point_fog_falloff.load() != BbSettings::PointFogFalloffInverseSquare);
+    slider("Lamp fog glow size", "Размер свечения тумана ламп", s.graphics_point_fog_glow_size,
+           BbSettings::PointFogGlowSizeMin, BbSettings::PointFogGlowSizeMax, "%.3f");
+    ImGui::EndDisabled();
     if (moved && !s.graphics_controls) {
         Store(s.graphics_controls, true, true);
     }
@@ -925,6 +942,9 @@ void PictureSection() {
             Store(s.graphics_ao_strength, 1.0f, true);
             Store(s.graphics_shadow_scale, 1.0f, true);
             Store(s.graphics_gi_strength, 6.0f, true);
+            Store(s.graphics_volumetric_intensity, 1.0f, true);
+            Store(s.graphics_point_fog_intensity, 1.0f, true);
+            Store(s.graphics_point_fog_glow_size, BbSettings::PointFogGlowSizeDefault, true);
         }
     }
     ImGui::EndDisabled();

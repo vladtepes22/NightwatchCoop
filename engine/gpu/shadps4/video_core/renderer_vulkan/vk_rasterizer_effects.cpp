@@ -19,6 +19,7 @@
 #include "video_core/renderer_vulkan/vk_ao_spatial.h"
 #include "video_core/renderer_vulkan/vk_effect_shaders.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
+#include "video_core/renderer_vulkan/vk_volumetric_light.h"
 
 namespace Vulkan {
 
@@ -31,6 +32,11 @@ constexpr u64 HdrPostHash = 0xccbf44a6;
 constexpr u64 DirectionalTableHash = 0xd92266b9;
 constexpr u64 SceneTargetHash = 0x32e47788;
 constexpr u64 PointGridVertexHash = 0x8747a367;
+
+/// Lights per tile in the game's tiled point-light shaders (lamp fog reads them).
+u32 PointLightCount(u64 hash) {
+    return RtLamps::TileFamily(hash, false).count;
+}
 
 /// The game's own light list as extra lamps: ray traced lamps only, which this build does not have.
 bool GameLamps() {
@@ -128,6 +134,7 @@ void Rasterizer::EffectsAfterTargets(const GraphicsPipeline* pipeline) {
     }
     const auto& key = pipeline->GetGraphicsKey();
     if (std::popcount(key.mrt_mask) >= 5 && db_desc.first) {
+        volumetric_light->Reset();
         ssgi->OnGBufferDraw(db_desc.first, cb_descs[2].first, cb_descs[0].first);
     }
     if (cb_descs[0].first && EffectShaders::GtaoActive() &&
@@ -143,15 +150,25 @@ void Rasterizer::EffectsBlendedScene() {
     ssgi->OnOpaqueScene(cb_descs[0].first, db_desc.first, upscaler->Jitter());
 }
 
-void Rasterizer::EffectsBeforeUpscaler(u64) {
+void Rasterizer::EffectsBeforeUpscaler(u64 compute_hash) {
     if (!effects_wanted) {
         return;
     }
+    if (compute_hash == upscaler->TriggerHash()) {
+        const auto camera = camera_motion->PassMatrices();
+        volumetric_light->SetCamera({camera.view, camera.inv_view, camera.valid});
+        volumetric_light->Composite(upscaler->SceneColor(), "the upscaler");
+    }
 }
 
-void Rasterizer::EffectsBeforeResources(const GraphicsPipeline*) {
+void Rasterizer::EffectsBeforeResources(const GraphicsPipeline* pipeline) {
     if (!effects_wanted) {
         return;
+    }
+    if (FragmentHash(pipeline) == HdrPostHash) {
+        const auto camera = camera_motion->PassMatrices();
+        volumetric_light->SetCamera({camera.view, camera.inv_view, camera.valid});
+        volumetric_light->Composite();
     }
 }
 
@@ -403,5 +420,54 @@ void Rasterizer::HqAoAfterDraw(const GraphicsPipeline* pipeline, const RenderSta
     }
 }
 
+
+void Rasterizer::EffectsAfterDraw(const AmdGpu::Regs&, const GraphicsPipeline* pipeline, bool, u32, u32,
+                                  u32) {
+    if (!effects_wanted) {
+        return;
+    }
+    const auto* ps_info = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
+    if (!ps_info) {
+        return;
+    }
+    const auto& vs_info = pipeline->GetStage(Shader::SwStage::Vertex);
+    const u64 hash = ps_info->pgm_hash;
+    if (hash == ShadowResolveHash && cb_descs[0].first && buffer_infos.size() >= 2 &&
+        image_infos.size() >= 2) {
+        // The game's directional shadow resolve: cascade constants (buffer 0), scene constants
+        // (buffer 1), the scene depth (image 0) and the shadow atlas (image 1).
+        volumetric_light->Integrate(cb_descs[0].first, image_infos[0],
+                                    {.constants = buffer_infos[0].buffer,
+                                     .constants_offset = buffer_infos[0].offset,
+                                     .constants_range = buffer_infos[0].range,
+                                     .uniforms = buffer_infos[1].buffer,
+                                     .uniforms_offset = buffer_infos[1].offset,
+                                     .uniforms_range = buffer_infos[1].range,
+                                     .shadow_map = image_infos[1].imageView,
+                                     .shadow_layout = image_infos[1].imageLayout,
+                                     .constants_offset_word = PackedOffsets(push_data)});
+    } else if (hash == DirectionalTableHash && !buffer_infos.empty()) {
+        volumetric_light->Tint(buffer_infos[0], push_data.buf_offsets[0] & 255u);
+    } else if (const u32 count = PointLightCount(hash);
+               count != 0 && (pipeline->GetGraphicsKey().mrt_mask & 3) == 3 && cb_descs[0].first &&
+               cb_descs[1].first && buffer_infos.size() >= 2) {
+        if (vs_info.pgm_hash != PointGridVertexHash || ps_info->buffers.size() < 2 ||
+            ps_info->buffers[0].IsSpecial() || ps_info->buffers[1].IsSpecial()) {
+            return;
+        }
+        // The lamp fog's lights: read from guest memory now (copied by AddPointLights).
+        const VAddr constants = ps_info->buffers[0].GetSharp(*ps_info).base_address;
+        const VAddr lights = ps_info->buffers[1].GetSharp(*ps_info).base_address;
+        const u64 light_bytes = u64(count) * 64;
+        if (memory->IsValidGpuMapping(constants, 0) && memory->ClampRangeSize(constants, 64) == 64 &&
+            memory->IsValidGpuMapping(lights, 0) &&
+            memory->ClampRangeSize(lights, light_bytes) == light_bytes) {
+            volumetric_light->AddPointLights(reinterpret_cast<const u32*>(constants),
+                                             reinterpret_cast<const u32*>(lights), count);
+        }
+    } else if (hash == SceneTargetHash && cb_descs[0].first) {
+        volumetric_light->Scene(cb_descs[0].first);
+    }
+}
 
 } // namespace Vulkan

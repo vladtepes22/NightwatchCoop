@@ -43,6 +43,7 @@ namespace Vulkan {
 class GraphicsPipeline;
 class Occlusion;
 class Runtime;
+class VolumetricLight;
 
 class Rasterizer {
 public:
@@ -332,6 +333,10 @@ private:
     void EffectsBlendedScene();
     void EffectsBeforeUpscaler(u64 compute_hash);
     void EffectsBeforeResources(const GraphicsPipeline* pipeline);
+    /// After a direct draw is recorded: the draws volumetric lighting and lamp fog read their
+    /// inputs from (the game's directional shadow resolve, its sun table, its tiled point lights).
+    void EffectsAfterDraw(const AmdGpu::Regs& regs, const GraphicsPipeline* pipeline, bool is_indexed,
+                          u32 num_indices, u32 num_instances, u32 first_vertex);
     /// GTAO: the AO strength into the push constants of the game's SSAO draw (effect_gtao).
     void GtaoBeforeBind(const GraphicsPipeline* pipeline);
     /// graphics_ao_quality=1: denoises the GTAO gather and redoes the upscale at full resolution.
@@ -611,6 +616,7 @@ private:
     std::unique_ptr<HdrNative> hdr_native; // bbport: native HDR output (docs/hdr.md); before
                                            // the upscaler, which uses it
     std::unique_ptr<TemporalUpscaler> upscaler; // bbport: FSR (docs/upscaler.md)
+    std::unique_ptr<VolumetricLight> volumetric_light; // bbport: rows 16-17 (vk_rasterizer_effects.cpp)
     std::array<float, 2> draw_jitter{};         ///< viewport offset of the current draw, pixels
     std::array<float,2> target_offset{};
     std::array<float, 2> target_scale{1.0f, 1.0f}; ///< pass drawn into the upscaler's output-size images
