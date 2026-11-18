@@ -319,6 +319,14 @@ public:
 private:
     void PrepareRenderState(const GraphicsPipeline* pipeline);
     void NotifyUiDraw(const GraphicsPipeline* pipeline);
+    // bbport: optional lighting passes (vk_rasterizer_effects.cpp). Each returns at once unless a
+    // lighting effect is on (effects_wanted, decided once per frame).
+    void EffectsOnFrameEnd();
+    void EffectsBeforeTargets(const GraphicsPipeline* pipeline);
+    void EffectsAfterTargets(const GraphicsPipeline* pipeline);
+    void EffectsBlendedScene();
+    void EffectsBeforeUpscaler(u64 compute_hash);
+    void EffectsBeforeResources(const GraphicsPipeline* pipeline);
     RenderState BeginRendering(const GraphicsPipeline* pipeline);
     RenderState BeginRenderingFull(const GraphicsPipeline* pipeline);
     /// bbport: a pass drawn into the upscaler's output-size images (UI, display pass): what its
@@ -572,6 +580,7 @@ private:
     /// bbport: the scene depth of the frame before (SkipUncompiledDraw).
     VideoCore::ImageId previous_scene_depth{};
     std::unique_ptr<ObjectMotion> object_motion;
+    bool effects_wanted = false; ///< a lighting effect is on this frame (EffectsOnFrameEnd)
     bool motion_draw = false;
     u64 motion_geometry{};    ///< vertex-stream identity of the current direct draw
     bool gbuffer_draw = false;

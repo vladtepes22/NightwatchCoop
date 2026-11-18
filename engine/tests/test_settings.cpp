@@ -7,7 +7,9 @@
 #include <chrono>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include "gpu/shim/bbport_settings.h"
+#include "gpu/shadps4/video_core/renderer_vulkan/lighting_rules.h"
 
 static std::string Read(const char* path) {
     std::ifstream file(path);
@@ -630,6 +632,59 @@ int main() {
         BbSettings::Load();
         assert(!s.party_settled_drop);
         s.party_settled_drop = true;
+    }
+    {
+        // Optional lighting rows: fixed indices, and a row whose pass is not in the build is never
+        // on, never read and never written (an existing bbport.ini stays as it was).
+        using namespace BbSettings;
+        static_assert(std::string_view(Effects[EffectSsr].key) == "effect_ssr");
+        static_assert(std::string_view(Effects[EffectGtao].key) == "effect_gtao");
+        static_assert(std::string_view(Effects[EffectContactShadows].key) == "effect_contact_shadows");
+        static_assert(std::string_view(Effects[EffectRayTracing].key) == "effect_ray_tracing");
+        static_assert(EffectFirstLighting == EffectGtao);
+        for (int e = 0; e < EffectFirstLighting; ++e) {
+            assert(EffectAvailable(e));
+            // The game's own effects are patched in at start: any change restarts, as before.
+            assert(EffectChangeNeedsRestart(e, true, false) && EffectChangeNeedsRestart(e, false, true));
+            assert(!EffectChangeNeedsRestart(e, true, true) && !EffectChangeNeedsRestart(e, false, false));
+        }
+        assert(EffectChangeNeedsRestart(EffectGtao, true, false));
+        assert(!EffectChangeNeedsRestart(EffectContactShadows, true, false));
+        assert(!EffectChangeNeedsRestart(EffectPointShadows, false, true));
+        assert(EffectChangeNeedsRestart(EffectRayTracing, true, false));
+        assert(!EffectChangeNeedsRestart(EffectRayTracing, false, true));
+        auto& d = Get();
+        std::string all;
+        for (int e = EffectFirstLighting; e < EffectCount; ++e) {
+            assert(!Effects[e].default_on);
+            all += std::string(Effects[e].key) + "=1\n";
+        }
+        { std::ofstream file(path); file << all; }
+        Load();
+        bool on[EffectCount]{};
+        for (int e = 0; e < EffectCount; ++e) {
+            on[e] = d.effects[e];
+            assert(e < EffectFirstLighting || EffectAvailable(e) || !on[e]);
+        }
+        bool expected = false;
+        for (int e = EffectFirstLighting; e < EffectCount; ++e) {
+            expected |= EffectAvailable(e);
+        }
+        assert(Vulkan::LightingRules::AnyWanted(on) == expected);
+        bool none[EffectCount]{};
+        for (int e = 0; e < EffectFirstLighting; ++e) {
+            none[e] = true; // the game's own effects never start the lighting hooks
+        }
+        assert(!Vulkan::LightingRules::AnyWanted(none));
+        { std::ofstream file(path); file << "show_fps=0\n"; }
+        Load();
+        Save();
+        const std::string saved = Read(path);
+        for (int e = EffectFirstLighting; e < EffectCount; ++e) {
+            const bool written = saved.find(std::string(Effects[e].key) + "=") != std::string::npos;
+            assert(written == EffectAvailable(e));
+        }
+        assert(saved.find("effect_ssr=") != std::string::npos);
     }
     std::filesystem::remove(temporary);
     std::puts("PASS: settings save keeps other keys, menu position");

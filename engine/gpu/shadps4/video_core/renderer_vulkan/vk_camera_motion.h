@@ -88,6 +88,14 @@ public:
         return {current.view, current.inv_view, previous.view, current.proj, previous.proj,
                 current.valid && previous.valid};
     }
+    /// The camera of the pass being drawn (no previous frame), for the lighting passes.
+    [[nodiscard]] Matrices PassMatrices() const noexcept {
+        return {pass_camera.view, pass_camera.inv_view, {}, pass_camera.proj, {},
+                pass_has_camera && pass_camera.valid};
+    }
+    [[nodiscard]] std::array<float, 4> PassProjection() const noexcept {
+        return pass_has_camera ? pass_camera.proj : std::array<float, 4>{};
+    }
     /// bbport: the matrices and jitter of the motion of this frame, printed with an upscaler dump
     /// (BB_DUMP_TRIGGER) for offline checks of the vectors.
     void PrintState(int frame) const;

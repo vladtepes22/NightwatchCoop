@@ -101,6 +101,14 @@ public:
     [[nodiscard]] std::array<float, 2> Jitter() const noexcept {
         return done_this_frame ? std::array<float, 2>{} : jitter;
     }
+    /// The compute shader that starts the upscale and the scene colour it reads (lighting passes
+    /// composite into it just before).
+    [[nodiscard]] u64 TriggerHash() const noexcept {
+        return trigger_hash;
+    }
+    [[nodiscard]] VideoCore::ImageId SceneColor() const noexcept {
+        return scene_color;
+    }
 
     // Scaled presets.
 

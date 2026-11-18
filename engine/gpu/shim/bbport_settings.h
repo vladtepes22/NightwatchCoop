@@ -70,8 +70,41 @@ inline constexpr Effect Effects[] = {
     {"skip_intro", "Skip startup intros", "Пропуск заставок при запуске", false},
     {"debug_camera", "Free camera (Cross + L3)", "Свободная камера (Cross + L3)", false},
     {"debug_menu", "Debug menu (requires font files)", "Debug menu (нужны файлы шрифтов)", false},
+    // bbport: optional lighting (rows and indices as upstream 0.9.43; all off by default).
+    {"effect_gtao", "Ground-truth ambient occlusion (GTAO, experimental)", "Затенение GTAO (эксперимент)", false},
+    {"effect_modern_ssr", "Improved reflections", "Улучшенные отражения", false},
+    {"effect_pom_cavity", "Deeper parallax surfaces", "Глубокие параллакс-поверхности", false},
+    {"effect_contact_shadows", "Contact shadows", "Контактные тени", false},
+    {"effect_pcss", "Soft sun shadows (PCSS)", "Мягкие тени солнца (PCSS)", false},
+    {"effect_gi", "Indirect lighting (GI)", "Непрямое освещение (GI)", false},
+    {"effect_volumetric_light", "Volumetric sunlight", "Объёмный солнечный свет", false},
+    {"effect_point_fog", "Fog around lamps", "Туман вокруг ламп", false},
+    {"effect_point_shadows", "Point light shadows (experimental)", "Тени от точечных источников (эксперимент)", false},
+    {"effect_ray_tracing", "Ray traced lighting (experimental)", "Трассированное освещение (эксперимент)", false},
 };
 inline constexpr int EffectCount = int(sizeof(Effects) / sizeof(Effects[0]));
+inline constexpr int EffectFirstLighting = 10;
+inline constexpr int EffectSsr = 6;
+inline constexpr int EffectGtao = 10;
+inline constexpr int EffectModernSsr = 11;
+inline constexpr int EffectPomCavity = 12;
+inline constexpr int EffectContactShadows = 13;
+inline constexpr int EffectPcss = 14;
+inline constexpr int EffectGi = 15;
+inline constexpr int EffectVolumetricLight = 16;
+inline constexpr int EffectPointFog = 17;
+inline constexpr int EffectPointShadows = 18;
+inline constexpr int EffectRayTracing = 19;
+static_assert(EffectCount == EffectRayTracing + 1);
+/// A lighting row exists in the build only once its pass is in: until then it is not shown, not
+/// read from bbport.ini and not written to it, so it can never be on.
+inline constexpr bool EffectAvailable(int effect) { return effect < EffectFirstLighting; }
+/// Lighting passes from contact shadows on switch while the game runs; the rest are built into
+/// cached pipelines at start. Ray tracing needs its device extensions, so turning it on restarts.
+inline constexpr bool EffectIsLive(int effect) { return effect >= EffectContactShadows; }
+inline constexpr bool EffectChangeNeedsRestart(int effect, bool now, bool at_start) {
+    return now != at_start && (!EffectIsLive(effect) || (effect == EffectRayTracing && now));
+}
 inline constexpr int OutputWidths[] = {1280,1600,1920,2560,3840,2560,3440,3840,3840,5120,5120,7680,0,0};
 inline constexpr int OutputHeights[] = {720,900,1080,1440,2160,1080,1440,1600,1080,1440,2160,2160,0,0};
 inline constexpr int OutputCount = 14;

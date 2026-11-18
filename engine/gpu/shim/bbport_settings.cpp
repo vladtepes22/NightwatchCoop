@@ -671,7 +671,7 @@ void Set(Values& v, const std::string& key, const std::string& value) {
     } else {
         for (int e = 0; e < EffectCount; ++e) {
             if (key == Effects[e].key) {
-                v.effects[e] = i != 0;
+                v.effects[e] = i != 0 && EffectAvailable(e);
             }
         }
     }
@@ -1241,6 +1241,9 @@ void Save() {
     put("optiscaler_sync_submit", v.optiscaler_sync_submit == OptiSubmitAuto ? std::string("auto")
                                                                             : flag(v.optiscaler_sync_submit != 0));
     for (int e = 0; e < EffectCount; ++e) {
+        if (!EffectAvailable(e)) {
+            continue;
+        }
         put(Effects[e].key, flag(v.effects[e]));
     }
     put("fullscreen", flag(v.fullscreen));
