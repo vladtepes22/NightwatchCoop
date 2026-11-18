@@ -697,7 +697,7 @@ int main() {
         }
         bool expected = false;
         for (int e = EffectFirstLighting; e < EffectCount; ++e) {
-            expected |= EffectAvailable(e) && e != EffectPomCavity;
+            expected |= EffectAvailable(e) && e != EffectPomCavity && e != EffectModernSsr;
         }
         assert(Vulkan::LightingRules::AnyWanted(on) == expected);
         static_assert(std::string_view(Effects[EffectPomCavity].key) == "effect_pom_cavity");

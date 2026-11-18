@@ -99,6 +99,12 @@ Rasterizer::Rasterizer(const Instance& instance_, Scheduler& scheduler_, Runtime
                                                      *scene_targets, *camera_motion, *rt_shadow);
     point_shadow = std::make_unique<PointShadow>(instance, scheduler, texture_cache, runtime,
                                                  *scene_targets, *camera_motion, *rt_shadow);
+    // Improved reflections (restart to change): with the row off at start it does not exist, so
+    // nothing is built or allocated (its images and pipelines are made at its first SSR pass).
+    if (BbSettings::Get().startup_effects[BbSettings::EffectModernSsr]) {
+        ssr_temporal = std::make_unique<SsrTemporal>(instance, scheduler, texture_cache, runtime,
+                                                     *scene_targets, *camera_motion);
+    }
     upscaler = std::make_unique<TemporalUpscaler>(instance, scheduler, texture_cache, runtime,
                                                   *camera_motion, *scene_targets, *hdr_native);
     volumetric_light = std::make_unique<VolumetricLight>(instance, scheduler, texture_cache,
@@ -2209,7 +2215,9 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
             push_data.bb_hdr[2] = HdrChannel::ChainProbe();
         }
     }
-    if (effects_wanted) {
+    // Improved reflections (ssr_temporal) always: its patched composite reads the reflection strength
+    // from the push constants, also when effects_wanted is never decided (camera motion off).
+    if (effects_wanted || ssr_temporal) {
         const auto [effect_first_vertex, effect_first_instance] =
             GetDrawOffsets(regs, pipeline->GetStage(Shader::SwStage::Vertex), pipeline->GetFetchShader());
         EffectsBeforeBind(regs, pipeline, is_indexed, index_offset, effect_first_vertex);

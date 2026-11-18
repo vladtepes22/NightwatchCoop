@@ -217,6 +217,12 @@ add_host_shader(ssgi.comp ssgi_prep_comp PREP=1)
 add_host_shader(ssgi.comp ssgi_gather_comp GATHER=1)
 add_host_shader(ssgi.comp ssgi_denoise_comp DENOISE=1)
 add_host_shader(ssgi.comp ssgi_composite_comp COMPOSITE=1)
+# Improved reflections (effect_modern_ssr; upstream v0.9.43): the SSR pass's replacement, its
+# temporal resolve and copy, and the full-size trace the patched composite samples.
+add_host_shader(ssr.frag ssr_frag)
+add_host_shader(ssr_temporal.comp ssr_temporal_resolve_comp RESOLVE=1)
+add_host_shader(ssr_temporal.comp ssr_temporal_copy_comp COPY=1)
+add_host_shader(ssr_trace.comp ssr_trace_comp)
 add_host_shader(camera_motion.comp camera_motion_comp)
 add_host_shader(camera_motion.comp camera_motion_clean_comp CLEAN_COLOR=1)
 add_host_shader(upscale_merge.comp upscale_merge_comp)

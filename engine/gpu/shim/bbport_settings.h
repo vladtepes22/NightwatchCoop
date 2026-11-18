@@ -99,9 +99,7 @@ static_assert(EffectCount == EffectRayTracing + 1);
 /// A lighting row exists in the build only once its pass is in: until then it is not shown, not
 /// read from bbport.ini and not written to it, so it can never be on.
 inline constexpr bool EffectAvailable(int effect) {
-    return effect < EffectFirstLighting || effect == EffectGtao || effect == EffectPomCavity || effect == EffectGi ||
-           effect == EffectContactShadows || effect == EffectPcss || effect == EffectPointShadows ||
-           effect == EffectVolumetricLight || effect == EffectPointFog;
+    return effect != EffectRayTracing; // ray traced lighting is not in this build
 }
 /// Lighting passes from contact shadows on switch while the game runs; the rest are built into
 /// cached pipelines at start. Ray tracing needs its device extensions, so turning it on restarts.
@@ -535,6 +533,7 @@ struct Values {
     std::atomic<int> graphics_point_fog_falloff{PointFogFalloffClassic};
     /// Indirect lighting (effect_gi) strength, 0-12 (vk_ssgi.cpp multiplies its base 8 by it).
     std::atomic<float> graphics_gi_strength{6};
+    std::atomic<float> graphics_ssr_intensity{1}; ///< Improved reflections' strength, 0-3 (live)
     std::atomic<float> graphics_fog{1},graphics_brightness{1},graphics_contrast{1},graphics_hue{0};
     std::atomic<float> camera_fov_scale{1.0f}, camera_distance_scale{1.0f}, camera_height_scale{1.0f};
     std::atomic<int> model_lod{0};

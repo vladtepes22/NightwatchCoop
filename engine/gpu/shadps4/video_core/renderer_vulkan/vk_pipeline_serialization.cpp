@@ -441,11 +441,13 @@ bool PipelineCache::LoadPipelineStage(Serialization::Archive& ar, size_t stage, 
     auto it = program_cache.find(program->info.pgm_hash);
     // Cached composites need the same companion preparation as freshly translated shaders, and the
     // chain passes Native+'s replacements: the cache holds the game's own shaders (CompileModule).
+    bool chain_replaced = false; // spv is then Native+'s replacement, not the game's own
     if (HdrChannel::Native16() && program->info.sw_stage == Shader::SwStage::Fragment) {
         HdrChannel::NoteGameShader(program->info.pgm_hash, spv);
         if (auto replacement = HdrChannel::ChainReplacement(program->info.pgm_hash, spv);
             !replacement.empty()) {
             spv = std::move(replacement);
+            chain_replaced = true;
         }
     }
     Program* target = it == program_cache.end() ? program.get() : it->second.get();
@@ -461,7 +463,8 @@ bool PipelineCache::LoadPipelineStage(Serialization::Archive& ar, size_t stage, 
         // bbport: our version of a game shader (vk_effect_shaders.cpp), as CompileModule does.
         const auto effect_shader = EffectShaders::Replacement(program->info, profile, spec.start);
         const auto effect_patch =
-            effect_shader.empty() ? EffectShaders::Patched(program->info, spv) : std::nullopt;
+            effect_shader.empty() && !chain_replaced ? EffectShaders::Patched(program->info, spv)
+                                                     : std::nullopt;
         const std::span<const u32> code = !effect_shader.empty() ? effect_shader
                                           : effect_patch         ? std::span<const u32>(*effect_patch)
                                                                  : std::span<const u32>(spv);

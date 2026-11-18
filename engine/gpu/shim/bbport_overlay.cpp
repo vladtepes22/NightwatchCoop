@@ -910,6 +910,7 @@ void PictureSection() {
     slider("Ambient occlusion strength", "Сила затенения (AO)", s.graphics_ao_strength, 0.0f, 3.0f);
     slider("Shadow distance", "Дальность теней", s.graphics_shadow_scale, 0.5f, 4.0f);
     slider("Indirect lighting strength", "Сила непрямого освещения (GI)", s.graphics_gi_strength, 0.0f, 12.0f);
+    slider("Reflection strength", "Сила отражений", s.graphics_ssr_intensity, 0.0f, 3.0f);
     slider("Volumetric sunlight strength", "Сила объёмного света", s.graphics_volumetric_intensity, 0.0f, 3.0f);
     slider("Lamp fog strength", "Сила тумана ламп", s.graphics_point_fog_intensity, 0.0f, 3.0f);
     if (const char* label = Item("Lamp fog falloff", "Спад тумана ламп")) {
@@ -942,6 +943,7 @@ void PictureSection() {
             Store(s.graphics_ao_strength, 1.0f, true);
             Store(s.graphics_shadow_scale, 1.0f, true);
             Store(s.graphics_gi_strength, 6.0f, true);
+            Store(s.graphics_ssr_intensity, 1.0f, true);
             Store(s.graphics_volumetric_intensity, 1.0f, true);
             Store(s.graphics_point_fog_intensity, 1.0f, true);
             Store(s.graphics_point_fog_glow_size, BbSettings::PointFogGlowSizeDefault, true);
@@ -1120,6 +1122,17 @@ void EffectsSection() {
                 "Motion blur and shadows from dynamic lights place a significant load on the GPU.",
                 "Эффекты включаются и выключаются патчами игры при запуске (patches/Bloodborne.xml). "
                 "Размытие в движении и тени от динамических источников заметно нагружают GPU."));
+        } else if (std::strcmp(effect.key, "effect_modern_ssr") == 0) {
+            Hint(BbSettings::MenuText(
+                "Sharper, steadier screen-space reflections: the game's reflection pass traced again, kept over "
+                "frames and at full size; Reflection strength (Picture) sets how strong. Applies after a restart.",
+                "Более чёткие и стабильные экранные отражения: проход отражений игры заново, с накоплением по "
+                "кадрам и в полном размере; силу задаёт «Сила отражений» (Изображение). Применяется после "
+                "перезапуска."));
+            if (s.effects[e] && !s.effects[BbSettings::EffectSsr]) {
+                ImGui::TextDisabled("%s", BbSettings::MenuText("Needs Screen-space reflections on",
+                                                               "Нужны включённые экранные отражения"));
+            }
         } else if (std::strcmp(effect.key, "effect_pom_cavity") == 0) {
             Hint(BbSettings::MenuText(
                 "Deeper, shaded cavities on some of the game's parallax-mapped surfaces. Applies after a restart.",

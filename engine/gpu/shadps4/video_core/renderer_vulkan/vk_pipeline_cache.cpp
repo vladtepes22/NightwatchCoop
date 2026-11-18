@@ -1117,7 +1117,10 @@ vk::ShaderModule PipelineCache::CompileModule(Shader::Info& info, Shader::Runtim
     const bool is_patched = patch && EmulatorSettings.IsPatchShaders();
     // bbport: our version of a game shader (vk_effect_shaders.cpp); the cache keeps the game's own.
     const auto effect_shader = EffectShaders::Replacement(info, profile, binding_before);
-    const auto effect_patch = effect_shader.empty() ? EffectShaders::Patched(info, spv) : std::nullopt;
+    // Patched only ever gets the game's own SPIR-V (`stored` set: `spv` is a Native+ chain
+    // replacement); RegisterShaderBinary below stores the game's own either way.
+    const auto effect_patch =
+        effect_shader.empty() && stored.empty() ? EffectShaders::Patched(info, spv) : std::nullopt;
     if (is_patched) {
         LOG_INFO(Loader, "Loaded patch for {} shader {:#x}", info.hw_stage, info.pgm_hash);
         module = CompileSPV(*patch, instance.GetDevice());

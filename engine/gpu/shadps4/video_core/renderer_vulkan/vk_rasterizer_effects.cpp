@@ -76,13 +76,19 @@ void Rasterizer::EffectsOnFrameEnd() {
     for (int e = 0; e < BbSettings::EffectCount; ++e) {
         on[e] = s.effects[e].load(std::memory_order_relaxed);
     }
-    effects_wanted = LightingRules::AnyWanted(on);
-    if (!effects_wanted) {
+    const bool lighting = LightingRules::AnyWanted(on);
+    // Improved reflections is built in at start (the SSR pass's shader replaced): while it is, its
+    // passes run whatever the row says now (upstream v0.9.43).
+    effects_wanted = lighting || EffectShaders::SsrActive();
+    if (!lighting) {
         point_shadow->Drop();
     }
     point_shadow->OnFrameEnd();
     rt_shadow->OnFrameEnd();
     ssgi->OnFrameEnd();
+    if (ssr_temporal) {
+        ssr_temporal->OnFrameEnd();
+    }
     if (!on[BbSettings::EffectGi] && !rt_shadow->Wanted()) {
         ssgi->Release(); // the row was switched off: give the images back
     }
@@ -93,6 +99,11 @@ void Rasterizer::EffectsBeforeTargets(const GraphicsPipeline* pipeline) {
         return;
     }
     const u64 hash = FragmentHash(pipeline);
+    // Improved reflections: the SSR pass drawn last is resolved over frames (and traced at full size)
+    // before the next draw.
+    if (ssr_temporal && hash != EffectShaders::SsrHash) {
+        ssr_temporal->Flush(upscaler->Jitter());
+    }
     // The contact shadow / soft sun shadow pass runs on the finished sun shadow mask: before the next
     // draw that changes targets, but not before the game's own blur of it (which it then follows).
     contact_shadow->Flush(hash == ShadowBlurHash);
@@ -245,6 +256,46 @@ void Rasterizer::EffectsBeforeBind(const AmdGpu::Regs& regs, const GraphicsPipel
         return;
     }
     const u64 hash = FragmentHash(pipeline);
+    static_assert(offsetof(Shader::PushData, motion_param) == 120);
+    if (hash == EffectShaders::SsrHash) {
+        // ssr.frag reads its frame index (jitter) at push offset 120; the full-size trace gets the
+        // pass's constants, normals and color (3 images + 3 samplers in image_infos).
+        if (ssr_temporal && EffectShaders::SsrActive() && cb_descs[0].first) {
+            push_data.motion_param = ssr_frame;
+            SsrTemporal::TraceInputs inputs{.frame_index = ssr_frame};
+            if (!buffer_infos.empty() && buffer_infos[0].buffer && image_infos.size() == 6) {
+                inputs.constants = buffer_infos[0].buffer;
+                inputs.constants_offset = buffer_infos[0].offset;
+                inputs.constants_range = buffer_infos[0].range;
+                inputs.constants_dword_offset = PackedOffsets(push_data);
+                inputs.normals_view = image_infos[1].imageView;
+                inputs.normals_layout = image_infos[1].imageLayout;
+                inputs.color_view = image_infos[2].imageView;
+                inputs.color_layout = image_infos[2].imageLayout;
+            }
+            ssr_temporal->OnSsrDraw(cb_descs[0].first, inputs);
+            ++ssr_frame;
+        }
+        return;
+    }
+    if (hash == EffectShaders::SsrCompositeHash) {
+        // The patched composite reads the reflection strength at push offset 120 and, when the
+        // full-size trace ran this frame, samples it in place of the game's reflection image.
+        if (EffectShaders::SsrCompositeActive()) {
+            const float intensity = BbSettings::Get().graphics_ssr_intensity.load(std::memory_order_relaxed);
+            push_data.motion_param =
+                std::bit_cast<u32>(std::clamp(std::isfinite(intensity) ? intensity : 1.0f, 0.0f, 3.0f));
+            if (const auto full = ssr_temporal ? ssr_temporal->FullResult() : vk::ImageView{};
+                full && image_infos.size() == 12) {
+                image_infos[6].imageView = full;
+                image_infos[6].imageLayout = vk::ImageLayout::eGeneral;
+            }
+        }
+        return;
+    }
+    if (!effects_wanted) {
+        return; // only Improved reflections' two draws come here with no lighting row on
+    }
     const auto family = LampFamily(pipeline, hash, rt_shadow->Wanted(), GameLamps() && rt_shadow->Wanted());
     if (family.Lamp()) {
         effect_tile = EffectTile(regs, pipeline, is_indexed, index_offset, first_vertex);

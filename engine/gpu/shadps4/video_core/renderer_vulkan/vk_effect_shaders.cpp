@@ -4,7 +4,9 @@
 #include "video_core/renderer_vulkan/vk_effect_shaders.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
+#include <bit>
 #include <cstdio>
 #include <optional>
 #include <vector>
@@ -13,6 +15,8 @@
 #include "video_core/host_shaders/gtao_frag.h"
 #include "video_core/host_shaders/gtao_hq_frag.h"
 #include "video_core/host_shaders/native_motion_blur_frag.h"
+#include "video_core/host_shaders/ssr_frag.h"
+#include "video_core/renderer_vulkan/vk_ssr_composite_patch.h"
 #include "video_core/renderer_vulkan/vk_pom_patch.h"
 
 namespace Vulkan::EffectShaders {
@@ -20,6 +24,63 @@ namespace Vulkan::EffectShaders {
 namespace {
 
 std::atomic<bool> gtao_active{false};
+
+// bbport (upstream v0.9.43): Improved reflections (effect_modern_ssr). Upstream also accepts a second
+// composite (its shader lifter's output); we have no lifter, so only the recompiler's is matched.
+constexpr u64 WaterHash = 0xe3021062;
+
+std::atomic<bool> ssr_active{false}, composite_active{false};
+
+bool Wanted(int effect) {
+    return BbSettings::Get().startup_effects[effect];
+}
+
+/// FNV-1a over the words: the composite and water patches match one exact module.
+u32 Checksum(std::span<const u32> spv) {
+    u32 checksum = 2166136261u;
+    for (const u32 word : spv) {
+        checksum = (checksum ^ word) * 16777619u;
+    }
+    return checksum;
+}
+
+/// The water shader's reflection offset (%1307) is halved: its OpFMul writes a new id that a second
+/// OpFMul by the module's own 0.5 constant turns into %1307.
+bool PatchWater(std::vector<u32>& spv) {
+    constexpr size_t Words = 13751;
+    constexpr u32 OriginalChecksum = 0xf7a3a6ee;
+    constexpr u32 OffsetResultId = 1307;
+    constexpr u32 OpConstant = 43, OpFMul = 133;
+    if (spv.size() != Words || Checksum(spv) != OriginalChecksum) {
+        return false;
+    }
+    size_t fmul = 0;
+    for (size_t i = 5; i < spv.size(); i += spv[i] >> 16) {
+        if ((spv[i] & 0xffff) == OpFMul && spv[i + 2] == OffsetResultId) {
+            fmul = i;
+            break;
+        }
+    }
+    if (!fmul) {
+        return false;
+    }
+    const u32 type_id = spv[fmul + 1];
+    u32 half_id = 0;
+    for (size_t i = 5; i < spv.size() && !half_id; i += spv[i] >> 16) {
+        if ((spv[i] & 0xffff) == OpConstant && spv[i + 1] == type_id &&
+            spv[i + 3] == std::bit_cast<u32>(0.5f)) {
+            half_id = spv[i + 2];
+        }
+    }
+    if (!half_id) {
+        return false;
+    }
+    const u32 scaled_id = spv[3]++;
+    spv[fmul + 2] = scaled_id;
+    const std::array<u32, 5> scale{(5u << 16) | OpFMul, type_id, OffsetResultId, scaled_id, half_id};
+    spv.insert(spv.begin() + fmul + 5, scale.begin(), scale.end());
+    return true;
+}
 
 bool Fits(const Shader::Info& info, const Shader::Profile& profile, const Shader::Backend::Bindings& start,
           size_t buffers, size_t images, size_t samplers) {
@@ -45,6 +106,16 @@ void Declined(const char* name, const Shader::Info& info, const Shader::Profile&
 std::span<const u32> Replacement(const Shader::Info& info, const Shader::Profile& profile,
                                  const Shader::Backend::Bindings& start) {
     if (info.hw_stage != Shader::HwStage::Fragment) {
+        return {};
+    }
+    if (info.pgm_hash == SsrHash && Wanted(BbSettings::EffectModernSsr)) {
+        if (Fits(info, profile, start, 1, 3, 3)) {
+            if (!ssr_active.exchange(true, std::memory_order_relaxed)) {
+                std::printf("Improved reflections: in use\n");
+            }
+            return SSR_FRAG;
+        }
+        Declined("Improved reflections", info, profile, start);
         return {};
     }
     if (info.pgm_hash == SsaoHash && BbSettings::Get().startup_effects[BbSettings::EffectGtao]) {
@@ -124,6 +195,37 @@ std::optional<std::vector<u32>> Patched(const Shader::Info& info, std::span<cons
     if (info.hw_stage != Shader::HwStage::Fragment) {
         return std::nullopt;
     }
+    // Improved reflections: off, these are two compares. Each patch takes one exact module (word
+    // count and checksum) and otherwise leaves the game's shader, once saying so in the log.
+    if (info.pgm_hash == SsrCompositeHash && Wanted(BbSettings::EffectModernSsr)) {
+        const u32 checksum = Checksum(spv);
+        if (spv.size() != kSsrCompositeOriginalWords || checksum != kSsrCompositeOriginalChecksum) {
+            static std::atomic<bool> printed{false};
+            if (!printed.exchange(true)) {
+                std::printf("Improved reflections: the composite shader differs on this GPU's "
+                            "profile (%zu words, %08x); the game's composite stays\n",
+                            spv.size(), checksum);
+            }
+            return std::nullopt;
+        }
+        if (!composite_active.exchange(true, std::memory_order_relaxed)) {
+            std::printf("Improved reflections: composite patched (full-size trace, reflection strength)\n");
+        }
+        return std::vector<u32>(kSsrCompositeSpv.begin(), kSsrCompositeSpv.end());
+    }
+    if (info.pgm_hash == WaterHash && Wanted(BbSettings::EffectModernSsr)) {
+        std::vector<u32> patched(spv.begin(), spv.end());
+        if (PatchWater(patched)) {
+            return patched;
+        }
+        static std::atomic<bool> printed{false};
+        if (!printed.exchange(true)) {
+            std::printf("Improved reflections: the water shader differs on this GPU's profile (%zu words, "
+                        "%08x); the game's water stays\n",
+                        spv.size(), Checksum(spv));
+        }
+        return std::nullopt;
+    }
     // Off: nothing runs but this test (the row is read once at start: BbSettings::Get().startup_effects).
     if (BbSettings::Get().startup_effects[BbSettings::EffectPomCavity] && Pom::Targets(info.pgm_hash)) {
         return PatchedPom(info, spv);
@@ -133,6 +235,14 @@ std::optional<std::vector<u32>> Patched(const Shader::Info& info, std::span<cons
 
 bool GtaoActive() {
     return gtao_active.load(std::memory_order_relaxed);
+}
+
+bool SsrActive() {
+    return ssr_active.load(std::memory_order_relaxed);
+}
+
+bool SsrCompositeActive() {
+    return composite_active.load(std::memory_order_relaxed);
 }
 
 } // namespace Vulkan::EffectShaders

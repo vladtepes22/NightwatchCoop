@@ -28,6 +28,11 @@ std::span<const u32> Replacement(const Shader::Info& info, const Shader::Profile
 /// changed, and the shader cache keeps the unchanged words: the caller applies this again when it loads them.
 std::optional<std::vector<u32>> Patched(const Shader::Info& info, std::span<const u32> spv);
 
+/// Improved reflections (upstream v0.9.43): the game's SSR pass was replaced by ssr.frag / its composite was
+/// patched (this run; both decided when the shader compiles, the row is read once at start).
+bool SsrActive();
+bool SsrCompositeActive();
+
 /// True once the game's SSAO shader has been replaced by GTAO (set when its pipeline is built).
 bool GtaoActive();
 

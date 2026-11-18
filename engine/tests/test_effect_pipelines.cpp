@@ -18,6 +18,10 @@
 #include "video_core/host_shaders/ssgi_denoise_comp.h"
 #include "video_core/host_shaders/ssgi_gather_comp.h"
 #include "video_core/host_shaders/ssgi_prep_comp.h"
+#include "video_core/host_shaders/ssr_frag.h"
+#include "video_core/host_shaders/ssr_temporal_copy_comp.h"
+#include "video_core/host_shaders/ssr_temporal_resolve_comp.h"
+#include "video_core/host_shaders/ssr_trace_comp.h"
 #include "video_core/host_shaders/point_volumetric_comp.h"
 #include "video_core/host_shaders/point_volumetric_falloff_comp.h"
 #include "video_core/host_shaders/volumetric_light_composite_comp.h"
@@ -157,6 +161,16 @@ int main() {
          POINT_VOLUMETRIC_FALLOFF_COMP,
          {eStorageBuffer, eStorageBuffer, eCombinedImageSampler, eStorageImage},
          12},
+        {"ssr resolve",
+         SSR_TEMPORAL_RESOLVE_COMP,
+         {eSampledImage, eSampledImage, eSampledImage, eStorageImage},
+         128},
+        {"ssr copy", SSR_TEMPORAL_COPY_COMP, {eSampledImage, eStorageImage}, 128},
+        {"ssr trace",
+         SSR_TRACE_COMP,
+         {eUniformBuffer, eCombinedImageSampler, eCombinedImageSampler, eCombinedImageSampler,
+          eStorageImage},
+         16},
     };
     u32 built = 0;
     for (const Pass& pass : passes) {
@@ -197,6 +211,11 @@ int main() {
             return 1;
         }
         ++built;
+    }
+    // The game's SSR pass's replacement (a fragment shader in the game's layout): its module.
+    for (const auto code : {std::span<const u32>(SSR_FRAG)}) {
+        auto module = device.createShaderModuleUnique({.codeSize = code.size_bytes(), .pCode = code.data()});
+        assert(module.result == vk::Result::eSuccess);
     }
     std::printf("effect pipelines: %u built, %u validation messages\n", built, messages);
     return messages == 0 ? 0 : 1;

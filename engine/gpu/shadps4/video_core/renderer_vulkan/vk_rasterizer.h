@@ -22,6 +22,7 @@
 #include "video_core/renderer_vulkan/vk_point_shadow.h"
 #include "video_core/renderer_vulkan/vk_rt_shadow.h"
 #include "video_core/renderer_vulkan/vk_ssgi.h"
+#include "video_core/renderer_vulkan/vk_ssr_temporal.h"
 #include "video_core/renderer_vulkan/vk_object_motion.h"
 #include "video_core/renderer_vulkan/vk_draw_pipe.h"
 #include "video_core/renderer_vulkan/vk_draw_prep.h"
@@ -610,6 +611,9 @@ private:
     std::unique_ptr<PointShadow> point_shadow; ///< effect_point_shadows (vk_point_shadow.h)
     u32 shadow_frame = 0;                      ///< counts the sun shadow resolves (contact shadow noise)
     vk::Rect2D effect_tile{};                  ///< the lamp draw's EffectTile (EffectsBeforeBind)
+    /// Improved reflections' temporal and full-size passes (effect_modern_ssr; null when it was off at start).
+    std::unique_ptr<SsrTemporal> ssr_temporal;
+    u32 ssr_frame = 0; ///< the SSR pass's frame index (its jitter sequence, push offset 120)
     bool motion_draw = false;
     u64 motion_geometry{};    ///< vertex-stream identity of the current direct draw
     bool gbuffer_draw = false;

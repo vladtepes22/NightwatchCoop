@@ -67,6 +67,12 @@ vk::Extent2D ReflectionShadingRate() {
             return vk::Extent2D{1, 1};
         }
         const char* env = std::getenv("BB_SSR_SHADING_RATE");
+        // Improved reflections (effect_modern_ssr) replaces this pass's shader with a trace jittered per
+        // pixel and kept over frames: blocks would repeat one pixel's jitter over the block. Every pixel
+        // then, unless BB_SSR_SHADING_RATE asks for a block.
+        if (settings.startup_effects[BbSettings::EffectModernSsr] && !(env && env[0])) {
+            return vk::Extent2D{1, 1};
+        }
         const std::string_view text = env && env[0] ? env : "auto";
         if (text == "2x2") return vk::Extent2D{2, 2};
         if (text == "2x1") return vk::Extent2D{2, 1};
