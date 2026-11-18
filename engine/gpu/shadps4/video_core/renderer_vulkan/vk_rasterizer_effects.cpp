@@ -81,6 +81,7 @@ void Rasterizer::EffectsOnFrameEnd() {
     // passes run whatever the row says now (upstream v0.9.43).
     effects_wanted = lighting || EffectShaders::SsrActive();
     if (!lighting) {
+        contact_shadow->Drop();
         point_shadow->Drop();
     }
     point_shadow->OnFrameEnd();
@@ -260,7 +261,9 @@ void Rasterizer::EffectsBeforeBind(const AmdGpu::Regs& regs, const GraphicsPipel
     if (hash == EffectShaders::SsrHash) {
         // ssr.frag reads its frame index (jitter) at push offset 120; the full-size trace gets the
         // pass's constants, normals and color (3 images + 3 samplers in image_infos).
-        if (ssr_temporal && EffectShaders::SsrActive() && cb_descs[0].first) {
+        // Without camera tracking (no upscaler, no party) nothing resolves the jittered trace over
+        // frames: the frame index stays 0 so the pass does not shimmer.
+        if (ssr_temporal && EffectShaders::SsrActive() && cb_descs[0].first && camera_motion->Enabled()) {
             push_data.motion_param = ssr_frame;
             SsrTemporal::TraceInputs inputs{.frame_index = ssr_frame};
             if (!buffer_infos.empty() && buffer_infos[0].buffer && image_infos.size() == 6) {

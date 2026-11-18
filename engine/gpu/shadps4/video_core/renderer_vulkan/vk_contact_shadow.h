@@ -59,6 +59,14 @@ private:
     vk::UniquePipeline pipeline;
     vk::UniqueSampler sampler;
     VideoCore::ImageId pending;
+
+public:
+    /// bbport: forgets a shadow mask that was waiting for its pass (the rows were switched off).
+    void Drop() noexcept {
+        pending = {};
+    }
+
+private:
     Inputs pending_inputs;
     bool use_contact = false;
     bool use_pcss = false;

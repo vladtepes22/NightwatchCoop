@@ -2335,7 +2335,8 @@ void Menu() {
         s.graphics_shadow_resolution != s.startup_shadow_resolution ||
         s.graphics_local_shadow_resolution != s.startup_local_shadow_resolution ||
         s.graphics_motion_blur_quality != s.startup_motion_blur_quality ||
-        s.graphics_ao_quality != s.startup_ao_quality ||
+        (s.graphics_ao_quality != s.startup_ao_quality &&
+         (s.effects[BbSettings::EffectGtao] || s.startup_effects[BbSettings::EffectGtao])) ||
         s.live_resolution != s.startup_live_resolution || s.hdr != s.startup_hdr ||
         ((s.hdr_mode == BbSettings::HdrModePsychoV30) != s.startup_psychov30) ||
         BbSettings::ResolutionNeedsRestart();
