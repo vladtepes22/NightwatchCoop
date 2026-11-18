@@ -11,6 +11,7 @@ namespace BloodborneLauncher.Views
     {
         private readonly TextBlock _upscalerHint, _dlssHint, _frameGenHint;
         private TextBlock? _motionBlurHint;
+        private readonly SettingRow _glowSizeCard;
         private readonly SettingRow _presetCard, _renderScaleCard, _sharpenCard, _sharpnessCard, _mipBiasCard;
         private readonly SettingRow _frameGenFramesCard, _frameGenDynamicCard, _reflexCard, _frameGenCapCard;
 
@@ -119,12 +120,37 @@ namespace BloodborneLauncher.Views
             IniCombo(SymbolRegular.Blur24, L.T("Motion blur quality"), L.T("Smoother motion blur; motion blur must be on"),
                 Choices.MotionBlurQuality, "graphics_motion_blur_quality");
             IniCombo(SymbolRegular.Camera24, L.T("Follow camera"), L.T("Original keeps the game's camera distance, angle and follow speed at 60 FPS and above"), Choices.CameraTuning, "camera_tuning");
-            foreach (var effect in Choices.Effects)
+            foreach (var effect in Choices.Effects.Take(Choices.FirstLightingEffect))
             {
                 var motionBlur = effect.Key == "effect_motion_blur";
                 IniToggle(EffectIcon(effect.Key), effect.Title, effect.Hint, effect.Key, changed: motionBlur ? UpdateUpscaler : null);
                 if (motionBlur) _motionBlurHint = ((SettingRow)Body.Children[^1]).Hint;
             }
+
+            // Optional lighting: all off, needs an upscaler on (bbport_settings.h EffectFirstLighting).
+            Group(L.T("Lighting"));
+            Body.Children.Add(Text(L.T("Optional lighting passes; all off by default. They need an upscaler on"), "Faint"));
+            foreach (var effect in Choices.Effects.Skip(Choices.FirstLightingEffect))
+            {
+                IniToggle(SymbolRegular.Lightbulb24, effect.Title, effect.Hint, effect.Key);
+                if (effect.Key == "effect_gtao")
+                    IniCombo(SymbolRegular.Lightbulb24, L.T("Ambient occlusion quality"),
+                        Choices.Hint(L.T("High looks sharper and steadier but costs more GPU time"),
+                            L.T("Needs Better ambient occlusion (GTAO) on"), L.T("Applies after a restart")),
+                        Choices.AoQualities, "graphics_ao_quality");
+            }
+            IniSlider(SymbolRegular.Lightbulb24, L.T("Indirect lighting strength"), 0, 12, "graphics_gi_strength", fallback: 6);
+            IniSlider(SymbolRegular.Lightbulb24, L.T("Reflection strength"), 0, 3, "graphics_ssr_intensity");
+            IniSlider(SymbolRegular.Lightbulb24, L.T("Volumetric sunlight strength"), 0, 3, "graphics_volumetric_intensity");
+            IniSlider(SymbolRegular.Lightbulb24, L.T("Lamp fog strength"), 0, 3, "graphics_point_fog_intensity");
+            ComboRow(SymbolRegular.Lightbulb24, L.T("Lamp fog falloff"),
+                L.T("Classic is the original lamp fog. Inverse-square gives a bright, tight glow at each flame that falls off fast, and costs more GPU time than classic. Needs Fog around lamps."),
+                Choices.PointFogFalloff, () => Ini.Get("graphics_point_fog_falloff", "0"), v => Ini.Set("graphics_point_fog_falloff", v),
+                changed: UpdateGlowSize);
+            SliderRow(SymbolRegular.Lightbulb24, L.T("Lamp fog glow size"), L.T("Used by the inverse-square falloff"), 0.03, 0.2, 0.01,
+                () => ParseDouble(Ini.Get("graphics_point_fog_glow_size", Fmt(0.08)), 0.08), v => Ini.Set("graphics_point_fog_glow_size", Fmt(v)));
+            _glowSizeCard = (SettingRow)Body.Children[^1];
+            UpdateGlowSize();
 
             Ws.PortChanged += UpdateUpscaler;
         }
@@ -150,7 +176,9 @@ namespace BloodborneLauncher.Views
             _ => SymbolRegular.Color24,
         };
 
-        public override void OnShown() => UpdateUpscaler();
+        private void UpdateGlowSize() => _glowSizeCard.IsEnabled = Ini.Get("graphics_point_fog_falloff", "0") == "1";
+
+        public override void OnShown() { UpdateUpscaler(); UpdateGlowSize(); }
 
         private static bool DlssFound() =>
             Paths.DlssRuntime != null; // the engine has DLSS built in; NVIDIA's runtime sits beside it

@@ -128,6 +128,52 @@
             new("debug_camera", L.T("Free camera"), false, L.T("Toggle with Cross + L3 / Space + Z")),
             new("debug_menu", L.T("Debug menu"), false,
                 L.T("Left touchpad / Tab. Needs the adhoc folder from Nexus mod #253 (adhoc/font) in the game's dvdroot_ps4 or as a mod; without it the patch is not applied")),
+            // Optional lighting (engine Effects[10..18], bbport_settings.h; all off, none in any preset). Ray traced
+            // lighting is not in this build and has no row. Each hint: what it does, what it needs, when it applies.
+            new("effect_gtao", L.T("Better ambient occlusion (GTAO)") + L.T(" (experimental)"), false,
+                Hint(L.T("Replaces the game's SSAO shader"), NeedsAo, NeedsUpscaler, AfterRestart)),
+            new("effect_modern_ssr", L.T("Improved reflections"), false,
+                Hint(L.T("Cleaner screen-space reflections"), NeedsSsr, NeedsUpscaler, AfterRestart)),
+            new("effect_pom_cavity", L.T("Deeper parallax surfaces"), false,
+                Hint(L.T("Parallax-mapped surfaces look deeper"), NeedsUpscaler, AfterRestart)),
+            new("effect_contact_shadows", L.T("Contact shadows"), false,
+                Hint(L.T("Small shadows where objects meet the ground"), NeedsUpscaler, AtOnce)),
+            new("effect_pcss", L.T("Soft sun shadows (PCSS)"), false,
+                Hint(L.T("Sun shadows soften with distance from what casts them"), NeedsUpscaler, AtOnce)),
+            new("effect_gi", L.T("Indirect lighting (GI)"), false,
+                Hint(L.T("Light bounces between surfaces"), HeavyNote, NeedsUpscaler, AtOnce)),
+            new("effect_volumetric_light", L.T("Volumetric sunlight"), false,
+                Hint(L.T("Beams of sunlight through the air"), HeavyNote, NeedsUpscaler, AtOnce)),
+            new("effect_point_fog", L.T("Fog around lamps"), false,
+                Hint(L.T("A glow of fog around lamps and fires"), HeavyNote, NeedsUpscaler, AtOnce)),
+            new("effect_point_shadows", L.T("Point light shadows") + L.T(" (experimental)"), false,
+                Hint(L.T("Shadows from point lights such as lamps"), HeavyNote, NeedsUpscaler, AtOnce)),
+        };
+
+        /// <summary>Index of the first lighting row in <see cref="Effects"/> (engine EffectFirstLighting).</summary>
+        public const int FirstLightingEffect = 10;
+
+        // Hint pieces, each translated on its own; a lighting row's hint is a few of them joined.
+        private static string NeedsUpscaler => L.T("Needs an upscaler on");
+        private static string NeedsAo => L.T("Needs Ambient occlusion on");
+        private static string NeedsSsr => L.T("Needs Screen-space reflections on");
+        private static string AfterRestart => L.T("Applies after a restart");
+        private static string AtOnce => L.T("Applies at once");
+        private static string HeavyNote => L.T("Heavy");
+        public static string Hint(params string[] parts) => string.Join(". ", parts);
+
+        /// <summary>graphics_ao_quality: the GTAO replacement's quality (effect_gtao); read at start.</summary>
+        public static readonly Choice[] AoQualities =
+        {
+            new(L.T("Regular GTAO"), "0"),
+            new(L.T("High (full-res bitmask GTAO, denoised, experimental)"), "1"),
+        };
+
+        /// <summary>graphics_point_fog_falloff: the lamp fog's shader.</summary>
+        public static readonly Choice[] PointFogFalloff =
+        {
+            new(L.T("Classic"), "0"),
+            new(L.T("Inverse-square"), "1"),
         };
 
         public static readonly Choice[] CameraTuning =

@@ -231,6 +231,23 @@ Check(PadMap.First(padIni, "map") == "back" && PadMap.First(padIni, "triangle") 
 PadMap.Reset(padIni, "map");
 Check(padIni.Raw("pad.map") == null && PadMap.First(padIni, "map") == "start", "Restoring the map button left it off Start");
 Check(InputMap.Controls.Single(c => c.Name == "map").Default == "M", "The map's key is not M by default");
+// The optional lighting rows write the keys the engine reads (bbport_settings.h Effects[10..18]), all off, no ray tracing row.
+var lightingKeys = new[] { "effect_gtao", "effect_modern_ssr", "effect_pom_cavity", "effect_contact_shadows", "effect_pcss",
+    "effect_gi", "effect_volumetric_light", "effect_point_fog", "effect_point_shadows" };
+Check(Choices.Effects.Skip(Choices.FirstLightingEffect).Select(e => e.Key).SequenceEqual(lightingKeys), "The lighting rows are not the engine's, in order");
+Check(Choices.Effects.Skip(Choices.FirstLightingEffect).All(e => !e.Default && !string.IsNullOrWhiteSpace(e.Hint)), "A lighting row is on by default or has no hint");
+Check(Choices.Effects.All(e => e.Key != "effect_ray_tracing"), "A ray tracing row is in the launcher");
+Check(Choices.Effects[Choices.FirstLightingEffect - 1].Key == "debug_menu", "The first lighting index moved");
+var lightingIni = new IniFile();
+foreach (var key in lightingKeys) lightingIni.Set(key, "1");
+lightingIni.Set("graphics_ao_quality", "1");
+lightingIni.Set("graphics_point_fog_falloff", "1");
+Check(lightingKeys.All(k => lightingIni.Raw(k) == "1") && lightingIni.Raw("graphics_ao_quality") == "1" && lightingIni.Get("graphics_point_fog_falloff") == "1",
+    "The lighting keys were not written");
+Check(Choices.AoQualities.Select(c => c.Value).SequenceEqual(new[] { "0", "1" }) && Choices.PointFogFalloff.Select(c => c.Value).SequenceEqual(new[] { "0", "1" }),
+    "The lighting choices' values changed");
+Check(EngineSwitches.All.Any(s => s.Env == "BB_VOLUMETRIC_STEADY" && s.Default == "1") && EngineSwitches.All.Any(s => s.Env == "BB_POINT_FOG_STEADY" && s.Default == "1"),
+    "The steady lighting switches are missing or off by default");
 var commands = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "seamless-stop-" + Guid.NewGuid());
 System.IO.Directory.CreateDirectory(commands);
 try
