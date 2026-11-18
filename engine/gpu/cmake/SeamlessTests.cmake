@@ -778,8 +778,15 @@ target_include_directories(effect-pipelines-test PRIVATE ${SHADER_INCLUDE})
 target_compile_options(effect-pipelines-test PRIVATE -UNDEBUG -Wall -Werror)
 target_link_libraries(effect-pipelines-test PRIVATE Vulkan::Vulkan)
 add_dependencies(effect-pipelines-test host_shaders)
+# Sun shadow resolve with contact shadows and soft sun shadows (contact_shadow.comp), on the GPU.
+add_executable(directional-shadow-test EXCLUDE_FROM_ALL ../tests/test_directional_shadows.cpp)
+target_include_directories(directional-shadow-test PRIVATE ${SHADER_INCLUDE})
+target_compile_options(directional-shadow-test PRIVATE -UNDEBUG -Wall -Werror)
+target_link_libraries(directional-shadow-test PRIVATE Vulkan::Vulkan)
+add_dependencies(directional-shadow-test host_shaders)
 set(bb_gpu_tests scene-resolution-test taa-shader-test camera-motion-test indirect-clamp-test
-    hdr-native-shader-test motion-shader-test motion-blur-shader-test effect-pipelines-test)
+    hdr-native-shader-test motion-shader-test motion-blur-shader-test effect-pipelines-test
+    directional-shadow-test)
 foreach(target IN LISTS bb_engine_tests bb_gpu_tests)
     add_test(NAME ${target} COMMAND ${target})
     add_dependencies(seamless-tests ${target})
@@ -953,3 +960,16 @@ target_compile_options(fog-scale-test PRIVATE -UNDEBUG -Wall -Wextra)
 target_compile_definitions(fog-scale-test PRIVATE BB_FOG_SCALE_MUTANTS)
 add_test(NAME fog-scale-test COMMAND fog-scale-test)
 add_dependencies(seamless-tests fog-scale-test)
+
+# Lamp rules shared by point light shadows and lamp fog (rt_lamp_rules.h). The mutant build breaks each
+# rule in turn and passes only if the suite catches every one.
+add_executable(rt-lamps-test EXCLUDE_FROM_ALL ../tests/test_rt_lamps.cpp)
+add_executable(rt-lamps-mutant-test EXCLUDE_FROM_ALL ../tests/test_rt_lamps.cpp)
+target_compile_definitions(rt-lamps-mutant-test PRIVATE LANTERN_RT_LAMPS_MUTANTS)
+foreach(t rt-lamps-test rt-lamps-mutant-test)
+    target_compile_options(${t} PRIVATE -UNDEBUG -O1 -Wall -Wextra -Werror)
+    target_include_directories(${t} PRIVATE ..)
+    set_target_properties(${t} PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+    add_test(NAME ${t} COMMAND ${t})
+    add_dependencies(seamless-tests ${t})
+endforeach()

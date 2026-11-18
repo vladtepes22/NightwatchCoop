@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// From Lantern engine/tests/test_native_local_shadows.cpp (4889a8a8b and later); the cascade-overlap part
-// (InstallDirectionalShadows, soft sun shadows) comes with the lighting effects in 0.3.1.
+// From the upstream test engine/tests/test_native_local_shadows.cpp (4889a8a8b and later, with the cascade overlap of 0.9.43).
 #include "../gpu/shim/engine/graphics.h"
 #include "../gpu/shim/bbport_platform.h"
 #include "../gpu/shim/bbport_settings.h"
@@ -34,6 +33,9 @@ void Check(bool ok, const char* what) {
 }
 void Stock(bool enabled) {
     BbSettings::Get().graphics_local_shadow_resolution = enabled ? 0 : 2;
+}
+void Directional(bool enabled) {
+    BbSettings::Get().startup_effects[BbSettings::EffectPcss] = enabled;
 }
 }
 
@@ -207,6 +209,7 @@ int main() {
         Check(radius_at(spot_radius) / float(4096u >> tier_index) == 0.25f * 3.2f / float(512u >> tier_index),
               "spotlight filter UV footprint is one quarter of stock at every tier");
     }
+    constexpr std::size_t range = 0xeac540, tail = 0xeac657;
 
     std::memcpy(image.data() + size_at, read, 5);
     std::memcpy(image.data() + spot_size, spot_read, 4);
@@ -244,6 +247,66 @@ int main() {
         Check(image == local_original, "local dropdown changes only sizes and successful light-type radii");
     }
     BbSettings::Get().graphics_local_shadow_resolution = 2;
+    constexpr std::uint8_t range_entry[] = {
+        0xc5, 0xf8, 0x28, 0x02, 0xc5, 0xf8, 0x29, 0x06, 0xc5, 0xf8, 0x28, 0x42, 0x10,
+        0xc5, 0xf8, 0x29, 0x46, 0x10};
+    constexpr std::uint8_t range_stores[] = {
+        0xc5, 0xfa, 0x11, 0x46, 0x54, 0xc5, 0xf2, 0x5d, 0x42, 0x58, 0xc5, 0xfa, 0x11, 0x46, 0x58, 0xc3};
+    std::memcpy(image.data() + range, range_entry, sizeof range_entry);
+    std::memcpy(image.data() + tail, range_stores, sizeof range_stores);
+    Check(BbEngine::Graphics::DirectionalShadowBlend() == 0, "blending is off before native overlap");
+    Directional(true);
+    Check(!BbEngine::Graphics::InstallDirectionalShadows(nullptr, image.size()), "null cascade image refused");
+    Check(!BbEngine::Graphics::InstallDirectionalShadows(image.data(), tail + 14),
+          "truncated cascade stores refused");
+    for (const auto at : {range, tail, tail + 14}) {
+        image[at] ^= 1;
+        Check(!BbEngine::Graphics::InstallDirectionalShadows(image.data(), image.size()) &&
+              BbEngine::Graphics::DirectionalShadowBlend() == 0, "foreign cascade code cannot enable blending");
+        image[at] ^= 1;
+    }
+    Directional(false);
+    Check(!BbEngine::Graphics::InstallDirectionalShadows(image.data(), image.size()),
+          "overlap stays off unless an effect asks for it");
+    Directional(true);
+    Check(BbEngine::Graphics::InstallDirectionalShadows(image.data(), image.size()) &&
+          BbEngine::Graphics::DirectionalShadowBlend() == 0.1f, "guarded overlap enables matching blend band");
+    auto* tail_page = reinterpret_cast<void*>(
+        reinterpret_cast<std::uintptr_t>(image.data() + tail) & ~std::uintptr_t(4095));
+#ifdef _WIN32
+    DWORD old_protection = 0;
+    const bool executable = VirtualProtect(tail_page, 4096, PAGE_EXECUTE_READWRITE, &old_protection) != 0;
+#else
+    const bool executable = mprotect(tail_page, 4096, PROT_READ | PROT_WRITE | PROT_EXEC) == 0;
+#endif
+    Check(executable, "cascade tail test is executable");
+    if (executable) {
+        alignas(16) std::array<std::uint8_t, 0x700> owner{};
+        alignas(16) std::array<float, 36> camera{}, output{};
+        const float split0 = 20, split1 = 40;
+        std::memcpy(owner.data() + 0x6dc, &split0, 4);
+        std::memcpy(owner.data() + 0x6e0, &split1, 4);
+        camera[0x54 / 4] = 0.05f;
+        camera[0x58 / 4] = 600;
+        using Tail = void (__attribute__((sysv_abi)) *)(void*, void*, void*, void*, unsigned, float, float);
+        const auto run = reinterpret_cast<Tail>(image.data() + tail);
+        const std::array<float, 4> starts{0.05f, 20, 40, 150};
+        const std::array<float, 4> expected_near{0.05f, 18, 38, 139};
+        for (unsigned c = 0; c < 4; ++c) {
+            run(owner.data(), output.data(), camera.data(), nullptr, c, starts[c], 800);
+            Check(output[0x54 / 4] == expected_near[c], "executed hook expands exactly the shader blend interval");
+            Check(output[0x58 / 4] == 600, "native far-camera clamp is preserved");
+        }
+        camera[0x54 / 4] = 19;
+        run(owner.data(), output.data(), camera.data(), nullptr, 1, 20, 40);
+        Check(output[0x54 / 4] == 19, "overlap cannot extend behind camera near plane");
+#ifdef _WIN32
+        DWORD ignored = 0;
+        VirtualProtect(tail_page, 4096, old_protection, &ignored);
+#else
+        mprotect(tail_page, 4096, PROT_READ | PROT_WRITE);
+#endif
+    }
     constexpr std::size_t table = 0x48a9668, selection = 0xeac238;
     constexpr std::uint32_t native_sizes[] = {2048, 1024, 2048, 4096};
     constexpr std::uint8_t select_code[] = {
@@ -320,6 +383,6 @@ int main() {
     std::puts("Native local shadows: PASS (point and spotlight code guards, independent opt-outs, "
               "1024/2048 bases, four tiers, instruction execution, isolated writes, combined install, "
               "guarded per-type softness and quarter-stock filter footprints, "
-              "2048/4096/8192 atlas selection)");
+              "directional cascade overlap and 2048/4096/8192 atlas selection)");
     return 0;
 }

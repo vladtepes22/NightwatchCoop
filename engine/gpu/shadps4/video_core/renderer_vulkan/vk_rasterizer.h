@@ -17,6 +17,8 @@
 #include "video_core/renderer_vulkan/vk_camera_motion.h"
 #include "video_core/renderer_vulkan/vk_constant_ring.h"
 #include "video_core/renderer_vulkan/vk_scene_resolution.h"
+#include "video_core/renderer_vulkan/vk_contact_shadow.h"
+#include "video_core/renderer_vulkan/vk_point_shadow.h"
 #include "video_core/renderer_vulkan/vk_rt_shadow.h"
 #include "video_core/renderer_vulkan/vk_ssgi.h"
 #include "video_core/renderer_vulkan/vk_object_motion.h"
@@ -329,6 +331,14 @@ private:
     void EffectsBlendedScene();
     void EffectsBeforeUpscaler(u64 compute_hash);
     void EffectsBeforeResources(const GraphicsPipeline* pipeline);
+    /// Right before a draw binds its resources (DrawRecord): point light shadows read the lamp draw.
+    void EffectsBeforeBind(const AmdGpu::Regs& regs, const GraphicsPipeline* pipeline, bool is_indexed,
+                           u32 index_offset, u32 first_vertex);
+    /// The screen rectangle a lamp draw's quad covers (its first four vertices), or the scissor.
+    vk::Rect2D EffectTile(const AmdGpu::Regs& regs, const GraphicsPipeline* pipeline, bool is_indexed,
+                          u32 index_offset, u32 first_vertex) const;
+    /// The scissor of viewport `viewport` as UpdateViewportScissorState sets it.
+    vk::Rect2D DrawScissor(u32 viewport) const;
     RenderState BeginRendering(const GraphicsPipeline* pipeline);
     RenderState BeginRenderingFull(const GraphicsPipeline* pipeline);
     /// bbport: a pass drawn into the upscaler's output-size images (UI, display pass): what its
@@ -585,6 +595,10 @@ private:
     VideoCore::ImageId previous_scene_depth{};
     std::unique_ptr<ObjectMotion> object_motion;
     bool effects_wanted = false; ///< a lighting effect is on this frame (EffectsOnFrameEnd)
+    std::unique_ptr<ContactShadow> contact_shadow; ///< contact shadows and soft sun shadows
+    std::unique_ptr<PointShadow> point_shadow; ///< effect_point_shadows (vk_point_shadow.h)
+    u32 shadow_frame = 0;                      ///< counts the sun shadow resolves (contact shadow noise)
+    vk::Rect2D effect_tile{};                  ///< the lamp draw's EffectTile (EffectsBeforeBind)
     bool motion_draw = false;
     u64 motion_geometry{};    ///< vertex-stream identity of the current direct draw
     bool gbuffer_draw = false;

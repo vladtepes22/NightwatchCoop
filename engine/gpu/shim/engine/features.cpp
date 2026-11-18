@@ -127,6 +127,7 @@ void Install(std::uint8_t* image, std::size_t size) {
     const bool local_shadows = Graphics::InstallLocalShadows(image, size);
     const bool spot_shadows = Graphics::InstallSpotShadows(image, size);
     Graphics::InstallLocalShadowSoftness(image, size, local_shadows, spot_shadows);
+    const bool directional_shadows = Graphics::InstallDirectionalShadows(image, size);
     const bool sun_shadows = Graphics::InstallDirectionalShadowResolution(image, size);
     const bool menus = Options::Install(image, size);
     bool editor = false;
@@ -149,7 +150,7 @@ void Install(std::uint8_t* image, std::size_t size) {
     const bool slots = JobSlots::Install(image, size);
     const bool status = GameStatus::Install(image, size);
     CameraTiming::Install(image, size);
-    if (!(editor || input || camera || wide || graphics || local_shadows || spot_shadows || sun_shadows || menus ||
+    if (!(editor || input || camera || wide || graphics || local_shadows || spot_shadows || sun_shadows || directional_shadows || menus ||
           rebirth || cheats || online || guard || timing ||
           frame_rate || slots || status)) {
         for (auto& h : hooks) Discard(h);

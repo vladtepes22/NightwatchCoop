@@ -14,6 +14,9 @@
 
 namespace Vulkan::EffectShaders {
 
+inline constexpr u64 SsaoHash = 0xcbbca5dc;
+inline constexpr u64 SsrHash = 0x6c2323c2;
+inline constexpr u64 SsrCompositeHash = 0x3fe9e964;
 inline constexpr u64 MotionBlurHash = 0x29e06868;
 
 /// SPIR-V to compile instead of the game's shader `info`, or empty for the game's own. `start` = the

@@ -11,6 +11,9 @@
 #define VULKAN_HPP_NO_EXCEPTIONS
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 #include <vulkan/vulkan.hpp>
+#include "video_core/host_shaders/contact_shadow_comp.h"
+#include "video_core/host_shaders/point_shadow_comp.h"
+#include "video_core/host_shaders/point_shadow_f16_comp.h"
 #include "video_core/host_shaders/ssgi_composite_comp.h"
 #include "video_core/host_shaders/ssgi_denoise_comp.h"
 #include "video_core/host_shaders/ssgi_gather_comp.h"
@@ -94,6 +97,18 @@ int main() {
 
     using enum vk::DescriptorType;
     const std::vector<Pass> passes = {
+        {"contact shadows",
+         CONTACT_SHADOW_COMP,
+         {eStorageBuffer, eCombinedImageSampler, eStorageImage, eCombinedImageSampler, eStorageBuffer},
+         68},
+        {"point shadows",
+         POINT_SHADOW_COMP,
+         {eStorageBuffer, eCombinedImageSampler, eStorageImage, eStorageImage, eStorageImage, eStorageImage},
+         64},
+        {"point shadows (FP16 light)",
+         POINT_SHADOW_F16_COMP,
+         {eStorageBuffer, eCombinedImageSampler, eStorageImage, eStorageImage, eStorageImage, eStorageImage},
+         64},
         {"ssgi prep", SSGI_PREP_COMP, {eSampledImage, eStorageImage, eSampledImage}, 128},
         {"ssgi gather",
          SSGI_GATHER_COMP,

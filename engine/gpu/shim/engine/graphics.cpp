@@ -33,6 +33,19 @@ constexpr std::uint8_t kShadowSetupEntry[] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57
                                               0x83, 0xec, 0x18, 0x49, 0x89, 0xf6, 0x48, 0x89, 0xfb};
 constexpr std::size_t kShadowDistances[] = {0x38, 0x3c, 0x44, 0x48};
 
+// Soft sun shadows and contact shadows (upstream 0.9.43): each directional cascade's near edge is pulled back
+// by kCascadeBlend of its own width, so the cascades overlap and the shadow pass can blend between them.
+// The hook sits in the cascade range function (0xeac540, a leaf that never touches rsp or rbp), at the two
+// stores of the near and far plane: r8d is the cascade, rdi the shadow owner, rdx the camera, xmm0 the near.
+constexpr std::size_t kCascadeRange = 0xeac540, kCascadeRangeTail = 0xeac657;
+constexpr std::uint8_t kCascadeRangeEntry[] = {
+    0xc5, 0xf8, 0x28, 0x02, 0xc5, 0xf8, 0x29, 0x06, 0xc5, 0xf8, 0x28, 0x42, 0x10,
+    0xc5, 0xf8, 0x29, 0x46, 0x10};
+constexpr std::uint8_t kCascadeRangeStores[] = {
+    0xc5, 0xfa, 0x11, 0x46, 0x54, 0xc5, 0xf2, 0x5d, 0x42, 0x58, 0xc5, 0xfa, 0x11, 0x46, 0x58};
+constexpr float kCascadeBlend = 0.1f;
+std::atomic<bool> g_cascade_overlap{false};
+
 // Shadow map sizes (Lantern 4889a8a8b): graphics_shadow_resolution, graphics_local_shadow_resolution.
 constexpr std::size_t kDirectionalSizeTable = 0x48a9668, kDirectionalSizeDefault = 0xeac238;
 constexpr std::uint32_t kDirectionalSizes[] = {2048, 1024, 2048, 4096};
@@ -189,6 +202,20 @@ GUEST_ABI std::int64_t BeforeShadowSetup(std::uint64_t, const std::uint64_t* sav
     return 0;
 }
 
+GUEST_ABI std::int64_t BeforeCascadeRangeStores(std::uint64_t, const std::uint64_t* saved) {
+    const unsigned cascade = unsigned(saved[1]);
+    if (cascade == 0 || cascade > 3 || !saved[5] || !saved[3]) return 0;
+    float near_edge = 0, previous = 0, camera_near = 0;
+    std::memcpy(&near_edge, SavedXmm(saved, 0), sizeof near_edge);
+    if (cascade > 1 && !Peek(saved[5] + 0x6dc + 4 * (cascade - 2), &previous)) return 0;
+    if (!Peek(saved[3] + 0x54, &camera_near) ||
+        !std::isfinite(near_edge) || !std::isfinite(previous) || !std::isfinite(camera_near) ||
+        near_edge <= previous || camera_near > near_edge) return 0;
+    near_edge = std::max(camera_near, near_edge - kCascadeBlend * (near_edge - previous));
+    std::memcpy(const_cast<std::uint8_t*>(SavedXmm(saved, 0)), &near_edge, sizeof near_edge);
+    return 0;
+}
+
 GUEST_ABI std::int64_t BeforeYebisRecord(std::uint64_t, const std::uint64_t*) {
     if (!g_post_block) return 0;
     const bool on = On();
@@ -301,6 +328,29 @@ void CommitFogUpload(std::uint8_t* image, std::uint8_t* stub) {
     const auto rel = std::int32_t(std::int64_t(kFogPadding) - std::int64_t(kFogJump + 5));
     std::memcpy(image + kFogJump + 1, &rel, 4);
 }
+}
+
+float DirectionalShadowBlend() {
+    return g_cascade_overlap.load(std::memory_order_relaxed) ? kCascadeBlend : 0.0f;
+}
+
+bool InstallDirectionalShadows(std::uint8_t* image, std::size_t size) {
+    // Only for a start with soft sun shadows or contact shadows on (a later switch changes the pass, not this).
+    const auto& settings = BbSettings::Get();
+    if (!settings.startup_effects[BbSettings::EffectPcss] &&
+        !settings.startup_effects[BbSettings::EffectContactShadows]) {
+        return false;
+    }
+    Hook hook;
+    if (!image || !Matches(image, size, kCascadeRange, kCascadeRangeEntry, sizeof kCascadeRangeEntry) ||
+        !Prepare(hook, image, size, kCascadeRangeTail, kCascadeRangeStores, BeforeCascadeRangeStores)) {
+        std::printf("Engine: directional overlap off: cascade code does not match 1.09 or hook unavailable\n");
+        return false;
+    }
+    Commit(std::span<Hook>(&hook, 1));
+    g_cascade_overlap.store(true, std::memory_order_relaxed);
+    std::printf("Engine: directional cascades overlap by 10%%; authored splits and atlas size retained\n");
+    return true;
 }
 
 bool InstallDirectionalShadowResolution(std::uint8_t* image, std::size_t size) {

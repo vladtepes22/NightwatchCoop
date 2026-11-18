@@ -1053,6 +1053,20 @@ void EffectsSection() {
                 "Свободная камера: удерживайте Cross и нажимайте L3 (клавиатура: Space + Z). "
                 "Debug menu: левый touchpad / Tab. Нужны DbgFont14h.ccm и DbgFont14h.tpf "
                 "в dvdroot_ps4/font из мода Nexus #253. Правый touchpad: Backspace."));
+        } else if (std::strcmp(effect.key, "effect_contact_shadows") == 0) {
+            Hint(BbSettings::MenuText(
+                "Adds fine shadows where things meet the ground and each other, on top of the sun's shadows. "
+                "Changes apply at once; blending between the sun shadow's distance bands needs it on when "
+                "the game starts.",
+                "Добавляет тонкие тени там, где предметы касаются земли и друг друга, поверх теней солнца. "
+                "Меняется сразу; плавный переход между зонами теней солнца нужен включённым при запуске игры."));
+        } else if (std::strcmp(effect.key, "effect_pcss") == 0) {
+            Hint(BbSettings::MenuText(
+                "Sun shadows soften with the distance from what casts them: sharp where an object touches "
+                "the ground, blurrier further away. Changes apply at once; blending between the sun "
+                "shadow's distance bands needs it on when the game starts.",
+                "Тени солнца смягчаются с расстоянием от предмета: чёткие у касания земли, размытее дальше. "
+                "Меняется сразу; плавный переход между зонами теней солнца нужен включённым при запуске игры."));
         }
     }
 }

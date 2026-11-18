@@ -99,7 +99,8 @@ static_assert(EffectCount == EffectRayTracing + 1);
 /// A lighting row exists in the build only once its pass is in: until then it is not shown, not
 /// read from bbport.ini and not written to it, so it can never be on.
 inline constexpr bool EffectAvailable(int effect) {
-    return effect < EffectFirstLighting || effect == EffectPomCavity || effect == EffectGi;
+    return effect < EffectFirstLighting || effect == EffectPomCavity || effect == EffectGi ||
+           effect == EffectContactShadows || effect == EffectPcss || effect == EffectPointShadows;
 }
 /// Lighting passes from contact shadows on switch while the game runs; the rest are built into
 /// cached pipelines at start. Ray tracing needs its device extensions, so turning it on restarts.
