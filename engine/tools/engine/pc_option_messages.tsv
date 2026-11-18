@@ -7,7 +7,8 @@
 # The port takes the next free blocks - 116000 PC Settings, 117000 PC
 # Graphics, 118000 PC Controls, 119000 Key Bindings, 120000 PC Effects, 121000
 # PC Camera, 122000 the title menu's Quit to Desktop, 123000 Steam Deck (shown on a
-# Deck only), 124000 PC Enhancements, 125000 PC Colour - and 110006..110014 for the System rows
+# Deck only), 124000 PC Enhancements, 125000 PC Colour, 126000 PC Lighting, 127000 PC Shadows, 129000 PC
+# Light and Fog (128000 and 110018 left free) - and 110006..110014, 110016, 110017, 110019 for the System rows
 # that open them, 110015 the System list's Quit to Desktop. All are unused in the shipped menu.msgbnd. (Motion blur,
 # depth of field and chromatic aberration moved to PC Effects with their
 # 117000 ids.)
@@ -72,6 +73,34 @@
 125001	Contrast	The difference between dark and bright. 5 is the game's own.	对比度	暗部与亮部的差异。5 为游戏原始值。	Контраст	Разница между тёмными и светлыми участками. 5 — как в оригинале
 125002	Saturation	Colour. 5 is the game's own; 0 is black and white.	饱和度	色彩浓度。5 为游戏原始值；0 为黑白画面。	Насыщенность	Цвет. 5 — как в оригинале; 0 — чёрно-белое изображение
 125003	Hue	Shifts every colour. 5 is the game's own.	色相	整体偏移画面颜色。5 为游戏原始值。	Оттенок	Сдвигает все цвета. 5 — как в оригинале
+# PC Lighting, PC Shadows, PC Light and Fog: the optional lighting rows. Their ids and order are
+# gpu/shim/engine/option_lighting.h's (tests/test_menu_assets.cpp checks the two agree).
+110016	PC Lighting	Optional ambient occlusion, reflections and surface detail, off by default. Improved Reflections runs only with an upscaler on or in a party.	PC 光照	可选的环境光遮蔽、反射和表面细节，默认关闭。增强反射仅在开启超分辨率或在队伍中时生效。	Освещение (ПК)	Дополнительные затенение, отражения и детали поверхностей, по умолчанию выключены. Улучшенные отражения работают только с апскейлером или в группе.
+110017	PC Shadows	Optional contact, soft sun and lamp shadows, off by default. They run only with an upscaler on or in a party.	PC 阴影	可选的接触阴影、柔和太阳阴影和灯光阴影，默认关闭。仅在开启超分辨率或在队伍中时生效。	Тени (ПК)	Дополнительные контактные тени, мягкие тени от солнца и тени от ламп, по умолчанию выключены. Работают только с апскейлером или в группе.
+110019	PC Light and Fog	Optional indirect lighting, volumetric sunlight and lamp fog, off by default. They run only with an upscaler on or in a party.	PC 光与雾	可选的间接光照、体积阳光和灯光雾，默认关闭。仅在开启超分辨率或在队伍中时生效。	Свет и туман (ПК)	Дополнительные непрямое освещение, объёмный свет и туман у ламп, по умолчанию выключены. Работают только с апскейлером или в группе.
+126020	PC Lighting		PC 光照		Освещение (ПК)
+126000	Better AO (Experimental)	GTAO in place of the game's shader; Ambient Occlusion must be on. Requires a restart.	增强环境光遮蔽（实验性）	用 GTAO 替换游戏着色器；需开启环境光遮蔽。需要重启。	Улучшенное затенение (эксп.)	GTAO вместо шейдера игры; затенение должно быть включено. Нужен перезапуск.
+126001	AO Quality	High is sharper and steadier, and heavier. Needs Better AO. Requires a restart.	环境光遮蔽质量	高：更清晰、更稳定，开销更大。需要增强环境光遮蔽。需要重启。	Качество затенения	Высокое — чётче и стабильнее, но тяжелее. Нужно улучшенное затенение. Нужен перезапуск.
+126010	Regular		普通		Обычное
+126011	High		高		Высокое
+126002	Improved Reflections	Sharper, steadier reflections; Screen-space Reflections must be on in the launcher. Requires a restart.	增强反射	更清晰稳定的反射；需在启动器中开启屏幕空间反射。需要重启。	Улучшенные отражения	Более чёткие и стабильные отражения; экранные отражения должны быть включены в лаунчере. Нужен перезапуск.
+126003	Reflection Strength	Needs Improved Reflections. 5 is the default.	反射强度	需要增强反射。5 为默认值。	Сила отражений	Нужны улучшенные отражения. 5 по умолчанию.
+126004	Deeper Parallax Surfaces	Deeper, shaded cavities on some surfaces. Requires a restart.	更深的视差表面	部分表面的凹陷更深并带有阴影。需要重启。	Глубокие параллакс-поверхности	Более глубокие затенённые углубления на некоторых поверхностях. Нужен перезапуск.
+127020	PC Shadows		PC 阴影		Тени (ПК)
+127000	Contact Shadows	Fine shadows where objects meet surfaces.	接触阴影	物体与表面接触处的细腻阴影。	Контактные тени	Тонкие тени там, где предметы касаются поверхностей.
+127001	Soft Sun Shadows	PCSS: shadows soften the farther they fall from what casts them.	柔和太阳阴影	PCSS：阴影离投射物越远越柔和。	Мягкие тени от солнца	PCSS: чем дальше от предмета, тем мягче тень.
+127002	Point Shadows (Experimental)	Screen-space shadows from lamps. Heavy.	点光源阴影（实验性）	灯光的屏幕空间阴影。开销大。	Тени от точечных (эксп.)	Экранные тени от ламп. Тяжёлый эффект.
+129020	PC Light and Fog		PC 光与雾		Свет и туман (ПК)
+129000	Indirect Lighting	One bounce of light from nearby surfaces. Heavy.	间接光照	来自附近表面的一次反弹光。开销大。	Непрямое освещение	Один отскок света от ближних поверхностей. Тяжёлый эффект.
+129001	Indirect Light Strength	Needs Indirect Lighting. 5 is the default.	间接光强度	需要间接光照。5 为默认值。	Сила непрямого света	Нужно непрямое освещение. 5 по умолчанию.
+129002	Volumetric Sunlight	Light in the air along the sun's direction. Heavy.	体积阳光	沿太阳方向的空气光效。开销大。	Объёмный солнечный свет	Свет в воздухе по направлению солнца. Тяжёлый эффект.
+129003	Volumetric Strength	Needs Volumetric Sunlight. 5 is the default.	体积阳光强度	需要体积阳光。5 为默认值。	Сила объёмного света	Нужен объёмный солнечный свет. 5 по умолчанию.
+129004	Fog Around Lamps	Light in the air around lamps. Heavy.	灯光周围的雾	灯光周围的空气光效。开销大。	Туман вокруг ламп	Свет в воздухе вокруг ламп. Тяжёлый эффект.
+129005	Lamp Fog Strength	Needs Fog Around Lamps. 5 is the default.	灯光雾强度	需要灯光周围的雾。5 为默认值。	Сила тумана от ламп	Нужен туман вокруг ламп. 5 по умолчанию.
+129006	Lamp Fog Falloff	Classic is the original look. Inverse-square gives a bright, tight glow at each flame and costs more GPU time than classic. Needs Fog Around Lamps.	灯光雾衰减	经典为原版效果。平方反比在每个火焰处形成明亮集中的光晕，GPU 开销高于经典。需要灯光周围的雾。	Спад тумана от ламп	Классический — исходный вид. Обратный квадрат даёт яркое плотное свечение у каждого огня и нагружает GPU сильнее классического. Нужен туман вокруг ламп.
+129010	Classic		经典		Классический
+129011	Inverse-Square		平方反比		Обратный квадрат
+129007	Lamp Fog Glow Size	The bright core's size at each flame. Needs Inverse-Square falloff. 5 is the default.	灯光雾光晕大小	每个火焰处明亮核心的大小。需要平方反比衰减。5 为默认值。	Размер свечения тумана	Размер яркого ядра у каждого огня. Нужен спад «Обратный квадрат». 5 по умолчанию.
 121020	PC Camera		PC 镜头		Камера (ПК)
 121000	Camera Distance	How far behind the character the camera sits. 5 is the game's own.	镜头距离	镜头在角色后方的距离。5 为游戏原始值。	Дистанция камеры	Как далеко позади персонажа находится камера. 5 — как в оригинале
 121001	Camera Height	How high above the character the camera looks. 5 is the game's own.	镜头高度	镜头在角色上方的高度。5 为游戏原始值。	Высота камеры	Высота камеры над персонажем. 5 — как в оригинале

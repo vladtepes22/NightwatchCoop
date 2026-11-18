@@ -587,6 +587,10 @@ add_executable(menu-assets-test EXCLUDE_FROM_ALL ../tests/test_menu_assets.cpp $
 target_include_directories(menu-assets-test PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/include)
 target_compile_options(menu-assets-test PRIVATE -UNDEBUG -Wall -Wextra)
 target_link_libraries(menu-assets-test PRIVATE ZLIB::ZLIB)
+add_executable(option-lighting-test EXCLUDE_FROM_ALL ../tests/test_option_lighting.cpp shim/bbport_settings.cpp
+    shim/bbport_menu_i18n.cpp)
+target_compile_options(option-lighting-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(option-lighting-test PRIVATE .. shim)
 add_executable(option-rows-test EXCLUDE_FROM_ALL ../tests/test_option_rows.cpp shim/engine/option_rows.cpp)
 target_compile_options(option-rows-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_include_directories(option-rows-test PRIVATE ..)

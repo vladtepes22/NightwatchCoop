@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "../tools/engine/menu_assets.h"
+#include "../gpu/shim/engine/option_lighting.h"
 #include <zlib.h>
 #include <algorithm>
 #include <cassert>
@@ -243,6 +244,35 @@ int main(int argc, char** argv) {
     assert(chinese.at(110015).help == "关闭游戏并返回桌面。");
     assert(chinese.at(117010).text == "1280x720");
     assert(english.at(920000).text.find('\n') != std::string::npos);
+    {   // The optional lighting pages (option_lighting.h): every caption they ask for is in the table, in the
+        // three languages; a row's help says "Requires a restart." exactly when the row needs one.
+        namespace L = BbEngine::OptionLighting;
+        const auto translated = [&](std::uint32_t at, bool help) {
+            const auto id = std::int32_t(at);
+            assert(english.count(id) && !english.at(id).text.empty() && english.at(id).help.empty() != help);
+            assert(chinese.at(id).text != english.at(id).text && russian.at(id).text != english.at(id).text);
+            assert(!help || (chinese.at(id).help != english.at(id).help && russian.at(id).help != english.at(id).help));
+        };
+        int rows[L::PageCount]{};
+        for (const L::Row& row : L::kRows) {
+            ++rows[row.page];
+            translated(row.id, true);
+            const auto id = std::int32_t(row.id);
+            assert((english.at(id).help.find("Requires a restart.") != std::string::npos) == row.restart);
+            assert((chinese.at(id).help.find("需要重启。") != std::string::npos) == row.restart);
+            assert((russian.at(id).help.find("Нужен перезапуск.") != std::string::npos) == row.restart);
+            for (int c = 0; c < row.choices; ++c) translated(row.first_choice + std::uint32_t(c), false);
+        }
+        for (int p = 0; p < L::PageCount; ++p) {
+            translated(L::kPages[p].system_row, true);
+            translated(L::kPages[p].title, false);
+            assert(english.at(std::int32_t(L::kPages[p].title)).text == english.at(std::int32_t(L::kPages[p].system_row)).text);
+            assert(english.at(std::int32_t(L::kPages[p].system_row)).help.find("with an upscaler on or in a party") !=
+                   std::string::npos);
+            // no caption left over for a row the table does not have
+            assert(!english.count(std::int32_t(L::kPages[p].title - 20) + rows[p]));
+        }
+    }
     assert(chinese.at(119100).text == "向前移动" && chinese.at(119129).text == "调试菜单" && chinese.at(119204).text == "其他");
     assert(english.at(119215).text.front() == ' ');
     assert(KindOf(110006) == Kind::Menu && KindOf(920001) == Kind::Question && KindOf(14000336) == Kind::Event);
@@ -308,15 +338,26 @@ int main(int argc, char** argv) {
     assert(refused);
 
     const Bytes movie = OptionMovie(Movie());
-    for (const char* name : {"PCGraphics", "PCControls", "PCKeys", "PCEffects", "PCCamera", "PCEnhance", "PCColour"})
+    for (const char* name : {"PCGraphics", "PCControls", "PCKeys", "PCEffects", "PCCamera", "PCEnhance", "PCColour",
+                             "PCLighting", "PCShadows", "PCLightFog"})
         assert(Count(movie, std::string(name) + '\0') == 1);
-    for (const char* title : {"117020", "118020", "119020", "120020", "121020", "124020", "125020"})
+    for (const char* title : {"117020", "118020", "119020", "120020", "121020", "124020", "125020", "126020", "127020",
+                              "129020"})
         assert(Count(movie, std::string("StaticText_") + title) == 1);
     assert(Count(movie, "StaticText_113020") == 1);
-    assert(Count(movie, "Item_7_0") == 2);
+    // The lighting pages (option_lighting.h; now 5, 3 and 8 rows): a page has Item_k_0 when k is one of its rows
+    // or its Defaults, right under its last row.
+    const auto lighting = [](int k) {
+        std::size_t pages = 0;
+        for (int p = 0; p < BbEngine::OptionLighting::PageCount; ++p)
+            pages += k <= BbEngine::OptionLighting::ShownRows(BbEngine::OptionLighting::Page(p));
+        return pages;
+    };
+    assert(Count(movie, "Item_7_0") == 2 + lighting(7));
+    assert(Count(movie, "Item_8_0") == lighting(8));  // only an eight-row page's Defaults
     // + 1: Environment's Defaults moved on to Item_6_0 (its rows Item_0_0 .. Item_5_0, the new one Item_2_0).
-    assert(Count(movie, "Item_6_0") == 1 + 1 + 2 + 1);
-    assert(Count(movie, "Item_3_0") == 1 + 1 + 7 + 1);
+    assert(Count(movie, "Item_6_0") == 1 + 1 + 2 + 1 + lighting(6));
+    assert(Count(movie, "Item_3_0") == 1 + 1 + 7 + 1 + lighting(3));
     assert(Count(movie, "Item_2_0") == Count(OptionMovie(Movie(false)), "Item_2_0") + 1);
     assert(Count(movie, "EnvironmentSetting") == 1 && Count(movie, "StaticText_111011") == 1);
     {   // The window: parts whose top is under Display HUD one row (1050) lower, the rest where they were; the
@@ -339,7 +380,7 @@ int main(int argc, char** argv) {
     try { OptionMovie(Movie(true, false)); } catch (const Error&) { refused = true; }
     assert(refused);  // an Environment not laid out as 1.09's: no movie (the PC menus stay off)
     assert(Count(movie, "ScrollBarV") == 2);
-    assert(Count(movie, "OptionSetting_fla._ControllSetting") == 8);
+    assert(Count(movie, "OptionSetting_fla._ControllSetting") == 8 + 3);
     assert(movie[4] == (movie.size() & 0xff) && movie[5] == (movie.size() >> 8 & 0xff));
     refused = false;
     try { OptionMovie(movie); } catch (const Error&) { refused = true; }

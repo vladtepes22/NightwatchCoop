@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "menu_assets.h"
 #include "rebirth_script.h"
+#include "../../gpu/shim/engine/option_lighting.h"
 #include <zlib.h>
 #include <algorithm>
 #include <array>
@@ -301,10 +302,17 @@ struct Section {
     int rows;
     bool defaults;
 };
+// A lighting page (gpu/shim/engine/option_lighting.h): as many rows as option_menu.cpp makes for it.
+constexpr Section LightingSection(BbEngine::OptionLighting::Page page) {
+    return {BbEngine::OptionLighting::kPages[page].section, std::int32_t(BbEngine::OptionLighting::kPages[page].title),
+            BbEngine::OptionLighting::ShownRows(page), true};
+}
 constexpr Section kSections[] = {
     {"PCGraphics", 117020, 6, true}, {"PCControls", 118020, 8, false}, {"PCKeys", 119020, 8, false},
     {"PCEffects", 120020, 5, true},  {"PCCamera", 121020, 3, true},    {"PCEnhance", 124020, 3, true},
     {"PCColour", 125020, 5, true},
+    LightingSection(BbEngine::OptionLighting::Lighting), LightingSection(BbEngine::OptionLighting::Shadows),
+    LightingSection(BbEngine::OptionLighting::Light),
 };
 constexpr int kDonorRows = 6, kDonorDefaults = 6;
 constexpr std::uint16_t kFirstSectionDepth = 383;

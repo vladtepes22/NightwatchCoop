@@ -102,7 +102,13 @@ enum class MenuList { System, PartySettings, GameSettings };
 enum class GameRow { Keep, Skip };
 constexpr u32 ControlsRow = 110000, EnvironmentRow = 110001, BrightnessRow = 110002, NetworkRow = 110003,
               ExitGameRow = 110004, LanguageRow = 110005, FirstPcRow = 110006, LastPcRow = 110014,
-              QuitToDesktopRow = 110015;
+              QuitToDesktopRow = 110015,
+              // the PC menus' lighting pages (engine/option_lighting.h: 110016, 110017, 110019)
+              FirstLightingRow = 110016, LastLightingRow = 110019;
+/// A page the PC menus add (engine/option_menu.cpp): it goes in Game Settings, not in System.
+constexpr bool IsPcRow(u32 id) {
+    return (id >= FirstPcRow && id <= LastPcRow) || (id >= FirstLightingRow && id <= LastLightingRow);
+}
 GameRow PlaceGameRow(MenuList list, u32 id);
 /// The System builder (0x1bb3ad0) drops a row it does not show right after adding it, as "the list's
 /// last item": a skipped row (nothing added) would cost the item before it. A skipped row the builder

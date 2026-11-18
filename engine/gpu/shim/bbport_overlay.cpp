@@ -1083,7 +1083,14 @@ void EffectsSection() {
                                   "Более плавное размытие, больше выборок вдоль движения. Размытие должно быть включено."));
     }
     bool lighting_title = false;
-    for (int e = 0; e < BbSettings::EffectCount; ++e) {
+    // The rows in the order of the game's PC Lighting, PC Shadows and PC Light and Fog pages
+    // (engine/option_lighting.h): point light shadows with the other shadows, before indirect lighting.
+    const auto in_order = [](int slot) {
+        using namespace BbSettings;
+        return slot == EffectGi ? EffectPointShadows : slot > EffectGi && slot <= EffectPointShadows ? slot - 1 : slot;
+    };
+    for (int slot = 0; slot < BbSettings::EffectCount; ++slot) {
+        const int e = in_order(slot);
         const auto& effect = BbSettings::Effects[e];
         if (!BbSettings::EffectAvailable(e)) {
             continue;
@@ -1092,8 +1099,14 @@ void EffectsSection() {
             // The optional lighting rows are not game patches: their own heading, and each row says
             // whether it switches at once.
             lighting_title = true;
-            Section("Lighting (optional, needs an upscaler on)",
-                    "Освещение (дополнительно, нужен включённый апскейлер)");
+            Section("Lighting (optional)", "Освещение (дополнительно)");
+            if (WholeSection() && Shown("Lighting (optional)", "Освещение (дополнительно)")) {
+                ImGui::PushTextWrapPos();
+                ImGui::TextDisabled("%s", BbSettings::MenuText(
+                    "Except GTAO and Deeper parallax surfaces, these run only with an upscaler on or in a party.",
+                    "Кроме GTAO и глубоких параллакс-поверхностей, работают только с включённым апскейлером или в группе."));
+                ImGui::PopTextWrapPos();
+            }
         }
         const char* label = Item(effect.label, effect.label_ru);
         if (!label) {

@@ -322,8 +322,18 @@ static void GameSettings() {
     }
     assert(std::u16string(P::Text(P::GameSettingsName(), false)) == u"Game Settings");
     assert(std::u16string(P::Text(P::GameSettingsName(), true)) == u"Настройки игры");
-    // PC Enhancements, PC Graphics, PC Effects, PC Colour, PC Controls, Key Bindings, PC Camera (option_menu.cpp).
-    const std::vector<P::u32> pc = {110013, 110007, 110010, 110014, 110008, 110009, 110011};
+    // PC Enhancements, PC Graphics, PC Effects, PC Colour, PC Lighting, PC Shadows, PC Light and Fog, PC Controls,
+    // Key Bindings, PC Camera (option_menu.cpp's kSystemOrder).
+    const std::vector<P::u32> pc = {110013, 110007, 110010, 110014, 110016, 110017, 110019, 110008, 110009, 110011};
+    for (const P::u32 lighting : {110016u, 110017u, 110019u}) {
+        assert(P::IsPcRow(lighting) && P::PlaceGameRow(P::MenuList::System, lighting) == P::GameRow::Skip);
+        assert(P::PlaceGameRow(P::MenuList::GameSettings, lighting) == P::GameRow::Keep);
+        assert(P::PlaceGameRow(P::MenuList::PartySettings, lighting) == P::GameRow::Skip);
+    }
+    // A row that is none of the System rows (AddHook passes the id after the last one): kept in System only.
+    assert(!P::IsPcRow(P::LastLightingRow + 1) && !P::IsPcRow(P::QuitToDesktopRow));
+    assert(P::PlaceGameRow(P::MenuList::System, P::LastLightingRow + 1) == P::GameRow::Keep);
+    assert(P::PlaceGameRow(P::MenuList::GameSettings, P::LastLightingRow + 1) == P::GameRow::Skip);
     std::vector<P::u32> rows = {P::ControlsRow, P::EnvironmentRow, P::BrightnessRow, P::NetworkRow, P::ExitGameRow,
                                 P::LanguageRow};
     rows.insert(rows.end(), pc.begin(), pc.end());

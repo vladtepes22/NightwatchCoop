@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "option_menu.h"
 #include "option_keys.h"
+#include "option_lighting.h"
 #include "option_rows.h"
 #include "engine_state.h"
 #include "graphics.h"
@@ -103,6 +104,10 @@ Setting g_controls[] = {Toggle(118000, 1), Slider(118001, 5), Toggle(118002, 0),
                         Pick(118006, BbSettings::PromptsAuto, kPrompts), Pick(118007, BbSettings::PadIconsAuto, kPadIcons)};
 Setting g_camera[] = {Slider(118004, 0, 1, 0.05f), Slider(121000, 5, 0.5f, 0.1f), Slider(121001, 5, 0.5f, 0.1f)};
 constexpr int kGraphicsPick = 4;
+// The optional lighting pages (option_lighting.h): BindSettings makes a row for each entry of its table whose
+// effect is in this build (BbSettings::EffectAvailable), in the table's order.
+Setting g_lighting[OptionLighting::PageCount][OptionLighting::kMostRows];
+Choice g_lighting_choices[std::size(OptionLighting::kRows)][OptionLighting::kMostChoices];
 
 struct Section {
     const char* name;
@@ -116,9 +121,18 @@ Section g_sections[] = {
     {"PCEffects", kEffectsRow, g_effects, true},           {"PCColour", kColourRow, g_colour, true},
     {"PCControls", kControlsRow, g_controls, false},       {"PCKeys", kKeysRow, {}, false},
     {"PCCamera", kCameraRow, g_camera, true},
+    // PC Lighting, PC Shadows, PC Light and Fog; BindSettings gives them their rows.
+    {OptionLighting::kPages[0].section, OptionLighting::kPages[0].system_row, {}, true},
+    {OptionLighting::kPages[1].section, OptionLighting::kPages[1].system_row, {}, true},
+    {OptionLighting::kPages[2].section, OptionLighting::kPages[2].system_row, {}, true},
 };
-enum { kEnhance, kGraphics, kEffects, kColour, kControls, kKeys, kCamera, kSectionCount };
+enum { kEnhance, kGraphics, kEffects, kColour, kControls, kKeys, kCamera, kLighting, kShadows, kLightFog, kSectionCount };
 static_assert(std::size(g_sections) == kSectionCount);
+static_assert(kLightFog - kLighting + 1 == OptionLighting::PageCount);
+// The System list's order: the lighting pages come after the other picture pages.
+constexpr int kSystemOrder[] = {kEnhance, kGraphics, kEffects,  kColour, kLighting,
+                                kShadows, kLightFog, kControls, kKeys,   kCamera};
+static_assert(std::size(kSystemOrder) == kSectionCount);
 bool g_offered[kSectionCount]{};
 
 struct DefaultsCaption {
@@ -195,11 +209,13 @@ template <int S> std::int64_t GUEST Open(void* root, void* params) {
 }
 template <int S> void* GUEST RowOpener(void* out, void* ctx) { return OptionRows::OpenThrough(out, ctx, &Open<S>); }
 constexpr OptionRows::Opener kOpeners[] = {&RowOpener<0>, &RowOpener<1>, &RowOpener<2>, &RowOpener<3>,
-                                           &RowOpener<4>, &RowOpener<5>, &RowOpener<6>};
+                                           &RowOpener<4>, &RowOpener<5>, &RowOpener<6>, &RowOpener<7>,
+                                           &RowOpener<8>, &RowOpener<9>};
 static_assert(std::size(kOpeners) == kSectionCount);
 bool HandlersEven() {
     const OptionRows::Handler handlers[] = {&Handler<0>, &Handler<1>, &Handler<2>, &Handler<3>,
-                                            &Handler<4>, &OptionKeys::Build, &Handler<6>};
+                                            &Handler<4>, &OptionKeys::Build, &Handler<6>,
+                                            &Handler<7>, &Handler<8>, &Handler<9>};
     for (const auto h : handlers)
         if (reinterpret_cast<std::uintptr_t>(h) & 1) return false;
     return true;
@@ -215,7 +231,7 @@ void* GUEST QuitOpener(void* out, void* factory) { return OptionRows::AskYesNo(o
 
 std::uint64_t g_image = 0;
 void* GUEST SystemList(void* out, void* builder, void* functor) {
-    for (int s = 0; s < kSectionCount; ++s)
+    for (const int s : kSystemOrder)
         if (g_offered[s]) OptionRows::AddCommand(builder, g_sections[s].row, kOpeners[s]);
     OptionRows::AddExitCommand(builder, kQuitRow, &QuitOpener);
     Call(g_image + kSystemFinish, out, builder, functor);
@@ -335,6 +351,31 @@ bool BindSettings() {
     g_camera[0].amount = &s.camera_fov_scale;
     g_camera[1].amount = &s.camera_distance_scale;
     g_camera[2].amount = &s.camera_height_scale;
+    // The optional lighting pages: the same atomics the overlay menu writes; Tick saves a change with
+    // BbSettings::Save. A row needing a restart says so in its line help (pc_option_messages.tsv).
+    int made[OptionLighting::PageCount]{};
+    for (std::size_t r = 0; r < std::size(OptionLighting::kRows); ++r) {
+        const OptionLighting::Row& row = OptionLighting::kRows[r];
+        if (!OptionLighting::Shown(row)) continue;
+        Setting& to = g_lighting[row.page][made[row.page]++];
+        switch (row.kind) {
+        case OptionLighting::Kind::Toggle:
+            to = Toggle(row.id, row.def);
+            effect(to, row.effect);
+            break;
+        case OptionLighting::Kind::Slider:
+            to = Slider(row.id, row.def, row.base, row.step);
+            to.amount = &(s.*row.amount);
+            break;
+        case OptionLighting::Kind::Pick:
+            for (int c = 0; c < row.choices; ++c) g_lighting_choices[r][c] = {c, row.first_choice + std::uint32_t(c)};
+            to = Pick(row.id, row.def, std::span<const Choice>(g_lighting_choices[r], std::size_t(row.choices)));
+            to.number = &(s.*row.number);
+            break;
+        }
+    }
+    for (int page = 0; page < OptionLighting::PageCount; ++page)
+        g_sections[kLighting + page].rows = std::span<Setting>(g_lighting[page], std::size_t(made[page]));
     return true;
 }
 }
@@ -376,6 +417,8 @@ bool Install(std::uint8_t* image, std::size_t size) {
     g_offered[kGraphics] = g_offered[kEffects] = g_offered[kColour] = Graphics::Enabled();
     g_offered[kControls] = g_offered[kKeys] = settings.pc_controls;
     g_offered[kCamera] = settings.camera_controls;
+    for (int page = 0; page < OptionLighting::PageCount; ++page)
+        g_offered[kLighting + page] = Graphics::Enabled() && !g_sections[kLighting + page].rows.empty();
 
     const auto name = reinterpret_cast<std::uint64_t>(g_section);
     std::memcpy(image + kSectionSlot, &name, sizeof name);

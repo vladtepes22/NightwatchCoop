@@ -59,6 +59,7 @@
 
 #include "bbport_game_menu_pages.h"
 #include "bbport_settings.h"
+#include "engine/option_lighting.h"
 #include "engine/option_menu.h"
 
 extern "C" void* runtime_low_map(size_t size, int prot); // src/runtime_memory.c
@@ -617,7 +618,13 @@ bool title_information_ok = false; // the title builder's Information call is 1.
 bool title_log_in_ok = false;      // the title builder's Log In call is 1.09's (left out)
 // Nightwatch: the System list's row names (110000 Controls .. 110015 the PC menus' Quit to Desktop) as
 // looked up: AddHook / CommandHook tell the game's rows apart by them (P::PlaceGameRow).
-std::array<std::atomic<const void*>, P::QuitToDesktopRow - P::ControlsRow + 1> system_row_text{};
+std::array<std::atomic<const void*>, P::LastLightingRow - P::ControlsRow + 1> system_row_text{};
+// The lighting pages' System rows (engine/option_lighting.h) are among them: P::IsPcRow puts them in Game Settings.
+static_assert([] {
+    for (const auto& page : BbEngine::OptionLighting::kPages)
+        if (page.system_row < P::FirstLightingRow || page.system_row > P::LastLightingRow) return false;
+    return true;
+}());
 std::atomic<const void*> display_hud_text{nullptr}; // Environment's "Display HUD", as looked up (PairRowHook)
 /// The System row id whose name `pair` holds, or 0 when it is none of them.
 u32 SystemRowOf(const void* pair) {
@@ -821,7 +828,7 @@ BB_SYSV const char16_t* LookupHook(void* repository, u32 table, u32 category, u3
     if (category == TextName && id == ItemMenuDiscard && text) {
         discard_text = text;
     }
-    if (category == TextName && id >= P::ControlsRow && id <= P::QuitToDesktopRow && text) {
+    if (category == TextName && id >= P::ControlsRow && id <= P::LastLightingRow && text) {
         system_row_text[id - P::ControlsRow] = text;
     }
     if (category == TextName && id == DisplayHudName && text) {
@@ -966,7 +973,7 @@ BB_SYSV void* AddHook(void* menu, void* pair, void* function, void* out) {
         AddSystemItems(menu);
         if (Trace()) std::printf("Game menu: System menu built\n");
     }
-    const bool keep = P::PlaceGameRow(building, row ? row : P::QuitToDesktopRow + 1) == P::GameRow::Keep;
+    const bool keep = P::PlaceGameRow(building, row ? row : P::LastLightingRow + 1) == P::GameRow::Keep;
     if (!keep && !BuilderDrops(row)) {
         return menu; // skipped as AddPageItem returns: the menu
     }

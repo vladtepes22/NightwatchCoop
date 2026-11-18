@@ -1784,7 +1784,7 @@ u32 PartySettingsHelp() {
 }
 
 GameRow PlaceGameRow(MenuList list, u32 id) {
-    const bool pc_page = id >= FirstPcRow && id <= LastPcRow;
+    const bool pc_page = IsPcRow(id);
     switch (list) {
     case MenuList::System:
         return id <= NetworkRow || pc_page ? GameRow::Skip : GameRow::Keep; // Network: not this port's
