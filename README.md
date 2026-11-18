@@ -52,7 +52,7 @@ and everyone's save keeps the progress. Free and open source. Needs your own gam
 
 ## Install
 
-1. Download `NightwatchCoop-v0.3.3-beta.1-win64.zip` from
+1. Download `NightwatchCoop-v0.3.3-beta.2-win64.zip` from
    [Releases](https://github.com/vladtepes22/NightwatchCoop/releases).
 2. Right-click the zip → **Extract All…** → choose a normal folder, for example `C:\Games`.
    Not `Program Files` or OneDrive.

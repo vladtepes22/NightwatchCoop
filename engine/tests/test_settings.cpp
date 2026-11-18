@@ -794,6 +794,44 @@ int main() {
         assert(d.graphics_point_fog_falloff == PointFogFalloffClassic);
         assert(d.graphics_point_fog_glow_size == PointFogGlowSizeDefault);
     }
+    {
+        // Improved reflections (upstream v0.9.43): its row is in and needs a restart either way; its
+        // strength is 0-3 and 1 by default, an unreadable value is the default, an out-of-range one is
+        // clamped.
+        using namespace BbSettings;
+        auto& d = Get();
+        static_assert(std::string_view(Effects[EffectModernSsr].key) == "effect_modern_ssr");
+        static_assert(EffectAvailable(EffectModernSsr) && !EffectIsLive(EffectModernSsr));
+        assert(EffectChangeNeedsRestart(EffectModernSsr, true, false));
+        assert(EffectChangeNeedsRestart(EffectModernSsr, false, true));
+        bool only_ssr[EffectCount]{};
+        only_ssr[EffectModernSsr] = true; // its hooks follow its SSR replacement, not the row
+        assert(!Vulkan::LightingRules::AnyWanted(only_ssr));
+        { std::ofstream file(path); file << "show_fps=0\n"; }
+        Load();
+        assert(d.graphics_ssr_intensity == 1.0f && !d.effects[EffectModernSsr]);
+        { std::ofstream file(path); file << "graphics_ssr_intensity=7\n"; }
+        Load();
+        assert(d.graphics_ssr_intensity == 3.0f);
+        { std::ofstream file(path); file << "graphics_ssr_intensity=-1\n"; }
+        Load();
+        assert(d.graphics_ssr_intensity == 0.0f);
+        { std::ofstream file(path); file << "graphics_ssr_intensity=nan\n"; }
+        Load();
+        assert(d.graphics_ssr_intensity == 1.0f);
+        { std::ofstream file(path); file << "graphics_ssr_intensity=2.5\neffect_modern_ssr=1\n"; }
+        Load();
+        assert(d.graphics_ssr_intensity == 2.5f && d.effects[EffectModernSsr] &&
+               d.startup_effects[EffectModernSsr]);
+        Save();
+        const std::string saved = Read(path);
+        assert(saved.find("graphics_ssr_intensity=2.50\n") != std::string::npos);
+        assert(saved.find("effect_modern_ssr=1\n") != std::string::npos);
+        d.graphics_ssr_intensity = 1.0f;
+        d.effects[EffectModernSsr] = false;
+        Load();
+        assert(d.graphics_ssr_intensity == 2.5f && d.effects[EffectModernSsr]);
+    }
     std::filesystem::remove(temporary);
     std::puts("PASS: settings save keeps other keys, menu position");
 }
