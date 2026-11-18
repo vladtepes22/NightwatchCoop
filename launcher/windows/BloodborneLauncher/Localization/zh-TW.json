@@ -2875,7 +2875,6 @@
   "The game steps by each frame's measured time (Mrsuss60's clock, from visy's 0.7.8) instead of the fixed frame-rate code: cloth, animation and moving platforms follow real time. On by default; not used at 30 FPS. The target can be changed in game (Insert menu, Live FPS)": "遊戲改依各影格的實測時間推進（Mrsuss60 的計時器，取自 visy 的 0.7.8），而非固定影格率的程式碼：布料、動畫與移動平台都依實際時間運作。預設開啟；在 30 FPS 時不使用。目標值可在遊戲中變更（Insert 選單，即時 FPS）",
   "The generator ended without writing a world.": "生成器已結束，但未寫入任何世界。",
   "The generator failed.": "生成器失敗。",
-  "The generator only runs inside Nightwatch Co-op.": "生成器僅能在 Nightwatch Co-op 內執行。",
   "The host plays a randomized world you don't have: building it, then joining again.": "房主正在遊玩您沒有的隨機世界：正在建立後再重新加入。",
   "The host's world could not be set up: {0}": "無法設定房主的世界：{0}",
   "The mods ticked above are not the ones this world was made on: make it again on them, with a new character.": "上方勾選的模組與此世界製作時所用的不同：請以這些模組重新製作，並建立新角色。",

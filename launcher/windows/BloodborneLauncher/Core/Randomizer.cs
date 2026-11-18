@@ -47,10 +47,13 @@ namespace BloodborneLauncher.Core
         private static readonly Regex WorldName = new(@"^Randomizer [0-9A-Za-z-]+ ([0-9a-f]{8})$", RegexOptions.CultureInvariant);
         private static readonly Dictionary<string, (DateTime Written, World? World)> Loaded = new(StringComparer.OrdinalIgnoreCase);
 
-        public static string Generator => Path.Combine(Paths.PortDir, "randomizer", "randomizer.exe");
+        /// <summary>The generator (tools\randomizer): Python source in the package's randomizer\source, run by the package's
+        /// own Python (seamless\python). A folder of its own: an install updated from a build that shipped a compiled
+        /// generator still has that one's files in randomizer\, which must not sit beside these modules.</summary>
+        public static string Generator => Path.Combine(Paths.PortDir, "randomizer", "source", "randomizer.py");
 
-        /// <summary>This package has a generator (the page stays hidden without one).</summary>
-        public static bool Supported => File.Exists(Generator);
+        /// <summary>This package has a generator and a Python to run it (the page stays hidden without them).</summary>
+        public static bool Supported => File.Exists(Generator) && File.Exists(Paths.SeamlessPython);
 
         /// <summary>The folder the generator writes this world to (generate.folder_name): "Randomizer", the first 12 hex of
         /// the code's SHA-256, and the check (the first 8 hex of the input hash). 32 characters for any code.</summary>
@@ -441,11 +444,10 @@ namespace BloodborneLauncher.Core
             _ => L.T("Generating…"),
         };
 
-        /// <summary>The generator's exit codes (randomizer.py): 2 outside Nightwatch, 3 a code from a newer generator, 4 not a code,
+        /// <summary>The generator's exit codes (randomizer.py): 3 a code from a newer generator, 4 not a code,
         /// 5 the world's folder is in use (nothing was changed).</summary>
         public static string? ExitText(int code) => code switch
         {
-            2 => L.T("The generator only runs inside Nightwatch Co-op."),
             3 => L.T("This code comes from a newer randomizer. Update the launcher to use it."),
             4 => L.T("That is not a valid world code. Check it for typing mistakes."),
             5 => L.T("That world's folder is in use. Close the game and try again."),
@@ -490,7 +492,7 @@ namespace BloodborneLauncher.Core
 
         private static async Task<string> Run(IEnumerable<string> arguments, Action<string>? line = null, CancellationToken cancel = default)
         {
-            var info = new ProcessStartInfo(Generator)
+            var info = new ProcessStartInfo(Paths.SeamlessPython)
             {
                 WorkingDirectory = Path.GetDirectoryName(Generator)!,
                 UseShellExecute = false,
@@ -500,7 +502,8 @@ namespace BloodborneLauncher.Core
                 StandardOutputEncoding = Encoding.UTF8,
                 StandardErrorEncoding = Encoding.UTF8,
             };
-            foreach (var argument in arguments) info.ArgumentList.Add(argument);
+            // -I: nothing of this PC's Python settings; -B: no __pycache__ in the package; UTF-8 for the folder it names
+            foreach (var argument in new[] { "-I", "-B", "-X", "utf8", Generator }.Concat(arguments)) info.ArgumentList.Add(argument);
             cancel.ThrowIfCancellationRequested();
             using var process = Process.Start(info)!;
             using var stop = cancel.Register(() =>

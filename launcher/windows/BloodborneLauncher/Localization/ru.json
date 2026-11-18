@@ -2871,7 +2871,6 @@
   "The game steps by each frame's measured time (Mrsuss60's clock, from visy's 0.7.8) instead of the fixed frame-rate code: cloth, animation and moving platforms follow real time. On by default; not used at 30 FPS. The target can be changed in game (Insert menu, Live FPS)": "Игра шагает по измеренному времени каждого кадра (часы Mrsuss60 из версии visy 0.7.8), а не по фиксированному коду частоты кадров: ткань, анимация и движущиеся платформы идут в реальном времени. По умолчанию включено; при 30 FPS не используется. Цель можно изменить в игре (меню Insert, Live FPS)",
   "The generator ended without writing a world.": "Генератор завершился, не записав мир.",
   "The generator failed.": "Генератор завершился с ошибкой.",
-  "The generator only runs inside Nightwatch Co-op.": "Генератор работает только внутри Nightwatch Co-op.",
   "The host plays a randomized world you don't have: building it, then joining again.": "Хост играет в случайном мире, которого у вас нет: собираем его, затем входим снова.",
   "The host's world could not be set up: {0}": "Не удалось настроить мир хоста: {0}",
   "The mods ticked above are not the ones this world was made on: make it again on them, with a new character.": "Отмеченные выше моды не те, на которых собран этот мир: создайте его заново на них, с новым персонажем.",

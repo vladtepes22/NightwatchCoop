@@ -40,9 +40,9 @@ if (-not (Test-Path -LiteralPath $packageManifest)) {
     if ($pkg.version -ne $version) { $problems.Add("package is version $($pkg.version), VERSION says $version") }
     if ($pkg.source -ne $head) { $problems.Add("package was built from $($pkg.source), HEAD is ${head}: rebuild the package") }
 }
-# The launcher's Randomizer page needs the compiled generator (0.3.1 shipped without it: package-seamless.ps1 -RandomizerBuild).
-if (-not (Test-Path -LiteralPath (Join-Path $Package 'randomizer\randomizer.exe'))) {
-    $problems.Add("no randomizer\randomizer.exe in $Package`: package again with -RandomizerBuild <generator build folder>")
+# The launcher's Randomizer page needs the generator and the Python that runs it (package-seamless.ps1 copies both).
+foreach ($needed in 'randomizer\source\randomizer.py', 'seamless\python\python.exe') {
+    if (-not (Test-Path -LiteralPath (Join-Path $Package $needed))) { $problems.Add("no $needed in $Package") }
 }
 # The zip must extract on Linux too (Proton): '/' in entry names, and the engine and generator where the launcher looks.
 if (Test-Path -LiteralPath $zip) {
@@ -56,7 +56,7 @@ if (Test-Path -LiteralPath $zip) {
         $problems.Add("zip has $($backslash.Count) entries with '\' (e.g. $($backslash[0])): make it with tools\package-zip.ps1")
     }
     foreach ($needed in 'NightwatchCoop/Nightwatch Co-op.exe', 'NightwatchCoop/engine/out/bb-probe.exe',
-                        'NightwatchCoop/engine/out/bb-start.exe', 'NightwatchCoop/randomizer/randomizer.exe') {
+                        'NightwatchCoop/engine/out/bb-start.exe', 'NightwatchCoop/randomizer/source/randomizer.py', 'NightwatchCoop/seamless/python/python.exe') {
         if ($names -notcontains $needed) { $problems.Add("zip has no $needed") }
     }
 }
