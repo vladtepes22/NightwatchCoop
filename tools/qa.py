@@ -453,12 +453,13 @@ class Run:
         # games run one after another (a host and a guest already make two).
         if 'build' in layers and not self.build():
             layers = [l for l in layers if l in ('python', 'launcher', 'generator')]
-        side = [l for l in layers if l in ('native', 'python', 'launcher')]
+        side = [l for l in layers if l in ('native', 'launcher')]
         with ThreadPoolExecutor(max_workers=4) as pool:
             ok = dict(zip(side, pool.map(lambda l: getattr(self, l)(), side)))
-        # The generator's tests load every core: beside them the engine's timing tests (test_logdrain) fail.
-        if 'generator' in layers:
-            self.generator()
+        # The Python tests hold timing tests (test_logdrain): beside native's test build (every core for
+        # minutes after a fresh configure) or the generator's tests they fail. Each runs alone.
+        for layer in [l for l in layers if l in ('python', 'generator')]:
+            getattr(self, layer)()
         for layer in [l for l in layers if l in ('smoke', 'coop', 'world', 'privacy')]:
             if layer in ('smoke', 'coop') and ok.get('native') is False:
                 self.results[layer] = {'status': 'SKIP', 'summary': 'native failed', 'seconds': 0}
