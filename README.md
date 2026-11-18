@@ -20,6 +20,10 @@ and everyone's save keeps the progress. Free and open source. Needs your own gam
   registration and no port forwarding.
 - **Made for PC.** 120 FPS and beyond, ultrawide, popular community patches, DLSS and FSR upscaling,
   frame generation, and cheats you can switch on or off.
+- **Optional lighting.** Ten extra effects, all off until you switch them on (Graphics page, the
+  in-game menu or the game's Options screen): better ambient occlusion, improved reflections, deeper
+  surfaces, contact, soft sun and point light shadows, indirect lighting, volumetric sunlight, fog
+  around lamps, and experimental ray traced lighting on graphics cards that support it.
 - **Your controls.** Remap every key and gamepad button.
 - **Chalice Dungeons together.** Explore every Chalice Dungeon that ships with the game as a party,
   or pick one of about 200 community glyphs (Noxde's list) right at the Ritual Altar.
