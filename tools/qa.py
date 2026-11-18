@@ -2,7 +2,7 @@
 
     python tools/qa.py plan  --level change            # what a change needs, from the touched files
     python tools/qa.py run   --level change            # ... and run it
-    python tools/qa.py run   --level merge             # native + Python + launcher checks
+    python tools/qa.py run   --level merge             # native + Python + launcher checks + a world from the tree
     python tools/qa.py run   --level release --package <dir>   # + full build, smoke, co-op rows, privacy
     python tools/qa.py run   --only native,launcher    # named layers
 
@@ -13,8 +13,10 @@ Layers (QA_TESTING.md has the why of each):
   launcher  dotnet SeamlessTests, LocalizationChecks, DisplayChecks
   smoke     tools/smoke-game.py: one headless, muted new game (party tick, new-game progression, no crash line)
   coop      tools/smoke-coop.py rows from tools/qa_scenarios.json (host + guest, headless, isolated saves)
-  generator tools/randomizer unit tests (needs the game's files; about 20 min)
-  world     the package's randomizer through the launcher: a world is generated and found as a world (no game runs)
+  generator tools/randomizer unit tests (needs the game's files; about 15 min)
+  world     the randomizer through the launcher: a world is generated and found as a world (needs the game's files; no
+            game runs). Without --package the tree's own generator (tools/randomizer, as packaged) on the Python the
+            package ships; with --package that package's, which must also equal the tree's
   privacy   tools/privacy-scan.py on the package + no game-derived files in it
 
 Every run writes work/qa/<run>/report.md, report.json and one log per layer. Exit 1 when a layer fails.
@@ -30,16 +32,19 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import time
+import urllib.request
+import zipfile
 
 REPO = Path(__file__).resolve().parent.parent
 BASH = Path(r'C:\msys64\usr\bin\bash.exe')
 PYTHON = Path(os.environ.get('BB_QA_PYTHON', r'C:\msys64\clang64\bin\python.exe'))
 LAYERS = ['build', 'native', 'python', 'launcher', 'generator', 'smoke', 'coop', 'world', 'privacy']
 LEVELS = {
-    'merge': ['native', 'python', 'launcher'],
+    'merge': ['native', 'python', 'launcher', 'world'],
     'release': ['build', 'native', 'python', 'launcher', 'generator', 'smoke', 'coop', 'world', 'privacy'],
 }
 RELEASE_SCENARIOS = ['join', 'core', 'deaths', 'boss', 'guestrest', 'loadgap', 'invade']
@@ -50,8 +55,12 @@ RULES = [
     (r'^engine/(tests/.*\.(c|cc|cpp|h)$|gpu/cmake/)', ['native']),
     (r'^engine/(gpu|src|start)/', ['native', 'smoke']),
     (r'^engine/(scripts/|tools/|tests/.*\.py$)', ['python']),
+    # The launcher's side of a world (its folder name, manifest, code, the generator's command line) and the generator
+    # change together: either side alone needs a world made through both.
+    (r'^launcher/windows/(BloodborneLauncher/(Core/(Randomizer|WorldCode|Paths)|Views/RandomizerPage)|SeamlessTests/(Randomizer\w*|Program))\.cs$',
+     ['launcher', 'world']),
     (r'^launcher/', ['launcher']),
-    (r'^tools/randomizer/', ['generator']),
+    (r'^tools/randomizer/', ['generator', 'world']),
     (r'^tools/(package-seamless|release)\.ps1$', ['smoke']),
     (r'^tools/(smoke-|qa)', ['python']),
 ]
@@ -59,6 +68,7 @@ RULES = [
 # as tools/smoke-coop.py (not the optional trace of a caught C++ exception, "C++ exception, thread N").
 CRASH_RX = r'(?i)(?:guest|host) fault|uncaught C\+\+ exception|VK_ERROR|STOP: guest raised|assertion failed|EXCEPTION_ACCESS|fatal error|Session lost|\[WATCHDOG\] Boot stalled'
 GAME_FILES = ('eboot.elf', 'boot-linked.bin')
+GENERATOR = REPO / 'tools' / 'randomizer'
 
 
 def parse_ctest(out):
@@ -111,6 +121,23 @@ def layers_for(paths):
                 wanted.update(layers)
                 break
     return [layer for layer in LAYERS if layer in wanted]
+
+
+def generator_modules(folder=GENERATOR):
+    """The generator as tools/package-seamless.ps1 ships it: the folder's own .py files (no tests), name -> bytes."""
+    return {p.name: p.read_bytes() for p in sorted(Path(folder).glob('*.py')) if not p.name.startswith('_')}
+
+
+def generator_difference(packaged, tree=None):
+    """'' when a package's randomizer/source is this tree's generator, else what differs (a package made from another
+    commit pairs this launcher with another generator: v0.3.2)."""
+    tree = generator_modules() if tree is None else tree
+    theirs = generator_modules(packaged)
+    parts = [(label, names) for label, names in (
+        ('changed', [n for n in tree if n in theirs and theirs[n] != tree[n]]),
+        ('missing', [n for n in tree if n not in theirs]),
+        ('extra', [n for n in theirs if n not in tree])) if names]
+    return '; '.join(f"{label} {', '.join(names[:4])}{' ...' if len(names) > 4 else ''}" for label, names in parts)
 
 
 def subst_drive():
@@ -322,19 +349,74 @@ class Run:
                         + ('' if passed else ' FAIL')), note
 
     def world(self):
-        """The package's generator and this tree's launcher must agree on what a world is (v0.3.2 shipped a generator
-        whose folder names its launcher did not know: every world ended as "The generator ended without writing a world")."""
+        """The generator and this tree's launcher must agree on what a world is (v0.3.2 shipped a generator whose folder
+        names its launcher did not know: every world ended as "The generator ended without writing a world"). With
+        --package the package's generator, which must be this tree's; without, the tree's generator staged as a package."""
         t = time.monotonic()
         package = self.args.package
-        if not package or not (package / 'randomizer' / 'source' / 'randomizer.py').exists():
-            return self.done('world', False, 'needs --package <package dir> with randomizer/source/randomizer.py', t)
+        if not Path(self.args.game).is_dir():
+            return self.done('world', False, f'no game folder {self.args.game}: give --game or set BB_QA_GAME', t)
+        if package:
+            mode = 'package'
+            if not (package / 'randomizer' / 'source' / 'randomizer.py').exists():
+                return self.done('world', False, f'no randomizer/source/randomizer.py in the package {package}', t)
+            differs = generator_difference(package / 'randomizer' / 'source')
+            if differs:
+                return self.done('world', False, f"the package's generator is not this tree's tools/randomizer ({differs}): package again", t)
+        else:
+            mode = 'tree'
+            package = self.dir / 'world-package'
+            problem = self.stage_world_package(package)
+            if problem:
+                return self.done('world', False, f'tree: {problem}', t)
         mods = self.dir / 'world-mods'
         mods.mkdir(parents=True, exist_ok=True)
         code, out = self.sh('world', ['dotnet', 'run', '--project', 'SeamlessTests', '--', '--world-generate',
-                                      str(package), self.args.game, str(mods)], cwd=REPO / 'launcher' / 'windows')
+                                      str(package), self.args.game, str(mods)], cwd=REPO / 'launcher' / 'windows', timeout=900)
+        if mode == 'tree':
+            shutil.rmtree(package, ignore_errors=True)  # a copy of the tree's files and ~20 MB of Python
         made = re.search(r"^generated .*$", out, re.M)
-        return self.done('world', code == 0 and 'world-generate ok' in out, made.group(0) if made else f'exit {code}', t,
-                         pick(out, r'FAIL|Exception', 8))
+        passed = code == 0 and 'world-generate ok' in out
+        problems = pick(out, r'FAIL|Exception|error [A-Z]+\d+|TIMEOUT', 8)
+        summary = made.group(0) if made else f'exit {code}'
+        if not passed and problems:
+            summary += ': ' + re.sub(r'^Unhandled exception\. ', '', problems[0])[:160]
+        return self.done('world', passed, f'{mode}: {summary}', t, problems)
+
+    def stage_world_package(self, package):
+        """What the launcher needs of a package to make a world, from the tree: randomizer/source as
+        tools/package-seamless.ps1 fills it, and seamless/python, the embedded Python that script ships (its version
+        and its archive in work/downloads; fetched from python.org once). Returns a problem's text, or None."""
+        source = package / 'randomizer' / 'source'
+        source.mkdir(parents=True, exist_ok=True)
+        for name, data in generator_modules().items():
+            (source / name).write_bytes(data)
+        if not (source / 'randomizer.py').exists():
+            return 'no tools/randomizer/randomizer.py'
+        m = re.search(r"\$pythonVersion = '(\d+)\.(\d+)\.(\d+)'", (REPO / 'tools' / 'package-seamless.ps1').read_text(encoding='utf-8'))
+        if not m:
+            return 'no $pythonVersion in tools/package-seamless.ps1'
+        version = '.'.join(m.groups())
+        archive = REPO / 'work' / 'downloads' / f'python-{version}-embed-amd64.zip'
+        if not archive.exists():
+            archive.parent.mkdir(parents=True, exist_ok=True)
+            part = archive.with_suffix('.part')
+            try:
+                with urllib.request.urlopen(f'https://www.python.org/ftp/python/{version}/{archive.name}', timeout=120) as r:
+                    part.write_bytes(r.read())
+            except OSError as e:
+                return f'no {archive.name} in work/downloads and python.org did not give it ({e})'
+            part.replace(archive)
+        python = package / 'seamless' / 'python'
+        with zipfile.ZipFile(archive) as z:
+            z.extractall(python)
+        tag = f'python{m.group(1)}{m.group(2)}'
+        (python / f'{tag}._pth').write_text(f'{tag}.zip\n.\n..\\scripts\n', encoding='ascii', newline='\n')
+        code, out = self.sh('world', ['powershell', '-NoProfile', '-Command',
+                                      f"(Get-AuthenticodeSignature -FilePath '{python / 'python.exe'}').Status"])
+        if out.strip() != 'Valid':
+            return f'the embedded Python {version} has no valid signature ({out.strip()[:60] or code})'
+        return None
 
     def privacy(self):
         t = time.monotonic()
@@ -410,7 +492,7 @@ def main():
     parser.add_argument('--only', help='Comma-separated layers instead of a level.')
     parser.add_argument('--base', help='change level: diff base (default the first of fork/main, upstream/main, origin/main).')
     parser.add_argument('--scenario', help='coop rows to run (comma-separated; default join for a change, every release row for a release).')
-    parser.add_argument('--package', type=Path, help='Package folder for the world and privacy layers.')
+    parser.add_argument('--package', type=Path, help="Package folder for the world and privacy layers (world without it: the tree's generator).")
     parser.add_argument('--game', default=os.environ.get('BB_QA_GAME', r'C:\Games\CUSA03173'))
     parser.add_argument('--smoke-seconds', type=int, default=240)
     parser.add_argument('--wait-games', type=int, default=30,
