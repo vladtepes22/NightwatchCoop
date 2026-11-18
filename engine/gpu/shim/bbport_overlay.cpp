@@ -909,6 +909,7 @@ void PictureSection() {
     }
     slider("Ambient occlusion strength", "Сила затенения (AO)", s.graphics_ao_strength, 0.0f, 3.0f);
     slider("Shadow distance", "Дальность теней", s.graphics_shadow_scale, 0.5f, 4.0f);
+    slider("Indirect lighting strength", "Сила непрямого освещения (GI)", s.graphics_gi_strength, 0.0f, 12.0f);
     if (moved && !s.graphics_controls) {
         Store(s.graphics_controls, true, true);
     }
@@ -923,6 +924,7 @@ void PictureSection() {
             Store(s.graphics_vignette, true, true);
             Store(s.graphics_ao_strength, 1.0f, true);
             Store(s.graphics_shadow_scale, 1.0f, true);
+            Store(s.graphics_gi_strength, 6.0f, true);
         }
     }
     ImGui::EndDisabled();
@@ -1038,6 +1040,11 @@ void EffectsSection() {
                 "Motion blur and shadows from dynamic lights place a significant load on the GPU.",
                 "Эффекты включаются и выключаются патчами игры при запуске (patches/Bloodborne.xml). "
                 "Размытие в движении и тени от динамических источников заметно нагружают GPU."));
+        } else if (std::strcmp(effect.key, "effect_pom_cavity") == 0) {
+            Hint(BbSettings::MenuText(
+                "Deeper, shaded cavities on some of the game's parallax-mapped surfaces. Applies after a restart.",
+                "Более глубокие затенённые углубления на некоторых поверхностях игры с параллаксом. "
+                "Применяется после перезапуска."));
         } else if (std::strcmp(effect.key, "debug_menu") == 0) {
             Hint(BbSettings::MenuText(
                 "Free camera: hold Cross and press L3 (keyboard: Space + Z). "

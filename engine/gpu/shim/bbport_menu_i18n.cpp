@@ -16,6 +16,7 @@ struct Entry {
 };
 
 constexpr Entry kSpanish[] = {
+    {"Deeper parallax surfaces", "Superficies de parallax más profundas"},
     {"Hide mouse cursor",
      "Ocultar el cursor del ratón"},
     {"Picture",
@@ -42,6 +43,10 @@ constexpr Entry kSpanish[] = {
      "Intensidad de la oclusión ambiental"},
     {"Shadow distance",
      "Distancia de sombras"},
+    {"Indirect lighting (GI)",
+     "Iluminación indirecta (GI)"},
+    {"Indirect lighting strength",
+     "Intensidad de la luz indirecta"},
     {"Game's own picture",
      "Imagen original del juego"},
     {"Bloodborne - Graphics  (Insert / L3+R3)###bbport_settings",
@@ -282,6 +287,7 @@ constexpr Entry kSpanish[] = {
 };
 
 constexpr Entry kPortugueseBrazil[] = {
+    {"Deeper parallax surfaces", "Superfícies de parallax mais profundas"},
     {"Hide mouse cursor",
      "Ocultar o cursor do mouse"},
     {"Picture",
@@ -308,6 +314,10 @@ constexpr Entry kPortugueseBrazil[] = {
      "Intensidade da oclusão de ambiente"},
     {"Shadow distance",
      "Distância das sombras"},
+    {"Indirect lighting (GI)",
+     "Iluminação indireta (GI)"},
+    {"Indirect lighting strength",
+     "Intensidade da luz indireta"},
     {"Game's own picture",
      "Imagem original do jogo"},
     {"Bloodborne - Graphics  (Insert / L3+R3)###bbport_settings",
@@ -547,6 +557,7 @@ constexpr Entry kPortugueseBrazil[] = {
 };
 
 constexpr Entry kFrench[] = {
+    {"Deeper parallax surfaces", "Surfaces parallax plus profondes"},
     {"Hide mouse cursor",
      "Masquer le curseur de la souris"},
     {"Picture",
@@ -573,6 +584,10 @@ constexpr Entry kFrench[] = {
      "Intensité de l'occlusion ambiante"},
     {"Shadow distance",
      "Distance des ombres"},
+    {"Indirect lighting (GI)",
+     "Éclairage indirect (GI)"},
+    {"Indirect lighting strength",
+     "Intensité de l'éclairage indirect"},
     {"Game's own picture",
      "Image d'origine du jeu"},
     {"Bloodborne - Graphics  (Insert / L3+R3)###bbport_settings",
@@ -814,6 +829,7 @@ constexpr Entry kFrench[] = {
 };
 
 constexpr Entry kGerman[] = {
+    {"Deeper parallax surfaces", "Tiefere Parallax-Oberflächen"},
     {"Hide mouse cursor",
      "Mauszeiger ausblenden"},
     {"Picture",
@@ -840,6 +856,10 @@ constexpr Entry kGerman[] = {
      "Stärke der Umgebungsverdeckung"},
     {"Shadow distance",
      "Schattenweite"},
+    {"Indirect lighting (GI)",
+     "Indirektes Licht (GI)"},
+    {"Indirect lighting strength",
+     "Stärke des indirekten Lichts"},
     {"Game's own picture",
      "Originalbild des Spiels"},
     {"Bloodborne - Graphics  (Insert / L3+R3)###bbport_settings",
@@ -1081,6 +1101,7 @@ constexpr Entry kGerman[] = {
 };
 
 constexpr Entry kItalian[] = {
+    {"Deeper parallax surfaces", "Superfici parallax più profonde"},
     {"Hide mouse cursor",
      "Nascondi il cursore del mouse"},
     {"Picture",
@@ -1107,6 +1128,10 @@ constexpr Entry kItalian[] = {
      "Intensità dell'occlusione ambientale"},
     {"Shadow distance",
      "Distanza delle ombre"},
+    {"Indirect lighting (GI)",
+     "Illuminazione indiretta (GI)"},
+    {"Indirect lighting strength",
+     "Intensità della luce indiretta"},
     {"Game's own picture",
      "Immagine originale del gioco"},
     {"Bloodborne - Graphics  (Insert / L3+R3)###bbport_settings",
@@ -1348,6 +1373,7 @@ constexpr Entry kItalian[] = {
 };
 
 constexpr Entry kPolish[] = {
+    {"Deeper parallax surfaces", "Głębsze powierzchnie parallax"},
     {"Hide mouse cursor",
      "Ukryj kursor myszy"},
     {"Picture",
@@ -1374,6 +1400,10 @@ constexpr Entry kPolish[] = {
      "Siła okluzji otoczenia"},
     {"Shadow distance",
      "Zasięg cieni"},
+    {"Indirect lighting (GI)",
+     "Oświetlenie pośrednie (GI)"},
+    {"Indirect lighting strength",
+     "Siła światła pośredniego"},
     {"Game's own picture",
      "Oryginalny obraz gry"},
     {"Bloodborne - Graphics  (Insert / L3+R3)###bbport_settings",
@@ -1612,6 +1642,7 @@ constexpr Entry kPolish[] = {
 };
 
 constexpr Entry kTurkish[] = {
+    {"Deeper parallax surfaces", "Daha derin paralaks yüzeyler"},
     {"Hide mouse cursor",
      "Fare imlecini gizle"},
     {"Picture",
@@ -1638,6 +1669,10 @@ constexpr Entry kTurkish[] = {
      "Ortam kapatma gücü"},
     {"Shadow distance",
      "Gölge mesafesi"},
+    {"Indirect lighting (GI)",
+     "Dolaylı aydınlatma (GI)"},
+    {"Indirect lighting strength",
+     "Dolaylı ışık gücü"},
     {"Game's own picture",
      "Oyunun kendi görüntüsü"},
     {"Bloodborne - Graphics  (Insert / L3+R3)###bbport_settings",
@@ -1876,6 +1911,7 @@ constexpr Entry kTurkish[] = {
 };
 
 constexpr Entry kChinese[] = {
+    {"Deeper parallax surfaces", "更深的视差表面"},
     {"Off", "关闭"},
     {"Infinite", "无限"},
     {"Custom", "自定义"},
@@ -1912,6 +1948,8 @@ constexpr Entry kChinese[] = {
     {"Vignette", "暗角"},
     {"Ambient occlusion strength", "环境光遮蔽强度"},
     {"Shadow distance", "阴影距离"},
+    {"Indirect lighting (GI)", "间接光照 (GI)"},
+    {"Indirect lighting strength", "间接光强度"},
     {"Game's own picture", "恢复游戏原始画面"},
     {"Changes apply live, Picture tuning too, to the game's own colour, fog and lighting of each area (the HUD and menus keep theirs). Moving one turns Picture tuning on; off: the game's own picture. 1.00 and Hue 0 are the game's. Fog 0 clears the haze over distant streets. The same settings are in the game's System menu (PC Graphics, PC Effects, PC Colour) and the launcher. Ctrl+click a slider to type any value, beyond its ends too (brightness, saturation and fog up to 5, contrast 0.5-1.5, hue -180-180, bloom up to 10, shadow distance 0.25-8).", "调整即时生效，直接影响各区域的原始色彩、雾效和光照，HUD 与菜单不受影响。调整任一滑块会开启画面调校；关闭后恢复游戏原始画面。1.00 和色相 0 为原始值；雾效 0 可去除远处街道的薄雾。游戏“系统”中的 PC 画质、PC 特效、PC 色彩菜单及启动器共用这些设置。按住 Ctrl 单击滑块可输入超出滑块范围的数值：亮度、饱和度、雾效最高 5，对比度 0.5–1.5，色相 -180–180，泛光最高 10，阴影距离 0.25–8。"},
     {"Bloodborne - Graphics  (Insert / L3+R3)###bbport_settings", "血源诅咒 — 图形设置（Insert / L3+R3）###bbport_settings"},

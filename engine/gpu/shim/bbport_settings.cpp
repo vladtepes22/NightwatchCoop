@@ -514,6 +514,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.graphics_vignette=i!=0;
     } else if (key == "graphics_ao_strength") {
         v.graphics_ao_strength=Clamp(std::isfinite(f)?f:1.0f,0.0f,5.0f);
+    } else if (key == "graphics_gi_strength") {
+        v.graphics_gi_strength=Clamp(std::isfinite(f)?f:6.0f,0.0f,12.0f);
     } else if (key == "graphics_shadow_scale") {
         v.graphics_shadow_scale=Clamp(std::isfinite(f)?f:1.0f,0.25f,8.0f);
     } else if (key == "graphics_bloom") {
@@ -1286,6 +1288,7 @@ void Save() {
     put("graphics_vignette",flag(v.graphics_vignette));
     put("graphics_ao_strength",fixed(v.graphics_ao_strength,2));
     put("graphics_shadow_scale",fixed(v.graphics_shadow_scale,2));
+    put("graphics_gi_strength",fixed(v.graphics_gi_strength,2));
     put("graphics_bloom",fixed(v.graphics_bloom,2));
     put("graphics_saturation",fixed(v.graphics_saturation,2));
     put("graphics_fog",fixed(v.graphics_fog,2));

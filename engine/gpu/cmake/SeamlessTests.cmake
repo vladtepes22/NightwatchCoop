@@ -771,8 +771,15 @@ target_include_directories(motion-blur-shader-test PRIVATE ${SHADER_INCLUDE})
 target_compile_options(motion-blur-shader-test PRIVATE -UNDEBUG -Wall -Werror)
 target_link_libraries(motion-blur-shader-test PRIVATE Vulkan::Vulkan)
 add_dependencies(motion-blur-shader-test host_shaders)
+# Every optional lighting pass builds its pipelines on a real device with the validation layer
+# listening (effect-pipelines-test); each lighting part adds its rows to the file.
+add_executable(effect-pipelines-test EXCLUDE_FROM_ALL ../tests/test_effect_pipelines.cpp)
+target_include_directories(effect-pipelines-test PRIVATE ${SHADER_INCLUDE})
+target_compile_options(effect-pipelines-test PRIVATE -UNDEBUG -Wall -Werror)
+target_link_libraries(effect-pipelines-test PRIVATE Vulkan::Vulkan)
+add_dependencies(effect-pipelines-test host_shaders)
 set(bb_gpu_tests scene-resolution-test taa-shader-test camera-motion-test indirect-clamp-test
-    hdr-native-shader-test motion-shader-test motion-blur-shader-test)
+    hdr-native-shader-test motion-shader-test motion-blur-shader-test effect-pipelines-test)
 foreach(target IN LISTS bb_engine_tests bb_gpu_tests)
     add_test(NAME ${target} COMMAND ${target})
     add_dependencies(seamless-tests ${target})
@@ -911,6 +918,14 @@ target_compile_options(dlss-rules-test PRIVATE -UNDEBUG -Wall -Wextra)
 target_compile_definitions(dlss-rules-test PRIVATE LANTERN_DLSS_RULES_MUTANTS)
 add_test(NAME dlss-rules-test COMMAND dlss-rules-test)
 add_dependencies(seamless-tests dlss-rules-test)
+
+# Deeper parallax SPIR-V patch (renderer_vulkan/vk_pom_patch.h, header only): declines every module that is not
+# exactly the one it was written for and leaves it as it was; on a synthetic module with the shapes it patches.
+add_executable(pom-patch-test EXCLUDE_FROM_ALL ../tests/test_pom_patch.cpp)
+target_include_directories(pom-patch-test PRIVATE shadps4)
+target_compile_options(pom-patch-test PRIVATE -UNDEBUG -Wall -Wextra)
+add_test(NAME pom-patch-test COMMAND pom-patch-test)
+add_dependencies(seamless-tests pom-patch-test)
 
 # Frames the upscaler did not resolve (renderer_vulkan/upscaler_skips.h, header only): after a few, scene LOD bias
 # 0 and no jitter until it runs again; the frame-stats line and the after-load line. Mutants as above.

@@ -10,7 +10,8 @@ namespace Vulkan::LightingRules {
 /// (BbSettings::EffectAvailable) never counts, whatever its flag says.
 constexpr bool AnyWanted(const bool (&on)[BbSettings::EffectCount]) {
     for (int e = BbSettings::EffectFirstLighting; e < BbSettings::EffectCount; ++e) {
-        if (on[e] && BbSettings::EffectAvailable(e)) {
+        // The deeper-parallax row patches shaders at compile time and has no pass: it starts no hook.
+        if (on[e] && BbSettings::EffectAvailable(e) && e != BbSettings::EffectPomCavity) {
             return true;
         }
     }

@@ -668,9 +668,19 @@ int main() {
         }
         bool expected = false;
         for (int e = EffectFirstLighting; e < EffectCount; ++e) {
-            expected |= EffectAvailable(e);
+            expected |= EffectAvailable(e) && e != EffectPomCavity;
         }
         assert(Vulkan::LightingRules::AnyWanted(on) == expected);
+        static_assert(std::string_view(Effects[EffectPomCavity].key) == "effect_pom_cavity");
+        assert(EffectAvailable(EffectPomCavity) && on[EffectPomCavity]); // a row that is in the build reads its key
+        assert(!Effects[EffectPomCavity].default_on);
+        assert(EffectChangeNeedsRestart(EffectPomCavity, true, false) &&
+               EffectChangeNeedsRestart(EffectPomCavity, false, true)); // built into shaders at start
+        {
+            bool only_pom[EffectCount]{};
+            only_pom[EffectPomCavity] = true;
+            assert(!Vulkan::LightingRules::AnyWanted(only_pom)); // alone it starts no lighting hook
+        }
         bool none[EffectCount]{};
         for (int e = 0; e < EffectFirstLighting; ++e) {
             none[e] = true; // the game's own effects never start the lighting hooks
@@ -685,6 +695,38 @@ int main() {
             assert(written == EffectAvailable(e));
         }
         assert(saved.find("effect_ssr=") != std::string::npos);
+    }
+    {
+        // Indirect lighting: effect_gi is a live lighting row, graphics_gi_strength is 0-12 and 6 by
+        // default; an unreadable value is the default, an out-of-range one is clamped.
+        using namespace BbSettings;
+        auto& d = Get();
+        static_assert(std::string_view(Effects[EffectGi].key) == "effect_gi");
+        assert(EffectAvailable(EffectGi) && EffectIsLive(EffectGi));
+        assert(!EffectChangeNeedsRestart(EffectGi, true, false) && !EffectChangeNeedsRestart(EffectGi, false, true));
+        { std::ofstream file(path); file << "show_fps=0\n"; }
+        Load();
+        assert(d.graphics_gi_strength == 6.0f && !d.effects[EffectGi]);
+        { std::ofstream file(path); file << "graphics_gi_strength=99\n"; }
+        Load();
+        assert(d.graphics_gi_strength == 12.0f);
+        { std::ofstream file(path); file << "graphics_gi_strength=-3\n"; }
+        Load();
+        assert(d.graphics_gi_strength == 0.0f);
+        { std::ofstream file(path); file << "graphics_gi_strength=nan\n"; }
+        Load();
+        assert(d.graphics_gi_strength == 6.0f);
+        { std::ofstream file(path); file << "graphics_gi_strength=7.5\neffect_gi=1\n"; }
+        Load();
+        assert(d.graphics_gi_strength == 7.5f && d.effects[EffectGi] && d.startup_effects[EffectGi]);
+        Save();
+        const std::string saved = Read(path);
+        assert(saved.find("graphics_gi_strength=7.50\n") != std::string::npos);
+        assert(saved.find("effect_gi=1\n") != std::string::npos);
+        d.graphics_gi_strength = 6.0f;
+        d.effects[EffectGi] = false;
+        Load();
+        assert(d.graphics_gi_strength == 7.5f && d.effects[EffectGi]);
     }
     std::filesystem::remove(temporary);
     std::puts("PASS: settings save keeps other keys, menu position");

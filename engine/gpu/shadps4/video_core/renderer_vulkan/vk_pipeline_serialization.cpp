@@ -460,7 +460,11 @@ bool PipelineCache::LoadPipelineStage(Serialization::Archive& ar, size_t stage, 
     } else {
         // bbport: our version of a game shader (vk_effect_shaders.cpp), as CompileModule does.
         const auto effect_shader = EffectShaders::Replacement(program->info, profile, spec.start);
-        const std::span<const u32> code = !effect_shader.empty() ? effect_shader : std::span<const u32>(spv);
+        const auto effect_patch =
+            effect_shader.empty() ? EffectShaders::Patched(program->info, spv) : std::nullopt;
+        const std::span<const u32> code = !effect_shader.empty() ? effect_shader
+                                          : effect_patch         ? std::span<const u32>(*effect_patch)
+                                                                 : std::span<const u32>(spv);
         const auto [result, compiled] = instance.GetDevice().createShaderModule(
             {.codeSize = code.size_bytes(), .pCode = code.data()});
         if (result != vk::Result::eSuccess) {

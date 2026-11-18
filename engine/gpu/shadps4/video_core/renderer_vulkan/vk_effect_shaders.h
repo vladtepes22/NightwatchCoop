@@ -3,7 +3,9 @@
 // only the motion blur quality part so far, the lighting effects come in 0.3.1).
 #pragma once
 
+#include <optional>
 #include <span>
+#include <vector>
 
 #include "common/types.h"
 #include "shader_recompiler/backend/bindings.h"
@@ -18,5 +20,9 @@ inline constexpr u64 MotionBlurHash = 0x29e06868;
 /// bindings before this stage (the replacement keeps the game's layout, so only stage-first fits).
 std::span<const u32> Replacement(const Shader::Info& info, const Shader::Profile& profile,
                                  const Shader::Backend::Bindings& start);
+
+/// A changed copy of the recompiled SPIR-V of fragment shader `info`, or nullopt to keep `spv`. `spv` is never
+/// changed, and the shader cache keeps the unchanged words: the caller applies this again when it loads them.
+std::optional<std::vector<u32>> Patched(const Shader::Info& info, std::span<const u32> spv);
 
 } // namespace Vulkan::EffectShaders

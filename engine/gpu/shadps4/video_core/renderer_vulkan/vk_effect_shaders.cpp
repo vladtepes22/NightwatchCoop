@@ -6,9 +6,12 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
+#include <optional>
+#include <vector>
 
 #include "bbport_settings.h"
 #include "video_core/host_shaders/native_motion_blur_frag.h"
+#include "video_core/renderer_vulkan/vk_pom_patch.h"
 
 namespace Vulkan::EffectShaders {
 
@@ -51,6 +54,66 @@ std::span<const u32> Replacement(const Shader::Info& info, const Shader::Profile
         Declined("Motion blur quality", info, profile, start);
     }
     return {};
+}
+
+namespace {
+
+bool SayFirst(std::atomic<u32>& count, u32 cap) {
+    return count.fetch_add(1, std::memory_order_relaxed) < cap;
+}
+
+/// Deeper parallax surfaces (graphics effect_pom_cavity): Pom::PatchPom changes the SPIR-V of three of the game's
+/// parallax materials, and only when the words are exactly the ones it was written for. Anything else is left
+/// alone, and says so (capped) in the log.
+std::optional<std::vector<u32>> PatchedPom(const Shader::Info& info, std::span<const u32> spv) {
+    static std::atomic<u32> in_use{0}, no_cavity{0}, other_words{0}, other_shape{0};
+    std::vector<u32> patched(spv.begin(), spv.end());
+    switch (Pom::PatchPom(info.pgm_hash, true, patched)) {
+    case Pom::Outcome::Patched:
+        if (SayFirst(in_use, 6)) {
+            std::printf("Deeper parallax surfaces: in use on shader %08x\n", u32(info.pgm_hash));
+        }
+        return patched;
+    case Pom::Outcome::PatchedNoCavity:
+        if (SayFirst(no_cavity, 3)) {
+            std::printf("Deeper parallax surfaces: shader %08x deepened, but its cavity shading did not fit and "
+                        "is left out\n",
+                        u32(info.pgm_hash));
+        }
+        return patched;
+    case Pom::Outcome::WrongModule:
+        // Expected for the other permutations of these shaders (the one that also writes motion vectors is
+        // larger); a message for every hash seen, a few in all.
+        if (SayFirst(other_words, 6)) {
+            std::printf("Deeper parallax surfaces: shader %08x (%zu words, checksum %08x) is not the module this "
+                        "was written for; the game's own version of it stays\n",
+                        u32(info.pgm_hash), spv.size(), Pom::Checksum(patched));
+        }
+        return std::nullopt;
+    case Pom::Outcome::NoMatch:
+        if (SayFirst(other_shape, 3)) {
+            std::printf("Deeper parallax surfaces: shader %08x has the expected checksum but not the expected "
+                        "shape; the game's own version of it stays\n",
+                        u32(info.pgm_hash));
+        }
+        return std::nullopt;
+    case Pom::Outcome::NotTarget:
+        break;
+    }
+    return std::nullopt;
+}
+
+} // namespace
+
+std::optional<std::vector<u32>> Patched(const Shader::Info& info, std::span<const u32> spv) {
+    if (info.hw_stage != Shader::HwStage::Fragment) {
+        return std::nullopt;
+    }
+    // Off: nothing runs but this test (the row is read once at start: BbSettings::Get().startup_effects).
+    if (BbSettings::Get().startup_effects[BbSettings::EffectPomCavity] && Pom::Targets(info.pgm_hash)) {
+        return PatchedPom(info, spv);
+    }
+    return std::nullopt;
 }
 
 } // namespace Vulkan::EffectShaders

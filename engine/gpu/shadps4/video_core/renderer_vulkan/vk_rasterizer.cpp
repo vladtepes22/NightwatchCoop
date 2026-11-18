@@ -91,6 +91,9 @@ Rasterizer::Rasterizer(const Instance& instance_, Scheduler& scheduler_, Runtime
     camera_motion->SetObjectMotion(object_motion.get());
     // bbport: native HDR output's passes run at points of the frame the upscaler finds.
     hdr_native = std::make_unique<HdrNative>(instance, scheduler, texture_cache, runtime);
+    rt_shadow = std::make_unique<RtShadow>();
+    ssgi = std::make_unique<ScreenSpaceGI>(instance, scheduler, texture_cache, runtime,
+                                           *scene_targets, *camera_motion, *rt_shadow);
     upscaler = std::make_unique<TemporalUpscaler>(instance, scheduler, texture_cache, runtime,
                                                   *camera_motion, *scene_targets, *hdr_native);
     if (!EmulatorSettings.IsNullGPU()) {
