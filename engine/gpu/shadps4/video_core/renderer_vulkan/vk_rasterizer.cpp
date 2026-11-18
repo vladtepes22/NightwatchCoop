@@ -15,6 +15,7 @@
 #include <unordered_set>
 #include <xxhash.h>
 #include "video_core/renderer_vulkan/ui_composition.h"
+#include "video_core/renderer_vulkan/ui_smooth.h"
 #include "bbport_timeline.h"
 #include "bbport_sections.h"
 #include "bbport_settings.h"
@@ -2240,8 +2241,19 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     // bbport: jitter geometry drawn with the scene depth, not full-screen passes (a shifted
     // full-screen quad leaves an edge column unwritten).
     draw_jitter = {};
+    // BB_JITTER_SPRITES=1 (experiment, off): single quads blended into the scene with a depth test
+    // and no depth write (a spark, a flame card) are jittered too, so the upscaler can rebuild them
+    // above the render size; a full-screen pass has no depth test and stays unshifted.
+    static const bool jitter_sprites = [] {
+        const char* env = std::getenv("BB_JITTER_SPRITES");
+        return env && env[0] == '1';
+    }();
+    const bool small_draw = regs.num_indices <= 6 && regs.num_instances.NumInstances() <= 1;
+    const bool sprite = jitter_sprites && small_draw && regs.blend_control[0].enable &&
+                        !regs.color_buffers[0].info.blend_bypass && regs.depth_control.depth_enable &&
+                        !regs.depth_control.depth_write_enable;
     if (upscaler->Enabled() && db_desc.first && db_desc.first == camera_motion->Depth() &&
-        (regs.num_indices > 6 || regs.num_instances.NumInstances() > 1)) {
+        (!small_draw || sprite)) {
         draw_jitter = upscaler->Jitter();
     }
     UpdateDynamicState(pipeline, is_indexed);
@@ -3118,6 +3130,8 @@ bool Rasterizer::BindResources(const Pipeline* pipeline) {
     // log2(render / output)). Shadows, post-processing and UI keep the guest's bias.
     sampler_lod_bias = 0.0f;
     pipeline_is_compute = pipeline->IsCompute();
+    ui_smooth_draw = !pipeline->IsCompute() &&
+                     UiSmoothDraw(static_cast<const GraphicsPipeline*>(pipeline));
     if (!pipeline->IsCompute() && !BbToggle::Disabled(BbToggle::SceneMipBias) &&
         std::popcount(static_cast<const GraphicsPipeline*>(pipeline)->GetGraphicsKey().mrt_mask &
                       0xff) >= 5) {
@@ -4758,6 +4772,74 @@ void Rasterizer::ForceAnisotropy(AmdGpu::Sampler& sharp, bool is_depth) const {
     sharp.max_aniso.Assign(ratio);
 }
 
+// bbport (upstream v0.9.43 SmoothUiSampler, without its 4K menus; rules and reasons in ui_smooth.h):
+// Scaleform samples the game's sprite sheets with point filtering, made for the 1920x1080 stage
+// drawn texel for texel. Behind the upscaler the UI is drawn at the output's size; at any other
+// size than the stage's, nearest texel doubles some pixels and not others (the lock-on marker and
+// the HUD's round art at 1440p and above). Those draws filter linearly. Decided before the pass
+// begins (BindResources runs before BeginRendering, so ui_pass is still the previous draw's): from
+// the draw's own target, the upscaler's UI image and the UI viewport's size.
+// Left as the game set them: every draw that is not a Scaleform one into the UI image; a stage
+// drawn 1:1 (1080p-class outputs, the upscaler off); additive draws (the sheets' transparent gaps
+// carry colour, which a linear filter reads past the sprite's edge); depth-compare samplers; the
+// mip filter and LOD range. BB_UI_SMOOTH=0 keeps the game's sampling, =2 smooths additive draws
+// too (a test value); BB_UI_SMOOTH_LOG=1 prints each kind of UI draw once.
+bool Rasterizer::UiSmoothDraw(const GraphicsPipeline* pipeline) const {
+    static const UiSmooth::Mode mode = UiSmooth::ParseMode(std::getenv("BB_UI_SMOOTH"));
+    static const bool log = [] {
+        const char* value = std::getenv("BB_UI_SMOOTH_LOG");
+        return value && value[0] == '1';
+    }();
+    if (mode == UiSmooth::Mode::Off && !log) {
+        return false;
+    }
+    const auto output = upscaler->UiDrawSize(cb_descs[0].first);
+    if (!output[0]) {
+        return false; // not a draw into the UI image: no other test runs
+    }
+    const u64 vs = pipeline->GetStage(Shader::SwStage::Vertex).pgm_hash;
+    const bool movie = UiComposition::MovieShader(vs);
+    if (!movie && !log) {
+        return false;
+    }
+    const auto scale =
+        UiSmooth::StageScale(output[0], output[1], UiComposition::UiSize(),
+                             BbSettings::Get().widescreen.load(std::memory_order_relaxed));
+    const auto& blend = Regs().blend_control[0];
+    const auto src = blend.color_src_factor;
+    const auto dst = blend.color_dst_factor;
+    const bool additive = UiSmooth::Additive(blend.enable != 0, src, dst);
+    const bool wanted = UiSmooth::Wanted(mode, movie, UiSmooth::Scaled(scale), additive);
+    if (log) {
+        // Every kind of draw into the UI image, also those left alone for their shader: a sprite
+        // that stays blocky is then found by its line here.
+        static std::unordered_set<u64> seen;
+        const auto* ps = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
+        const u64 fs = ps ? ps->pgm_hash : 0;
+        const u64 key = ((vs * 0x9E3779B97F4A7C15ull) ^ fs) * 0x9E3779B97F4A7C15ull ^
+                        (u64(src) << 8 | u64(dst) << 16 | u64(blend.color_func) << 24 |
+                         u64(blend.enable) << 32 | u64(wanted) << 33);
+        if (seen.size() < 256 && seen.insert(key).second) {
+            std::printf("UI smooth: vs %08llx ps %08llx blend %s src %u dst %u func %u%s, image %ux%u, "
+                        "stage scale %.3fx%.3f: %s\n",
+                        static_cast<unsigned long long>(vs), static_cast<unsigned long long>(fs),
+                        blend.enable ? "on" : "off", u32(src), u32(dst), u32(blend.color_func),
+                        additive ? " (additive)" : "", output[0], output[1], scale[0], scale[1],
+                        wanted ? "linear" : movie ? "the game's filter"
+                                                  : "the game's filter (not a Scaleform shader)");
+        }
+    }
+    return wanted;
+}
+
+void Rasterizer::SmoothUiSampler(AmdGpu::Sampler& sharp, bool is_depth) const {
+    if (!ui_smooth_draw || is_depth) {
+        return;
+    }
+    sharp.xy_min_filter.Assign(UiSmooth::Smooth(sharp.xy_min_filter.Value()));
+    sharp.xy_mag_filter.Assign(UiSmooth::Smooth(sharp.xy_mag_filter.Value()));
+}
+
 vk::Sampler Rasterizer::CachedSampler(const AmdGpu::Sampler& sharp, bool is_depth,
                                       float lod_bias) {
     static const bool enabled = [] {
@@ -4833,6 +4915,7 @@ void Rasterizer::BindSamplers(const Shader::Info& stage, const PreparedStage* pr
         auto ssharp =
             prepared ? prepared->sampler_sharps[sampler_index] : sampler.GetSharp(stage);
         ForceAnisotropy(ssharp, sampler.is_depth);
+        SmoothUiSampler(ssharp, sampler.is_depth);
         const auto vk_sampler = CachedSampler(ssharp, sampler.is_depth,
                                               sampler.is_depth ? 0.0f : sampler_lod_bias);
         image_infos.emplace_back(vk_sampler, VK_NULL_HANDLE, vk::ImageLayout::eGeneral);

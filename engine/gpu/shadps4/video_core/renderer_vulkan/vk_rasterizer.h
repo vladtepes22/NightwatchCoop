@@ -484,6 +484,10 @@ private:
                                std::span<const u64> pass2);
     bool BindResources(const Pipeline* pipeline);
     void ForceAnisotropy(AmdGpu::Sampler& sharp, bool is_depth) const;
+    /// bbport: whether this draw's point samplers filter linearly (ui_smooth.h): a Scaleform draw
+    /// into the UI pass's image at another size than the game's 1920x1080 stage. BB_UI_SMOOTH.
+    bool UiSmoothDraw(const GraphicsPipeline* pipeline) const;
+    void SmoothUiSampler(AmdGpu::Sampler& sharp, bool is_depth) const;
     void BindSamplers(const Shader::Info& stage, const PreparedStage* prepared,
                       Shader::Backend::Bindings& binding, u32& write_index);
     /// bbport: whether stage reads reduced scene proxies through their native images instead:
@@ -876,6 +880,7 @@ private:
     u64 proxy_samples = 0; ///< texture bindings that read a scene proxy (statistics)
     float sampler_lod_bias = 0.0f; ///< bbport: extra bias of this draw's samplers
     bool pipeline_is_compute = false; ///< bbport: the bound pipeline of BindResources
+    bool ui_smooth_draw = false; ///< bbport: this draw's point samplers filter linearly (UiSmoothDraw)
     bool scene_debug_frame = false; ///< BB_SCENE_DEBUG: this frame's passes are printed
     u32 preupload_frame = ~0u; ///< bbport: frame of the last background pre-upload
     VAddr color_table_pending = 0;   ///< NoteColorTable: the table to read at the next draw

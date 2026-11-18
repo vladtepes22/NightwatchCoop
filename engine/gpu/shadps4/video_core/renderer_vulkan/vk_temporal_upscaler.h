@@ -134,6 +134,14 @@ public:
                        Target& target);
     /// bbport: the address of the UI's colour target is `address`.
     bool IsUiColorAddress(VAddr address) const;
+    /// bbport: the size of the output-size image a draw into `color` is redirected to in the UI
+    /// phase (RedirectColor's first case; the rasterizer calls that only while Enabled), {0, 0}
+    /// when it is not. Reads only: for deciding a draw's samplers before its pass begins.
+    [[nodiscard]] std::array<u32, 2> UiDrawSize(VideoCore::ImageId color) const noexcept {
+        return enabled && ui_phase && color && color == ui_color
+                   ? std::array<u32, 2>{ui_width, ui_height}
+                   : std::array<u32, 2>{};
+    }
     bool RedirectDepth(VideoCore::ImageId depth, Target& target);
     /// A sampled image replaced by the upscaled frame (the display pass).
     bool RedirectSampled(VideoCore::ImageId image, const VideoCore::ImageViewInfo& info,

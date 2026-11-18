@@ -980,6 +980,14 @@ target_compile_definitions(fog-scale-test PRIVATE BB_FOG_SCALE_MUTANTS)
 add_test(NAME fog-scale-test COMMAND fog-scale-test)
 add_dependencies(seamless-tests fog-scale-test)
 
+# UI art filtered linearly off the 1:1 stage (renderer_vulkan/ui_smooth.h, header only). Mutants as above.
+add_executable(ui-smooth-test EXCLUDE_FROM_ALL ../tests/test_ui_smooth.cpp)
+target_include_directories(ui-smooth-test PRIVATE ..)
+target_compile_options(ui-smooth-test PRIVATE -UNDEBUG -Wall -Wextra)
+target_compile_definitions(ui-smooth-test PRIVATE BB_UI_SMOOTH_MUTANTS)
+add_test(NAME ui-smooth-test COMMAND ui-smooth-test)
+add_dependencies(seamless-tests ui-smooth-test)
+
 # Ray traced lighting's scene rules (rt_scene_rules.h; upstream v0.9.43): budgets, eviction, refits,
 # the persistent scene. The mutant build breaks each rule in turn and passes only if all are caught.
 add_executable(rt-scene-rules-test EXCLUDE_FROM_ALL ../tests/test_rt_scene_rules.cpp)
