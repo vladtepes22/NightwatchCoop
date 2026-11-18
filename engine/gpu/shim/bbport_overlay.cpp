@@ -1118,7 +1118,15 @@ void EffectsSection() {
         Checkbox(label, s.effects[e]);
         if (e >= BbSettings::EffectFirstLighting) {
             ImGui::SameLine();
-            ImGui::TextDisabled("%s", BbSettings::EffectIsLive(e) && e != BbSettings::EffectRayTracing
+            // Ray traced lighting: turning it on needs a restart (device extensions), turning it
+            // off applies at once (upstream v0.9.43).
+            if (e == BbSettings::EffectRayTracing && s.ray_tracing_unavailable) {
+                ImGui::TextDisabled("%s", BbSettings::MenuText("— not supported by this GPU",
+                                                               "— не поддерживается видеокартой"));
+                ImGui::SameLine();
+            }
+            ImGui::TextDisabled("%s", BbSettings::EffectIsLive(e) &&
+                                          (e != BbSettings::EffectRayTracing || s.startup_effects[e])
                                           ? BbSettings::MenuText("(applies at once)", "(сразу)")
                                           : BbSettings::MenuText("(after a restart)", "(после перезапуска)"));
         }

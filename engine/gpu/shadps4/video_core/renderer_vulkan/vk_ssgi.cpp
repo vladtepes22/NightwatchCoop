@@ -11,6 +11,7 @@
 #include "video_core/host_shaders/ssgi_composite_comp.h"
 #include "video_core/host_shaders/ssgi_denoise_comp.h"
 #include "video_core/host_shaders/ssgi_gather_comp.h"
+#include "video_core/host_shaders/ssgi_gather_ray_comp.h"
 #include "video_core/host_shaders/ssgi_prep_comp.h"
 #include "video_core/renderer_vulkan/vk_camera_motion.h"
 #include "video_core/renderer_vulkan/vk_effect_pass.h"
@@ -121,6 +122,18 @@ ScreenSpaceGI::ScreenSpaceGI(const Instance& instance_, Scheduler& scheduler_,
     : instance{instance_}, scheduler{scheduler_}, texture_cache{texture_cache_},
       runtime{runtime_}, scene_targets{scene_targets_}, rt_shadow{rt_shadow_},
       camera_motion{camera_motion_} {
+    // bbport: upstream's switch rt_bounce_motion (default on); frame_stats is our BB_FRAME_STATS.
+    static const bool bounce_motion_wanted = [] {
+        const char* value = std::getenv("BB_RT_BOUNCE_MOTION");
+        return !(value && value[0] == '0');
+    }();
+    if (rt_shadow.Capturing() && bounce_motion_wanted) {
+        bounce_motion = true;
+        motion_stats = std::getenv("BB_FRAME_STATS") != nullptr;
+        std::printf("Ray traced bounce motion: on (BB_RT_BOUNCE_MOTION=1), the bounce history "
+                    "follows object motion vectors and keeps less of itself on fast motion and "
+                    "partial matches\n");
+    }
 }
 
 bool ScreenSpaceGI::Ready() {
@@ -135,8 +148,12 @@ bool ScreenSpaceGI::Ready() {
                    "SSGI prep") &&
         CreatePass(gather, {SampledImage, SampledImage, SampledImage, StorageImage, SampledImage},
                    SSGI_GATHER_COMP, "SSGI gather") &&
-        // bbport: the ray traced gather pass (ssgi_gather_ray.comp) is not in this build, so
-        // gather_ray stays empty and `use_rays` below is always false.
+        // bbport: the ray traced gather pass is made only while ray traced lighting is running;
+        // otherwise gather_ray stays empty and `use_rays` below is always false.
+        (!rt_shadow.Capturing() ||
+         CreatePass(gather_ray, {SampledImage, SampledImage, SampledImage, StorageImage, SampledImage,
+                                 vk::DescriptorType::eAccelerationStructureKHR, SampledImage},
+                    SSGI_GATHER_RAY_COMP, "Ray traced bounce")) &&
         CreatePass(denoise, {SampledImage, SampledImage, StorageImage}, SSGI_DENOISE_COMP,
                    "SSGI denoise") &&
         CreatePass(composite, {SampledImage, SampledImage, StorageImage, SampledImage, SampledImage},
@@ -456,6 +473,26 @@ void ScreenSpaceGI::OnOpaqueScene(VideoCore::ImageId color_id, VideoCore::ImageI
         !BbSettings::Get().effects[BbSettings::EffectGi].load(std::memory_order_relaxed)) {
         return;
     }
+    CameraMotion::ObjectMotionTarget motion{};
+    if (use_rays && bounce_motion) {
+        motion = camera_motion.ObjectMotionWritten(width, height);
+        if (motion.layout == vk::ImageLayout::eUndefined) {
+            motion = {};
+        }
+        const vk::ImageView motion_view = motion.view;
+        if (motion_view) {
+            params.history |= 4u;
+        }
+        ++(motion_view ? motion_frames : motion_missing);
+        if (motion_stats && ++motion_reported >= 300) {
+            std::printf("Ray traced bounce motion (BB_RT_BOUNCE_MOTION=1): object vectors in %u "
+                        "of the last %u frames (bounce %ux%u)\n",
+                        motion_frames, motion_frames + motion_missing, width, height);
+            motion_reported = 0;
+            motion_frames = 0;
+            motion_missing = 0;
+        }
+    }
     EffectPass::Mark(use_rays ? 16 : 1, use_rays ? "ray traced bounce" : "indirect light");
     scheduler.RecordCrumb(
         {.name = "SSGI"},
@@ -473,7 +510,7 @@ void ScreenSpaceGI::OnOpaqueScene(VideoCore::ImageId color_id, VideoCore::ImageI
          prep_pipeline = *prep.pipeline, prep_layout = *prep.layout,
          gather_pipeline = use_rays ? *gather_ray.pipeline : *gather.pipeline,
          gather_layout = use_rays ? *gather_ray.layout : *gather.layout, use_rays,
-         scene = rt_shadow.Scene(),
+         scene = rt_shadow.Scene(), motion,
          denoise_pipeline = *denoise.pipeline, denoise_layout = *denoise.layout,
          composite_pipeline = *composite.pipeline,
          composite_layout = *composite.layout](vk::CommandBuffer cmdbuf) mutable {
@@ -524,14 +561,49 @@ void ScreenSpaceGI::OnOpaqueScene(VideoCore::ImageId color_id, VideoCore::ImageI
                 if (use_rays) {
                     const vk::WriteDescriptorSetAccelerationStructureKHR scene_info{
                         .accelerationStructureCount = 1, .pAccelerationStructures = &scene};
+                    const auto motion_info = Info(motion.view ? motion.view : geo_view);
+                    const auto motion_barrier = [&](vk::ImageLayout from, vk::ImageLayout to,
+                                                    vk::PipelineStageFlags2 src,
+                                                    vk::AccessFlags2 src_access,
+                                                    vk::PipelineStageFlags2 dst,
+                                                    vk::AccessFlags2 dst_access) {
+                        const vk::ImageMemoryBarrier2 barrier{
+                            .srcStageMask = src,
+                            .srcAccessMask = src_access,
+                            .dstStageMask = dst,
+                            .dstAccessMask = dst_access,
+                            .oldLayout = from,
+                            .newLayout = to,
+                            .image = motion.image,
+                            .subresourceRange = ColorRange,
+                        };
+                        cmdbuf.pipelineBarrier2(
+                            {.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &barrier});
+                    };
+                    if (motion.image) {
+                        motion_barrier(motion.layout, vk::ImageLayout::eGeneral,
+                                       vk::PipelineStageFlagBits2::eAllCommands,
+                                       vk::AccessFlagBits2::eMemoryWrite,
+                                       vk::PipelineStageFlagBits2::eComputeShader,
+                                       vk::AccessFlagBits2::eShaderRead);
+                    }
                     const std::array ray_writes{
                         writes[0], writes[1], writes[2], writes[3], writes[4],
                         vk::WriteDescriptorSet{
                             .pNext = &scene_info,
                             .dstBinding = 5,
                             .descriptorCount = 1,
-                            .descriptorType = vk::DescriptorType::eAccelerationStructureKHR}};
+                            .descriptorType = vk::DescriptorType::eAccelerationStructureKHR},
+                        Write(6, SampledImage, &motion_info)};
                     run(gather_pipeline, gather_layout, ray_writes, half_x, half_y);
+                    if (motion.image) {
+                        motion_barrier(vk::ImageLayout::eGeneral, motion.layout,
+                                       vk::PipelineStageFlagBits2::eComputeShader,
+                                       vk::AccessFlagBits2::eShaderRead,
+                                       vk::PipelineStageFlagBits2::eAllCommands,
+                                       vk::AccessFlagBits2::eMemoryRead |
+                                           vk::AccessFlagBits2::eMemoryWrite);
+                    }
                 } else {
                     run(gather_pipeline, gather_layout, writes, half_x, half_y);
                 }

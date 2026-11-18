@@ -97,9 +97,9 @@ inline constexpr int EffectPointShadows = 18;
 inline constexpr int EffectRayTracing = 19;
 static_assert(EffectCount == EffectRayTracing + 1);
 /// A lighting row exists in the build only once its pass is in: until then it is not shown, not
-/// read from bbport.ini and not written to it, so it can never be on.
+/// read from bbport.ini and not written to it, so it can never be on. All ten are in now.
 inline constexpr bool EffectAvailable(int effect) {
-    return effect != EffectRayTracing; // ray traced lighting is not in this build
+    return effect >= 0 && effect < EffectCount;
 }
 /// Lighting passes from contact shadows on switch while the game runs; the rest are built into
 /// cached pipelines at start. Ray tracing needs its device extensions, so turning it on restarts.
@@ -593,6 +593,9 @@ struct Values {
     int startup_upscaler = UpscalerFsr3;
     bool startup_object_motion = true;
     bool startup_effects[EffectCount]{};
+    /// Set by the renderer when effect_ray_tracing was on at start but cannot run on this GPU or
+    /// driver (no ray query, or no vertex shader stores). Never read from or written to bbport.ini.
+    std::atomic<bool> ray_tracing_unavailable{false};
     int startup_model_lod = 0;
     int startup_texture_quality = 0;
     int startup_shadow_resolution = 0, startup_local_shadow_resolution = 0, startup_motion_blur_quality = 0;

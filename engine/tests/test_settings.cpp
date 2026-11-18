@@ -702,6 +702,9 @@ int main() {
         assert(Vulkan::LightingRules::AnyWanted(on) == expected);
         static_assert(std::string_view(Effects[EffectPomCavity].key) == "effect_pom_cavity");
         assert(EffectAvailable(EffectPomCavity) && on[EffectPomCavity]); // a row that is in the build reads its key
+        assert(EffectAvailable(EffectRayTracing) && on[EffectRayTracing]); // ray traced lighting too
+        assert(!Effects[EffectRayTracing].default_on && EffectIsLive(EffectRayTracing));
+        assert(!d.ray_tracing_unavailable); // only the renderer sets it
         assert(!Effects[EffectPomCavity].default_on);
         assert(EffectChangeNeedsRestart(EffectPomCavity, true, false) &&
                EffectChangeNeedsRestart(EffectPomCavity, false, true)); // built into shaders at start

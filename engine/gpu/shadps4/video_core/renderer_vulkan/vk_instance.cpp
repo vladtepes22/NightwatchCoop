@@ -12,6 +12,7 @@
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 
+#include "bbport_settings.h"
 #include "common/assert.h"
 #include "common/debug.h"
 #include "common/types.h"
@@ -629,6 +630,25 @@ bool Instance::CreateDevice() {
         return std::find(available_extensions.begin(), available_extensions.end(), extension) !=
                available_extensions.end();
     };
+    // bbport (upstream v0.9.43): ray traced lighting (vk_rt_shadow.cpp). Upstream adds the two
+    // feature structures to the query every player runs; here they are asked for in a call of
+    // their own, and only when the row was on when the game started, so with the row off nothing
+    // is asked and nothing is enabled.
+    if (BbSettings::Get().startup_effects[BbSettings::EffectRayTracing] &&
+        vk12_features.bufferDeviceAddress && vk13_features.synchronization2 &&
+        extension_available(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) &&
+        extension_available(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) &&
+        extension_available(VK_KHR_RAY_QUERY_EXTENSION_NAME)) {
+        const auto ray_chain = physical_device.getFeatures2<
+            vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceAccelerationStructureFeaturesKHR,
+            vk::PhysicalDeviceRayQueryFeaturesKHR>();
+        if (ray_chain.get<vk::PhysicalDeviceAccelerationStructureFeaturesKHR>().accelerationStructure &&
+            ray_chain.get<vk::PhysicalDeviceRayQueryFeaturesKHR>().rayQuery) {
+            ray_query = add_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) &&
+                        add_extension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) &&
+                        add_extension(VK_KHR_RAY_QUERY_EXTENSION_NAME);
+        }
+    }
     fsr4vk = Fsr4Vk::FilesPresent() && features.shaderInt16 &&
              features.shaderStorageImageReadWithoutFormat &&
              features.shaderStorageImageWriteWithoutFormat && vk12_features.shaderFloat16 &&
@@ -858,7 +878,18 @@ bool Instance::CreateDevice() {
         vk::PhysicalDeviceFragmentShadingRateFeaturesKHR{
             .pipelineFragmentShadingRate = true,
         },
+        vk::PhysicalDeviceAccelerationStructureFeaturesKHR{
+            .accelerationStructure = true,
+        },
+        vk::PhysicalDeviceRayQueryFeaturesKHR{
+            .rayQuery = true,
+        },
     };
+
+    if (!ray_query) {
+        device_chain.unlink<vk::PhysicalDeviceAccelerationStructureFeaturesKHR>();
+        device_chain.unlink<vk::PhysicalDeviceRayQueryFeaturesKHR>();
+    }
 
     if (!custom_border_color) {
         device_chain.unlink<vk::PhysicalDeviceCustomBorderColorFeaturesEXT>();

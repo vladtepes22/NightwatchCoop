@@ -3,6 +3,7 @@
 // unless a lighting effect is on, so a player with all of them off pays one branch per call.
 #include <algorithm>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
@@ -10,6 +11,8 @@
 #include <string>
 
 #include <fmt/format.h>
+
+#include <xxhash.h>
 
 #include "bbport_settings.h"
 #include "core/memory.h"
@@ -76,6 +79,9 @@ void Rasterizer::EffectsOnFrameEnd() {
     for (int e = 0; e < BbSettings::EffectCount; ++e) {
         on[e] = s.effects[e].load(std::memory_order_relaxed);
     }
+    // Ray traced lighting on a GPU without ray query, or switched on after the start: nothing of it
+    // runs, so its row alone does not start the hooks either.
+    on[BbSettings::EffectRayTracing] = on[BbSettings::EffectRayTracing] && rt_shadow->Capturing();
     const bool lighting = LightingRules::AnyWanted(on);
     // Improved reflections is built in at start (the SSR pass's shader replaced): while it is, its
     // passes run whatever the row says now (upstream v0.9.43).
@@ -181,6 +187,137 @@ void Rasterizer::EffectsBeforeResources(const GraphicsPipeline* pipeline) {
         const auto camera = camera_motion->PassMatrices();
         volumetric_light->SetCamera({camera.view, camera.inv_view, camera.valid});
         volumetric_light->Composite();
+    }
+}
+
+// bbport (upstream v0.9.43): only draws of capture pipelines come here, and those exist only while
+// ray traced lighting is running (PipelineCache::SetPositionCapture). The capture index goes into
+// motion_param: all of it, or its high half when the shader also does object motion.
+void Rasterizer::EffectsCaptureDraw(const AmdGpu::Regs& regs, const GraphicsPipeline* pipeline,
+                                    bool is_indexed, u32 index_offset) {
+    const u32 mode = pipeline->GetGraphicsKey().motion_vectors;
+    if (mode == Shader::MotionVectors::VertexBoth) {
+        push_data.motion_param &= 0xffffu;
+    } else {
+        push_data.motion_param = 0;
+    }
+    if (!rt_shadow->Wanted() || !motion_geometry) {
+        return;
+    }
+    u64* const capture_clock = rt_shadow->CaptureClock();
+    const auto capture_start =
+        capture_clock ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+    const auto& vs = pipeline->GetStage(Shader::SwStage::Vertex);
+    const auto* ps = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
+    const auto& fetch = pipeline->GetFetchShader();
+    u32 first_vertex = regs.index_offset, first_instance = 0;
+    if (fetch) {
+        if (first_vertex == 0 && fetch->vertex_offset_sgpr != -1) {
+            first_vertex = vs.UserData()[fetch->vertex_offset_sgpr];
+        }
+        if (fetch->instance_offset_sgpr != -1) {
+            first_instance = vs.UserData()[fetch->instance_offset_sgpr];
+        }
+    }
+    const u32 index_size = regs.index_buffer_type.index_type == AmdGpu::IndexType::Index16 ? 2u : 4u;
+    RtShadow::Draw draw{
+        .shader = vs.pgm_hash,
+        .geometry = motion_geometry,
+        .index_size = index_size,
+        .index_count = regs.num_indices,
+        .first_vertex = first_vertex,
+        .first_instance = first_instance,
+        .instances = regs.num_instances.NumInstances(),
+        .restart = regs.enable_primitive_restart != 0,
+        .strip = regs.primitive_type == AmdGpu::PrimitiveType::TriangleStrip,
+        .triangles = regs.primitive_type == AmdGpu::PrimitiveType::TriangleStrip ||
+                     regs.primitive_type == AmdGpu::PrimitiveType::TriangleList,
+        .shadow_pass = !gbuffer_draw &&
+                       regs.depth_buffer.Pitch() == regs.depth_buffer.Height() &&
+                       regs.depth_buffer.Height() >= 1024,
+        .camera_pass = gbuffer_draw,
+        .solid = regs.depth_control.depth_write_enable != 0 && !regs.blend_control[0].enable,
+        .alpha = ps && ps->has_discard,
+    };
+    if (fetch) {
+        for (const auto& attribute : fetch->attributes) {
+            if (attribute.semantic == 0) {
+                draw.positions = attribute.GetSharp(vs).base_address;
+                break;
+            }
+        }
+    }
+    if (is_indexed) {
+        const VAddr address = regs.index_base_address.Address<VAddr>() + u64(index_offset) * index_size;
+        const u64 bytes = u64(regs.num_indices) * index_size;
+        if (address && memory->IsValidGpuMapping(address, 0) &&
+            memory->ClampRangeSize(address, bytes) == bytes) {
+            draw.indices = address;
+        }
+    }
+    const bool rigid = rt_shadow->RigidWanted();
+    draw.pose.known = rigid && (draw.camera_pass || draw.shadow_pass) && vs.images.empty() && !vs.has_readconst &&
+                      !vs.uses_dma;
+    for (const auto& resource : vs.buffers) {
+        if (resource.IsSpecial()) {
+            continue;
+        }
+        const auto buffer = resource.GetSharp(vs);
+        const u32 size = buffer.GetSize();
+        if (!buffer.Valid() || !memory->IsValidGpuMapping(buffer.base_address, 0) ||
+            memory->ClampRangeSize(buffer.base_address, size) != size) {
+            draw.pose.known = false;
+            continue;
+        }
+        if (size == 864) {
+            draw.constants = reinterpret_cast<const float*>(buffer.base_address);
+            continue;
+        }
+        if (draw.pose.known) {
+            if (size > RtRules::PaletteHashLimit ||
+                buffer_cache.IsRegionGpuWrittenTracked(buffer.base_address, size)) {
+                draw.pose.known = false;
+            } else {
+                draw.pose.hash = XXH3_64bits_withSeed(reinterpret_cast<const void*>(buffer.base_address), size,
+                                                      draw.pose.hash ^ size);
+            }
+        }
+        if (buffer.GetStride() == 16) {
+            const auto role = Motion::ClassifyBuffer(size);
+            if (role == Motion::BufferRole::Skeleton) {
+                draw.skinned = true;
+            } else if (role == Motion::BufferRole::SmallSkeleton) {
+                draw.palette = XXH3_64bits_withSeed(reinterpret_cast<const void*>(buffer.base_address),
+                                                    size, draw.palette);
+                if (!draw.anchor) {
+                    draw.anchor = reinterpret_cast<const float*>(buffer.base_address);
+                }
+            }
+            if (rigid && role != Motion::BufferRole::Skeleton &&
+                RtRules::PaletteBuffer(size, resource.only_const_reads)) {
+                draw.bones.present = true;
+                if (buffer_cache.IsRegionGpuWrittenTracked(buffer.base_address, size)) {
+                    draw.bones.written = true;
+                } else if (!RtRules::PaletteHashed(size)) {
+                    draw.bones.pooled = true;
+                } else {
+                    draw.bones.hash = XXH3_64bits_withSeed(
+                        reinterpret_cast<const void*>(buffer.base_address), size, draw.bones.hash);
+                    draw.bones.bytes += size;
+                }
+            }
+        }
+    }
+    const u32 param = rt_shadow->PrepareDraw(draw);
+    if (mode == Shader::MotionVectors::VertexBoth) {
+        push_data.motion_param |= param << 16;
+    } else {
+        push_data.motion_param = param;
+    }
+    if (capture_clock) {
+        *capture_clock += u64(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                  std::chrono::steady_clock::now() - capture_start)
+                                  .count());
     }
 }
 

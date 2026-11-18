@@ -29,6 +29,7 @@ namespace Serialization {
 /* You should increment versions below once corresponding serialization scheme is changed. */
 static constexpr u32 ShaderBinaryVersion = 7u; // bbport: interpolated integer fix (Pascal)
 static constexpr u32 MotionShaderBinaryVersion = 8u; // runtime address descriptor, set 1
+static constexpr u32 CaptureShaderBinaryVersion = 9u; // bbport: + position capture (ray traced lighting)
 static constexpr u32 ShaderMetaVersion = 8u; // bbport: HwFragmentRuntimeInfo::depth_first
 static constexpr u32 PipelineKeyVersion = 6u; // pointer-free pipeline state + generated fragment
 } // namespace Serialization
@@ -81,8 +82,10 @@ std::vector<u8> SerializeShaderMeta(const Shader::Info& info, const Shader::Stag
     meta.Write(Serialization::ShaderMetaVersion);
     const bool vertex_motion = info.hw_stage == Shader::HwStage::Vertex &&
                                spec.runtime_info.hw.vs.motion_vectors;
-    meta.Write(vertex_motion ? Serialization::MotionShaderBinaryVersion
-                             : Serialization::ShaderBinaryVersion);
+    const bool vertex_capture = vertex_motion && (spec.runtime_info.hw.vs.motion_vectors & 2) != 0;
+    meta.Write(vertex_capture  ? Serialization::CaptureShaderBinaryVersion
+               : vertex_motion ? Serialization::MotionShaderBinaryVersion
+                               : Serialization::ShaderBinaryVersion);
     meta.Write(perm_hash);
     meta.Write(perm_idx);
     spec.Serialize(ar);
@@ -119,8 +122,10 @@ void RegisterShaderMeta(const Shader::Info& info,
     meta.Write(Serialization::ShaderMetaVersion);
     const bool vertex_motion = info.hw_stage == Shader::HwStage::Vertex &&
                                spec.runtime_info.hw.vs.motion_vectors;
-    meta.Write(vertex_motion ? Serialization::MotionShaderBinaryVersion
-                             : Serialization::ShaderBinaryVersion);
+    const bool vertex_capture = vertex_motion && (spec.runtime_info.hw.vs.motion_vectors & 2) != 0;
+    meta.Write(vertex_capture  ? Serialization::CaptureShaderBinaryVersion
+               : vertex_motion ? Serialization::MotionShaderBinaryVersion
+                               : Serialization::ShaderBinaryVersion);
 
     meta.Write(perm_hash);
     meta.Write(perm_idx);
@@ -156,7 +161,8 @@ bool LoadShaderMeta(Serialization::Archive& ar, Shader::Info& info,
     u32 binary_version{};
     meta.Read(binary_version);
     if (binary_version != Serialization::ShaderBinaryVersion &&
-        binary_version != Serialization::MotionShaderBinaryVersion) {
+        binary_version != Serialization::MotionShaderBinaryVersion &&
+        binary_version != Serialization::CaptureShaderBinaryVersion) {
         return false;
     }
 
@@ -176,8 +182,10 @@ bool LoadShaderMeta(Serialization::Archive& ar, Shader::Info& info,
     // reusable; v8 motion binaries load the current addresses from a renderer-owned descriptor.
     const bool vertex_motion = info.hw_stage == Shader::HwStage::Vertex &&
                                spec.runtime_info.hw.vs.motion_vectors;
-    if (binary_version != (vertex_motion ? Serialization::MotionShaderBinaryVersion
-                                        : Serialization::ShaderBinaryVersion)) {
+    const bool vertex_capture = vertex_motion && (spec.runtime_info.hw.vs.motion_vectors & 2) != 0;
+    if (binary_version != (vertex_capture  ? Serialization::CaptureShaderBinaryVersion
+                           : vertex_motion ? Serialization::MotionShaderBinaryVersion
+                                           : Serialization::ShaderBinaryVersion)) {
         return false;
     }
 
@@ -311,6 +319,13 @@ bool PipelineCache::LoadGraphicsPipeline(Serialization::Archive& ar, bool legacy
         return false;
     }
 
+    // bbport: pipelines with position capture were stored by a run with ray traced lighting on.
+    // With the row off at start (or no ray query) nothing draws with them: not built, not held.
+    if ((sel.graphics_key.motion_vectors & Shader::MotionVectors::VertexCapture) &&
+        !instance.IsRayQuerySupported()) {
+        return false;
+    }
+
     GraphicsPipeline::SerializationSupport sdata{};
     if (!sdata.Deserialize(ar, legacy)) {
         return false;
@@ -430,11 +445,17 @@ bool PipelineCache::LoadPipelineStage(Serialization::Archive& ar, size_t stage, 
         return false;
     }
     // Reject truncated instructions before passing cached SPIR-V to the driver.
+    // bbport (upstream v0.9.43): and note OpKill / OpDemoteToHelperInvocation: a shader loaded from
+    // the cache was not translated this run, so Info::has_discard (read only by ray traced
+    // lighting's capture, for alpha-tested casters) would stay false.
+    bool discards = false;
     for (size_t word = 5; word < spv.size();) {
         const u32 count = spv[word] >> 16;
         if (!count || count > spv.size() - word) {
             return false;
         }
+        const u32 opcode = spv[word] & 0xffff;
+        discards |= opcode == 252u || opcode == 5380u;
         word += count;
     }
 
@@ -451,6 +472,8 @@ bool PipelineCache::LoadPipelineStage(Serialization::Archive& ar, size_t stage, 
         }
     }
     Program* target = it == program_cache.end() ? program.get() : it->second.get();
+    program->info.has_discard |= discards;
+    target->info.has_discard |= discards;
     vk::ShaderModule module;
     if (perm_idx < target->modules.size() && target->modules[perm_idx].module) {
         // The persisted index is part of the pipeline key. Equal specializations at other

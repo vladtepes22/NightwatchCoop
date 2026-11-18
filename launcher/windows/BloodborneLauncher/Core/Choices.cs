@@ -128,8 +128,8 @@
             new("debug_camera", L.T("Free camera"), false, L.T("Toggle with Cross + L3 / Space + Z")),
             new("debug_menu", L.T("Debug menu"), false,
                 L.T("Left touchpad / Tab. Needs the adhoc folder from Nexus mod #253 (adhoc/font) in the game's dvdroot_ps4 or as a mod; without it the patch is not applied")),
-            // Optional lighting (engine Effects[10..18], bbport_settings.h; all off, none in any preset). Ray traced
-            // lighting is not in this build and has no row. Each hint: what it does, what it needs, when it applies.
+            // Optional lighting (engine Effects[10..19], bbport_settings.h; all off, none in any preset).
+            // Each hint: what it does, what it needs, when it applies.
             new("effect_gtao", L.T("Better ambient occlusion (GTAO)") + L.T(" (experimental)"), false,
                 Hint(L.T("Replaces the game's SSAO shader"), NeedsAo, AfterRestart)),
             new("effect_modern_ssr", L.T("Improved reflections"), false,
@@ -148,6 +148,8 @@
                 Hint(L.T("A glow of fog around lamps and fires"), HeavyNote, NeedsUpscaler, AtOnce)),
             new("effect_point_shadows", L.T("Point light shadows") + L.T(" (experimental)"), false,
                 Hint(L.T("Shadows from point lights such as lamps"), HeavyNote, NeedsUpscaler, AtOnce)),
+            new("effect_ray_tracing", L.T("Ray traced lighting") + L.T(" (experimental)"), false,
+                Hint(L.T("Sun, lamps and bounced light"), L.T("Needs a GPU with ray tracing"), HeavyNote, NeedsUpscaler, AfterRestart)),
         };
 
         /// <summary>Index of the first lighting row in <see cref="Effects"/> (engine EffectFirstLighting).</summary>

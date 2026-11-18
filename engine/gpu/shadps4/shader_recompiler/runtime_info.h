@@ -96,6 +96,14 @@ struct MotionVectors {
     static_assert(sizeof(Addresses) == 16);
     static constexpr u32 FlagStore = 1;
     static constexpr u32 FlagLoad = 2;
+    // bbport (upstream v0.9.43): HwVertexRuntimeInfo::motion_vectors is a set of bits. Outputs is
+    // object motion as before (the value 1 a bool gave); Capture stores the vertex's clip position
+    // for ray traced lighting (vk_rt_shadow.cpp) and exists only while that is running.
+    static constexpr u32 ParamsCapacity = 1 + 4 * 8192;
+    static constexpr u32 CaptureParamsCapacity = 1 + 4 * 8192;
+    static constexpr u8 VertexOutputs = 1;
+    static constexpr u8 VertexCapture = 2;
+    static constexpr u8 VertexBoth = 3;
 };
 
 struct HwLocalRuntimeInfo {
@@ -116,8 +124,8 @@ struct HwVertexRuntimeInfo {
     bool emulate_depth_negative_one_to_one{};
     bool clip_disable{};
     u32 user_clip_plane_mask{};
-    /// bbport: object motion vectors (G-buffer draws), see MotionVectors below.
-    bool motion_vectors{};
+    /// bbport: object motion vectors (G-buffer draws) and position capture, MotionVectors::Vertex* bits.
+    u8 motion_vectors{};
 
     bool operator==(const HwVertexRuntimeInfo& other) const noexcept = default;
 };

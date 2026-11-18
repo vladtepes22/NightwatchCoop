@@ -90,6 +90,7 @@
 127000	Contact Shadows	Fine shadows where objects meet surfaces.	接触阴影	物体与表面接触处的细腻阴影。	Контактные тени	Тонкие тени там, где предметы касаются поверхностей.
 127001	Soft Sun Shadows	PCSS: shadows soften the farther they fall from what casts them.	柔和太阳阴影	PCSS：阴影离投射物越远越柔和。	Мягкие тени от солнца	PCSS: чем дальше от предмета, тем мягче тень.
 127002	Point Shadows (Experimental)	Screen-space shadows from lamps. Heavy.	点光源阴影（实验性）	灯光的屏幕空间阴影。开销大。	Тени от точечных (эксп.)	Экранные тени от ламп. Тяжёлый эффект.
+127003	Ray Traced Lighting (Experimental)	Ray traced sun, lamp and bounced light. Needs a GPU with ray tracing. Very heavy. Requires a restart.	光线追踪光照（实验性）	太阳、灯光和反弹光使用光线追踪。需要支持光线追踪的显卡。开销很大。需要重启。	Трассировка лучей (эксп.)	Трассировка солнца, ламп и отражённого света. Нужна видеокарта с трассировкой лучей. Очень тяжёлый эффект. Нужен перезапуск.
 129020	PC Light and Fog		PC 光与雾		Свет и туман (ПК)
 129000	Indirect Lighting	One bounce of light from nearby surfaces. Heavy.	间接光照	来自附近表面的一次反弹光。开销大。	Непрямое освещение	Один отскок света от ближних поверхностей. Тяжёлый эффект.
 129001	Indirect Light Strength	Needs Indirect Lighting. 5 is the default.	间接光强度	需要间接光照。5 为默认值。	Сила непрямого света	Нужно непрямое освещение. 5 по умолчанию.

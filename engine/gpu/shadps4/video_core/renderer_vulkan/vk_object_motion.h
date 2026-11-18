@@ -12,6 +12,7 @@
 #include "video_core/renderer_vulkan/motion_history.h"
 
 #include "common/types.h"
+#include "shader_recompiler/runtime_info.h"
 #include "video_core/renderer_vulkan/vk_common.h"
 #include "video_core/texture_cache/image.h"
 
@@ -30,6 +31,12 @@ public:
 
     [[nodiscard]] bool Enabled() const noexcept {
         return enabled;
+    }
+
+    /// bbport (upstream v0.9.43): the two addresses motion shaders read, for the table of a shader
+    /// that does object motion and position capture at once (RtShadow).
+    [[nodiscard]] Shader::MotionVectors::Addresses AddressTable() const noexcept {
+        return address_table;
     }
 
     using DrawInfo = Motion::Draw;
@@ -60,6 +67,18 @@ public:
     /// The image of the last PrepareRead (layout General), or null.
     [[nodiscard]] vk::ImageView View() const noexcept {
         return read_target && read_target->view ? *read_target->view : vk::ImageView{};
+    }
+    struct Written {
+        vk::Image image;
+        vk::ImageView view;
+        vk::ImageLayout layout = vk::ImageLayout::eUndefined;
+    };
+    [[nodiscard]] Written WrittenTarget(u32 width, u32 height) const noexcept {
+        const Target* target = Find(width, height);
+        if (!target || !target->written || !target->view) {
+            return {};
+        }
+        return {vk::Image(target->image), *target->view, target->layout};
     }
     [[nodiscard]] vk::Image Image(u32 width, u32 height) const noexcept {
         const Target* target = Find(width, height);
@@ -109,6 +128,9 @@ private:
     vk::Buffer params_buffer{};
     VmaAllocation params_allocation{};
     u32* params_mapped{};
+    static_assert(1 + FrameSlots * ParamsPerFrame == Shader::MotionVectors::ParamsCapacity);
+    static_assert(Shader::MotionVectors::ParamsCapacity <= 0x10000); // the low half of motion_param
+    Shader::MotionVectors::Addresses address_table{};
     vk::Buffer positions_buffer{};
     VmaAllocation positions_allocation{};
     vk::Buffer address_buffer{};

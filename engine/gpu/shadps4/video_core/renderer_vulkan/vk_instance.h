@@ -170,6 +170,12 @@ public:
         return vk12_features.shaderInt8;
     }
 
+    /// bbport: VK_KHR_ray_query, VK_KHR_acceleration_structure and VK_KHR_deferred_host_operations
+    /// are enabled. Only when effect_ray_tracing was on when the game started and the GPU has them.
+    bool IsRayQuerySupported() const {
+        return ray_query;
+    }
+
     /// Returns true if VK_KHR_maintenance8 is supported
     bool IsMaintenance8Supported() const {
         return maintenance_8;
@@ -694,6 +700,7 @@ private:
     bool workgroup_memory_explicit_layout{};
     bool maintenance_5{};
     bool maintenance_8{};
+    bool ray_query{};
     bool buffer_marker{};
     bool device_fault{};
     bool address_binding_report{};

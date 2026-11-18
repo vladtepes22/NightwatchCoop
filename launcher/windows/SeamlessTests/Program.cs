@@ -231,12 +231,13 @@ Check(PadMap.First(padIni, "map") == "back" && PadMap.First(padIni, "triangle") 
 PadMap.Reset(padIni, "map");
 Check(padIni.Raw("pad.map") == null && PadMap.First(padIni, "map") == "start", "Restoring the map button left it off Start");
 Check(InputMap.Controls.Single(c => c.Name == "map").Default == "M", "The map's key is not M by default");
-// The optional lighting rows write the keys the engine reads (bbport_settings.h Effects[10..18]), all off, no ray tracing row.
+// The optional lighting rows write the keys the engine reads (bbport_settings.h Effects[10..19]), all off; ray tracing is the last.
 var lightingKeys = new[] { "effect_gtao", "effect_modern_ssr", "effect_pom_cavity", "effect_contact_shadows", "effect_pcss",
-    "effect_gi", "effect_volumetric_light", "effect_point_fog", "effect_point_shadows" };
+    "effect_gi", "effect_volumetric_light", "effect_point_fog", "effect_point_shadows", "effect_ray_tracing" };
 Check(Choices.Effects.Skip(Choices.FirstLightingEffect).Select(e => e.Key).SequenceEqual(lightingKeys), "The lighting rows are not the engine's, in order");
 Check(Choices.Effects.Skip(Choices.FirstLightingEffect).All(e => !e.Default && !string.IsNullOrWhiteSpace(e.Hint)), "A lighting row is on by default or has no hint");
-Check(Choices.Effects.All(e => e.Key != "effect_ray_tracing"), "A ray tracing row is in the launcher");
+Check(Choices.Effects[^1].Key == "effect_ray_tracing" && Choices.Effects.Count(e => e.Key == "effect_ray_tracing") == 1,
+    "The ray tracing row is not the last lighting row, or is there twice");
 Check(Choices.Effects[Choices.FirstLightingEffect - 1].Key == "debug_menu", "The first lighting index moved");
 var lightingIni = new IniFile();
 foreach (var key in lightingKeys) lightingIni.Set(key, "1");

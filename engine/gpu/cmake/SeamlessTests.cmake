@@ -792,6 +792,7 @@ target_include_directories(lamp-fog-lights-test PRIVATE ..)
 add_test(NAME lamp-fog-lights-test COMMAND lamp-fog-lights-test)
 add_dependencies(seamless-tests lamp-fog-lights-test)
 foreach(effect_test
+        "rt-shadow-test;test_rt_shadows.cpp"
         "point-volumetric-test;test_point_volumetric.cpp"
         "volumetric-tint-test;test_volumetric_tint.cpp")
     list(GET effect_test 0 effect_test_name)
@@ -804,7 +805,7 @@ foreach(effect_test
 endforeach()
 set(bb_gpu_tests scene-resolution-test taa-shader-test camera-motion-test indirect-clamp-test
     hdr-native-shader-test motion-shader-test motion-blur-shader-test effect-pipelines-test
-    directional-shadow-test point-volumetric-test volumetric-tint-test)
+    directional-shadow-test point-volumetric-test volumetric-tint-test rt-shadow-test)
 foreach(target IN LISTS bb_engine_tests bb_gpu_tests)
     add_test(NAME ${target} COMMAND ${target})
     add_dependencies(seamless-tests ${target})
@@ -978,6 +979,19 @@ target_compile_options(fog-scale-test PRIVATE -UNDEBUG -Wall -Wextra)
 target_compile_definitions(fog-scale-test PRIVATE BB_FOG_SCALE_MUTANTS)
 add_test(NAME fog-scale-test COMMAND fog-scale-test)
 add_dependencies(seamless-tests fog-scale-test)
+
+# Ray traced lighting's scene rules (rt_scene_rules.h; upstream v0.9.43): budgets, eviction, refits,
+# the persistent scene. The mutant build breaks each rule in turn and passes only if all are caught.
+add_executable(rt-scene-rules-test EXCLUDE_FROM_ALL ../tests/test_rt_scene_rules.cpp)
+add_executable(rt-scene-rules-mutant-test EXCLUDE_FROM_ALL ../tests/test_rt_scene_rules.cpp)
+target_compile_definitions(rt-scene-rules-mutant-test PRIVATE LANTERN_RT_RULES_MUTANTS)
+foreach(t rt-scene-rules-test rt-scene-rules-mutant-test)
+    target_compile_options(${t} PRIVATE -UNDEBUG -O1 -Wall -Wextra -Werror)
+    target_include_directories(${t} PRIVATE ..)
+    set_target_properties(${t} PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+    add_test(NAME ${t} COMMAND ${t})
+    add_dependencies(seamless-tests ${t})
+endforeach()
 
 # Lamp rules shared by point light shadows and lamp fog (rt_lamp_rules.h). The mutant build breaks each
 # rule in turn and passes only if the suite catches every one.

@@ -37,6 +37,13 @@ public:
     /// This frame's object motion image (after RecordMotion), for the debug view; or null.
     vk::ImageView ObjectMotionView() const noexcept;
     vk::Image ObjectMotionImage(u32 width, u32 height) const noexcept;
+    /// bbport (upstream v0.9.43): this frame's object vectors at that size, or nothing.
+    struct ObjectMotionTarget {
+        vk::Image image;
+        vk::ImageView view;
+        vk::ImageLayout layout = vk::ImageLayout::eUndefined;
+    };
+    ObjectMotionTarget ObjectMotionWritten(u32 width, u32 height) const noexcept;
 
     void SetJitter(std::array<float, 2> value) noexcept {
         previous_jitter = jitter;

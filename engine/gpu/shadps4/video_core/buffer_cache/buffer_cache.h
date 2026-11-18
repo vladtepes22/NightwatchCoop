@@ -174,6 +174,9 @@ public:
 
     /// Return true when a region is modified from the GPU
     [[nodiscard]] bool IsRegionGpuModified(VAddr addr, size_t size);
+    /// bbport (upstream v0.9.43): the page tracker's answer alone (ray traced lighting: a bone
+    /// palette the GPU writes cannot be hashed from guest memory).
+    [[nodiscard]] bool IsRegionGpuWrittenTracked(VAddr addr, size_t size);
 
     /// Processes the fault buffer.
     void ProcessFaultBuffer();

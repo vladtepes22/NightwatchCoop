@@ -338,6 +338,10 @@ private:
     /// inputs from (the game's directional shadow resolve, its sun table, its tiled point lights).
     void EffectsAfterDraw(const AmdGpu::Regs& regs, const GraphicsPipeline* pipeline, bool is_indexed,
                           u32 num_indices, u32 num_instances, u32 first_vertex);
+    /// bbport (upstream v0.9.43): a draw of a pipeline with position capture (they exist only while
+    /// ray traced lighting is running): tells RtShadow about the mesh and sets the capture index.
+    void EffectsCaptureDraw(const AmdGpu::Regs& regs, const GraphicsPipeline* pipeline, bool is_indexed,
+                            u32 index_offset);
     /// GTAO: the AO strength into the push constants of the game's SSAO draw (effect_gtao).
     void GtaoBeforeBind(const GraphicsPipeline* pipeline);
     /// graphics_ao_quality=1: denoises the GTAO gather and redoes the upscale at full resolution.
@@ -615,6 +619,7 @@ private:
     std::unique_ptr<SsrTemporal> ssr_temporal;
     u32 ssr_frame = 0; ///< the SSR pass's frame index (its jitter sequence, push offset 120)
     bool motion_draw = false;
+    bool capture_draw = false; ///< the pipeline stores positions for ray traced lighting
     u64 motion_geometry{};    ///< vertex-stream identity of the current direct draw
     bool gbuffer_draw = false;
     std::unique_ptr<HdrNative> hdr_native; // bbport: native HDR output (docs/hdr.md); before

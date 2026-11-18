@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// bbport (upstream v0.9.43): point light shadows, row effect_point_shadows. Ray tracing is not in
-// this build: the ray traced lamp pipelines are never made (vk_rt_shadow.h answers no), so every
-// batch takes the screen-space pass (point_shadow.comp).
+// bbport (upstream v0.9.43): point light shadows, row effect_point_shadows. The ray traced lamp
+// pipelines are made only while ray traced lighting is running (RtShadow::Capturing); otherwise
+// every batch takes the screen-space pass (point_shadow.comp).
 
 #include "video_core/renderer_vulkan/vk_point_shadow.h"
 
@@ -17,6 +17,8 @@
 #include "common/assert.h"
 #include "video_core/host_shaders/point_shadow_comp.h"
 #include "video_core/host_shaders/point_shadow_f16_comp.h"
+#include "video_core/host_shaders/point_shadow_ray_comp.h"
+#include "video_core/host_shaders/point_shadow_ray_f16_comp.h"
 #include "video_core/renderer_vulkan/vk_camera_motion.h"
 #include "video_core/renderer_vulkan/vk_effect_pass.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
@@ -131,11 +133,17 @@ PointShadow::PointShadow(const Instance& instance_, Scheduler& scheduler_,
       runtime{runtime_}, scene_targets{scene_targets_}, rt_shadow{rt_shadow_},
       camera_motion{camera_motion_} {
     fade_start_m = fade_end_m * 0.6f;
-    // bbport: the game's own light list and the lamp pick/reuse switches only steer ray traced
-    // lamps, which this build does not have.
+    // bbport: the game's own light list as extra lamps (upstream's rt_game_lights, off by default
+    // there, fed by its shim/engine/light_list.cpp) is not ported.
     game_lights = false;
     if (game_lights) {
         lamp_pick = GameLightsPick;
+    }
+    if (const char* env = std::getenv("BB_RT_LAMPS_EXACT"); env && env[0] == '1') {
+        lamp_pick = 0;
+    }
+    if (const char* env = std::getenv("BB_RT_LAMP_REUSE"); env && env[0] == '0') {
+        lamp_reuse = false;
     }
 }
 
@@ -165,9 +173,30 @@ bool PointShadow::Ready() {
                             sizeof(Push), POINT_SHADOW_F16_COMP, "Point shadows (FP16 light)", true)) {
         std::printf("Point shadows: FP16 light targets unsupported on this GPU; those light draws are skipped\n");
     }
-    // bbport: upstream makes the ray traced lamp pipelines here (point_shadow_ray.comp, plain and
-    // FP16) when rt_shadow.Capturing(). Not in this build: ray_pipeline and ray_pipeline16 stay
-    // null, so `merged` and `use_rays` below are always false.
+    // bbport: the ray traced lamp pipelines (point_shadow_ray.comp, plain and FP16), only while
+    // ray traced lighting is running; otherwise ray_pipeline and ray_pipeline16 stay null, so
+    // `merged` and `use_rays` below are always false.
+    const u32 ray_mask = rt_shadow.LampRayMask();
+    const vk::SpecializationMapEntry mask_entry{0, 0, sizeof(ray_mask)};
+    const vk::SpecializationInfo mask_info{1, &mask_entry, sizeof(ray_mask), &ray_mask};
+    if (rt_shadow.Capturing() &&
+        !EffectPass::Create(instance, ray_set_layout, ray_layout, ray_pipeline,
+                            {eStorageBuffer, eCombinedImageSampler, eStorageImage, eStorageImage,
+                             eStorageImage, eStorageImage, eAccelerationStructureKHR, eStorageImage,
+                             eStorageImage},
+                            sizeof(Push), POINT_SHADOW_RAY_COMP, "Ray traced lamps", true,
+                            ray_mask != 0xffu ? &mask_info : nullptr)) {
+        std::printf("Ray traced lamps: off - the pass could not be made\n");
+    }
+    if (ray_pipeline && pipeline16 &&
+        !EffectPass::Create(instance, ray_set_layout16, ray_layout16, ray_pipeline16,
+                            {eStorageBuffer, eCombinedImageSampler, eStorageImage, eStorageImage,
+                             eStorageImage, eStorageImage, eAccelerationStructureKHR, eStorageImage,
+                             eStorageImage},
+                            sizeof(Push), POINT_SHADOW_RAY_F16_COMP, "Ray traced lamps (FP16 light)", true,
+                            ray_mask != 0xffu ? &mask_info : nullptr)) {
+        std::printf("Ray traced lamps: FP16 light targets use the screen-space pass\n");
+    }
     light_data = std::make_unique<VideoCore::Buffer>(
         instance, 0, DataWords * sizeof(u32), VideoCore::MemoryType::DeviceLocal, "Point shadow lights");
     return true;

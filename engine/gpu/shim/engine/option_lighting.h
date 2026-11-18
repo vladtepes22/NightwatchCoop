@@ -69,10 +69,11 @@ inline constexpr Row kRows[] = {
     // Surfaces
     Toggle(Lighting, 126004, BbSettings::EffectPomCavity),
 
-    // PC Shadows (a ray tracing row goes here: Toggle(Shadows, 127003, BbSettings::EffectRayTracing))
+    // PC Shadows
     Toggle(Shadows, 127000, BbSettings::EffectContactShadows),
     Toggle(Shadows, 127001, BbSettings::EffectPcss),
     Toggle(Shadows, 127002, BbSettings::EffectPointShadows),
+    Toggle(Shadows, 127003, BbSettings::EffectRayTracing),
 
     // PC Light and Fog
     Toggle(Light, 129000, BbSettings::EffectGi),

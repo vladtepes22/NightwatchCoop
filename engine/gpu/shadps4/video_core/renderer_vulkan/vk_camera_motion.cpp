@@ -250,6 +250,14 @@ vk::ImageView CameraMotion::ObjectMotionView() const noexcept {
     return object_motion && object_motion->Enabled() ? object_motion->View() : vk::ImageView{};
 }
 
+CameraMotion::ObjectMotionTarget CameraMotion::ObjectMotionWritten(u32 width, u32 height) const noexcept {
+    if (!object_motion || !object_motion->Enabled()) {
+        return {};
+    }
+    const auto written = object_motion->WrittenTarget(width, height);
+    return {written.image, written.view, written.layout};
+}
+
 vk::Image CameraMotion::ObjectMotionImage(u32 width, u32 height) const noexcept {
     return object_motion && object_motion->Enabled() ? object_motion->Image(width, height)
                                                       : vk::Image{};

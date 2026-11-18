@@ -92,7 +92,10 @@ Rasterizer::Rasterizer(const Instance& instance_, Scheduler& scheduler_, Runtime
     camera_motion->SetObjectMotion(object_motion.get());
     // bbport: native HDR output's passes run at points of the frame the upscaler finds.
     hdr_native = std::make_unique<HdrNative>(instance, scheduler, texture_cache, runtime);
-    rt_shadow = std::make_unique<RtShadow>();
+    // bbport (upstream v0.9.43): ray traced lighting. Made always, like the passes that ask it;
+    // with the row off at start (or no ray query) its constructor returns at once.
+    rt_shadow = std::make_unique<RtShadow>(instance, scheduler, *camera_motion, *object_motion);
+    pipeline_cache.SetPositionCapture(rt_shadow->Capturing());
     ssgi = std::make_unique<ScreenSpaceGI>(instance, scheduler, texture_cache, runtime,
                                            *scene_targets, *camera_motion, *rt_shadow);
     contact_shadow = std::make_unique<ContactShadow>(instance, scheduler, texture_cache, runtime,
@@ -2056,7 +2059,8 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
         scene_targets->debug = scene_debug_frame;
     }
     bind_prepared = used_prepared;
-    motion_draw = pipeline->GetGraphicsKey().motion_vectors;
+    motion_draw = (pipeline->GetGraphicsKey().motion_vectors & Shader::MotionVectors::VertexOutputs) != 0;
+    capture_draw = (pipeline->GetGraphicsKey().motion_vectors & Shader::MotionVectors::VertexCapture) != 0;
     motion_geometry = 0;
 
     PrepareRenderState(pipeline);
@@ -2197,6 +2201,9 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
             }, motion_object, character);
         }
     }
+    if (capture_draw) {
+        EffectsCaptureDraw(regs, pipeline, is_indexed, index_offset);
+    }
     // bbport HDR, mode 5: the strength of the game's color table (Scene grading), for bbport's
     // version of its pass (hdr/bb_color_grading.frag): the float's bits plus one.
     if (HdrChannel::Native16()) {
@@ -2225,7 +2232,9 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     GtaoBeforeBind(pipeline);
     pipeline->BindResources(set_writes, push_data, {image_infos.data(), image_infos.size()},
                             {buffer_infos.data(), buffer_infos.size()});
-    if (pipeline->GetGraphicsKey().motion_vectors) {
+    if (capture_draw) {
+        rt_shadow->BindAddresses(pipeline->GetLayout(), pipeline->GetGraphicsKey().motion_vectors);
+    } else if (motion_draw) {
         object_motion->BindAddresses(pipeline->GetLayout());
     }
     // bbport: jitter geometry drawn with the scene depth, not full-screen passes (a shifted
@@ -2444,6 +2453,7 @@ void Rasterizer::DrawIndirectRecord(const GraphicsPipeline* pipeline, bool is_in
 
     // Indirect arguments may be GPU-written: leave these draws on camera fallback.
     motion_draw = false;
+    capture_draw = false;
     motion_geometry = 0;
     PrepareRenderState(pipeline);
     NotifyUiDraw(pipeline);
@@ -2496,9 +2506,14 @@ void Rasterizer::DrawIndirectRecord(const GraphicsPipeline* pipeline, bool is_in
     push_data.xoffset = push_data.xoffset*target_scale[0]+target_offset[0];
     push_data.yscale *= target_scale[1];
     push_data.yoffset = push_data.yoffset*target_scale[1]+target_offset[1];
+    if (pipeline->GetGraphicsKey().motion_vectors & Shader::MotionVectors::VertexCapture) {
+        push_data.motion_param = 0;
+    }
     pipeline->BindResources(set_writes, push_data, {image_infos.data(), image_infos.size()},
                             {buffer_infos.data(), buffer_infos.size()});
-    if (pipeline->GetGraphicsKey().motion_vectors) {
+    if (pipeline->GetGraphicsKey().motion_vectors & Shader::MotionVectors::VertexCapture) {
+        rt_shadow->BindAddresses(pipeline->GetLayout(), pipeline->GetGraphicsKey().motion_vectors);
+    } else if (pipeline->GetGraphicsKey().motion_vectors) {
         object_motion->BindAddresses(pipeline->GetLayout());
     }
     draw_jitter = {};
@@ -3403,7 +3418,7 @@ void Rasterizer::ResolveVertexBuffers(const GraphicsPipeline* pipeline,
         // If there are no bindings, there is nothing further to do.
         return;
     }
-    if (motion_draw && !guest_buffers.empty()) {
+    if ((motion_draw || capture_draw) && !guest_buffers.empty()) {
         // Include every stream: identical position buffers can be paired with different
         // skinning/instance data. Index topology and base offsets are matched separately.
         motion_geometry = ready ? ready->buffers_hash
@@ -4849,7 +4864,7 @@ Rasterizer::BeginSignature Rasterizer::MakeBeginSignature(const GraphicsPipeline
     }
     sig.mrt_mask = key.mrt_mask;
     sig.num_samples = key.num_samples;
-    sig.motion = key.motion_vectors;
+    sig.motion = (key.motion_vectors & Shader::MotionVectors::VertexOutputs) != 0;
     sig.scene_started = scene_started;
     sig.raster_scaling = upscaler->RasterScaling();
     sig.upscaler_state = upscaler->RedirectState();
@@ -5565,7 +5580,7 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
         FrameCapture::BeginPass(colors.data(), state.num_color_attachments, depth);
     }
     // bbport: object motion vector attachment of G-buffer pipelines.
-    if (key.motion_vectors) {
+    if (key.motion_vectors & Shader::MotionVectors::VertexOutputs) {
         object_motion->Attach(state, state.width, state.height);
     }
     return state;
