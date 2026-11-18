@@ -11,6 +11,7 @@
 
 #include "bbport_toggles.h"
 #include "core/memory.h"
+#include "video_core/renderer_vulkan/occlusion_batch.h"
 #include "video_core/renderer_vulkan/scene_resolution.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_occlusion.h"
@@ -90,12 +91,18 @@ struct Occlusion::Resolver {
 
     u64 dumps = 0, queries_read = 0, seen = 0, hidden = 0, plainly = 0, unavailable = 0;
     u64 late = 0, foreign = 0, unmapped = 0, held = 0, late_written = 0, unpaired = 0;
+    u64 runs = 0, result_calls = 0, reset_calls = 0, reset_queries = 0;
+    /// BB_OCCLUSION_BATCH=1 (experiment, off; BBFSS 1451700): Run reads the batch's query results up front,
+    /// merged (occlusion_batch.h), into `raw` by ring slot, and resets the pool once after the
+    /// batch. 0: each block's results are read when it is answered and released after it.
+    bool batch_reads = false;
     std::atomic<u64> pool_full{0}, pred_sets{0}, pred_known{0}, pred_skipped{0}, pred_drawn{0};
     std::chrono::steady_clock::time_point report_time = std::chrono::steady_clock::now();
     u64 report_frames = 0, report_draws = 0;
-    std::array<u64, 15> reported{};
+    std::array<u64, 19> reported{};
 
     void Run(u64 tick);
+    void Read(u64 first, u64 count);
     void Process(const Record& record);
     u64 Sum(u64 first, u64 count, u64& missing);
     void Release(u64 below);
@@ -157,6 +164,7 @@ bool Occlusion::Init() {
     resolver->rasterizer = &rasterizer;
     resolver->precise = precise;
     resolver->max_lag = EnvNumber("BB_OCCLUSION_MAX_LAG", 6);
+    resolver->batch_reads = EnvNumber("BB_OCCLUSION_BATCH", 0) != 0;
     std::printf("Occlusion: conservative visibility (BB_OCCLUSION=0: always visible) - "
                 "each query block the game opens is measured over up to %llu draws and answered "
                 "once the GPU has run them (at most %llu frames late), %s; only a complete, fresh "
@@ -165,6 +173,9 @@ bool Occlusion::Init() {
                 static_cast<unsigned long long>(draw_budget),
                 static_cast<unsigned long long>(resolver->max_lag),
                 precise ? "precise counts" : "not precise (any nonzero count reads plainly visible)");
+    if (resolver->batch_reads) {
+        std::printf("Occlusion: BB_OCCLUSION_BATCH=1: query results read once per batch (experiment)\n");
+    }
     return true;
 }
 
@@ -214,8 +225,8 @@ void Occlusion::Dump(const DumpTask& task) {
         std::scoped_lock lock{resolver->inbox_mutex};
         resolver->inbox.push_back(record);
     }
-    if (record.tick != last_dump_tick) {
-        last_dump_tick = record.tick;
+    if (const u64 previous = last_dump_tick.exchange(record.tick, std::memory_order_release);
+        record.tick != previous) {
         scheduler.DeferPriorityOperation(
             [resolver = resolver, tick = record.tick] { resolver->Run(tick); });
     }
@@ -287,10 +298,43 @@ void Occlusion::Resolver::Run(u64 tick) {
             inbox.pop_front();
         }
     }
+    ++runs;
+    if (!batch_reads) {
+        for (const Record& record : batch) {
+            Process(record);
+        }
+        Report();
+        return;
+    }
+    // Every query a block sums (closed, complete: Process) read before any is answered. The GPU has
+    // run this tick, so the results are the ones a read at answer time sees. Releasing once after the
+    // batch, up to the furthest point a record allows, resets what releasing after each record would.
+    OcclusionBatch::ForEachRange(
+        batch, [](const Record& record) { return record.kind == Kind::Closed && record.complete; },
+        [this](u64 first, u64 count) { Read(first, count); });
+    u64 release_below = 0;
     for (const Record& record : batch) {
         Process(record);
+        release_below = std::max(release_below, record.needed_from);
     }
+    Release(release_below);
     Report();
+}
+
+void Occlusion::Resolver::Read(u64 first, u64 count) {
+    while (count != 0) {
+        const u32 start = static_cast<u32>(first % RingSize);
+        const u32 run = static_cast<u32>(std::min<u64>(count, RingSize - start));
+        ++result_calls;
+        const vk::Result result = device.getQueryPoolResults(
+            pool, start, run, 16ull * run, raw.data() + 2 * start, 16,
+            vk::QueryResultFlagBits::e64 | vk::QueryResultFlagBits::eWithAvailability);
+        if (result != vk::Result::eSuccess && result != vk::Result::eNotReady) {
+            std::fill_n(raw.data() + 2 * start, 2 * run, 0); // unreadable: unavailable
+        }
+        first += run;
+        count -= run;
+    }
 }
 
 void Occlusion::Resolver::Process(const Record& record) {
@@ -323,16 +367,28 @@ void Occlusion::Resolver::Process(const Record& record) {
             }
         }
     }
-    Release(record.needed_from);
+    if (!batch_reads) {
+        Release(record.needed_from);
+    }
     answered_through.store(record.number, std::memory_order_release);
 }
 
 u64 Occlusion::Resolver::Sum(u64 first, u64 count, u64& missing) {
     queries_read += count;
     u64 samples = 0;
+    if (batch_reads) {
+        for (u64 i = 0; i < count; ++i) {
+            const u32 slot = static_cast<u32>((first + i) % RingSize);
+            const bool available = raw[2 * slot + 1] != 0;
+            missing += available ? 0 : 1;
+            samples += Model::QueryCount(raw[2 * slot], available, precise, scale[slot]);
+        }
+        return samples;
+    }
     while (count != 0) {
         const u32 start = static_cast<u32>(first % RingSize);
         const u32 run = static_cast<u32>(std::min<u64>(count, RingSize - start));
+        ++result_calls;
         const vk::Result result = device.getQueryPoolResults(
             pool, start, run, 16ull * run, raw.data(), 16,
             vk::QueryResultFlagBits::e64 | vk::QueryResultFlagBits::eWithAvailability);
@@ -352,6 +408,8 @@ void Occlusion::Resolver::Release(u64 below) {
     while (reset_below < below) {
         const u32 start = static_cast<u32>(reset_below % RingSize);
         const u32 run = static_cast<u32>(std::min<u64>(below - reset_below, RingSize - start));
+        ++reset_calls;
+        reset_queries += run;
         device.resetQueryPool(pool, start, run);
         reset_below += run;
     }
@@ -407,7 +465,7 @@ void Occlusion::Resolver::Report() {
     report_time = now;
     const u64 frames_now = FramesSoFar();
     const u64 draws_now = BbStats::draws.load(std::memory_order_relaxed);
-    const std::array<u64, 15> totals{
+    const std::array<u64, 19> totals{
         dumps,
         queries_read,
         seen,
@@ -423,9 +481,13 @@ void Occlusion::Resolver::Report() {
         held,
         late_written,
         unpaired,
+        runs,
+        result_calls,
+        reset_calls,
+        reset_queries,
     };
     const double frames = std::max<double>(1.0, double(frames_now - report_frames));
-    std::array<double, 15> per_frame{};
+    std::array<double, 19> per_frame{};
     for (size_t i = 0; i < totals.size(); ++i) {
         per_frame[i] = double(totals[i] - reported[i]) / frames;
     }
@@ -442,6 +504,9 @@ void Occlusion::Resolver::Report() {
                 static_cast<unsigned long long>(foreign),
                 static_cast<unsigned long long>(unmapped), f[7], f[8], f[9], f[10], f[11],
                 double(draws_now - report_draws) / frames, f[12], f[13], f[14]);
+    std::printf("Occlusion work per frame: %.1f batches, %.1f result reads, %.1f pool resets "
+                "(%.1f slots)%s\n",
+                f[15], f[16], f[17], f[18], batch_reads ? " (BB_OCCLUSION_BATCH=1)" : "");
     std::fflush(stdout);
     reported = totals;
     report_frames = frames_now;
