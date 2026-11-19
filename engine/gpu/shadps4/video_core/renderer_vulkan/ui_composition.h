@@ -131,4 +131,37 @@ inline float StageScale(std::array<float, 2> ui) {
     return std::max(1.0f, std::min(ui[0] / 1920.0f, ui[1] / 1080.0f));
 }
 
+// bbport: Widescreen on another screen shape: the stage's rectangle in a w x h image of a UI
+// viewport of `ui` units (the whole image for the 1920x1080 viewport).
+struct Rect {
+    int32_t x0, y0, x1, y1;
+    bool operator==(const Rect&) const = default;
+};
+inline bool StageInset(std::array<float, 2> ui) { return ui[0] != 1920.0f || ui[1] != 1080.0f; }
+inline Rect StageRect(uint32_t w, uint32_t h, std::array<float, 2> ui) {
+    const auto fit = Fit(w, h, ui);
+    const float stage = StageScale(ui), sw = 1920.0f * stage, sh = 1080.0f * stage;
+    Rect r{};
+    r.x0 = std::clamp(int32_t(std::lround(fit.offset[0] + fit.scale[0] * (ui[0] - sw) / 2)), 0, int32_t(w));
+    r.y0 = std::clamp(int32_t(std::lround(fit.offset[1] + fit.scale[1] * (ui[1] - sh) / 2)), 0, int32_t(h));
+    r.x1 = std::clamp(int32_t(std::lround(r.x0 + fit.scale[0] * sw)), r.x0, int32_t(w));
+    r.y1 = std::clamp(int32_t(std::lround(r.y0 + fit.scale[1] * sh)), r.y0, int32_t(h));
+    return r;
+}
+// The loading screen fills the screen: the middle part of the stage that, enlarged evenly,
+// covers the w x h image. Only up to a zoom of 1.125 (16:10 needs 1.111 and loses 5% of the
+// stage on each side); a screen further from 16:9 keeps the whole stage and its black bars.
+inline bool CoverPart(Rect stage, uint32_t w, uint32_t h, Rect& part) {
+    const float sw = float(stage.x1 - stage.x0), sh = float(stage.y1 - stage.y0);
+    if (sw < 1 || sh < 1) return false;
+    const float zoom = std::max(float(w) / sw, float(h) / sh);
+    if (zoom < 1.001f || zoom > 1.125f) return false;
+    const float cx = (stage.x0 + stage.x1) / 2.0f, cy = (stage.y0 + stage.y1) / 2.0f;
+    part = {std::max(stage.x0, int32_t(std::lround(cx - w / zoom / 2))),
+            std::max(stage.y0, int32_t(std::lround(cy - h / zoom / 2))),
+            std::min(stage.x1, int32_t(std::lround(cx + w / zoom / 2))),
+            std::min(stage.y1, int32_t(std::lround(cy + h / zoom / 2)))};
+    return true;
+}
+
 } // namespace Vulkan::UiComposition

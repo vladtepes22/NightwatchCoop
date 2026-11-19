@@ -25,6 +25,7 @@ constexpr float kLoadingTarget = 1.0f / 30.0f;
 using Clock = std::chrono::steady_clock;
 std::uint8_t* g_image = nullptr;
 std::atomic<bool> g_up{false};
+std::atomic<bool> g_requested{false}, g_world{false};
 bool g_asked = false; // the game's load request last frame (Tick, main thread)
 Clock::time_point g_started, g_load_began;
 std::uint64_t g_frames = 0;
@@ -94,6 +95,8 @@ void Install(std::uint8_t* image) {
 }
 
 bool ScreenUp() { return g_up.load(std::memory_order_relaxed); }
+bool Requested() { return g_requested.load(std::memory_order_relaxed); }
+bool WorldShown() { return g_world.load(std::memory_order_relaxed); }
 bool FastPace() { return g_fast_set; } // the main thread's (Tick and the Live FPS step both run on it)
 
 void Tick(std::uint64_t pacer) {
@@ -104,6 +107,8 @@ void Tick(std::uint64_t pacer) {
     const bool world = helper && ((Peek(helper + kWorldShownA, &shown_a) && shown_a) ||
                                   (Peek(helper + kWorldShownB, &shown_b) && shown_b));
     const bool loading = asked && !world;
+    g_requested.store(asked != 0, std::memory_order_relaxed);
+    g_world.store(world, std::memory_order_relaxed);
     // The load request clearing (lamp travel, a death's reload, any area load) cuts the upscaler's
     // history: the first frames after it must not blend with the frames before the load.
     if (BbDlss::LoadArrived(g_asked, asked != 0)) BbSettings::Get().history_cuts.fetch_add(1, std::memory_order_relaxed);

@@ -1918,6 +1918,59 @@ void TemporalUpscaler::OnDraw(u64 vs_hash, VideoCore::ImageId color,
     }
 }
 
+void TemporalUpscaler::FillLoadingScreen() {
+    UiComposition::Rect part{};
+    if (!ui_image || !UiComposition::CoverPart(UiComposition::StageRect(ui_width, ui_height, UiComposition::UiSize()),
+                                               ui_width, ui_height, part)) {
+        return;
+    }
+    if (!fill_image || fill_width != ui_width || fill_height != ui_height || fill_format != ui_format) {
+        scheduler.Finish();
+        fill_image = VideoCore::UniqueImage(instance.GetDevice(), instance.GetAllocator());
+        fill_image.Create(vk::ImageCreateInfo{
+            .imageType = vk::ImageType::e2D,
+            .format = ui_format,
+            .extent = {ui_width, ui_height, 1},
+            .mipLevels = 1, .arrayLayers = 1, .samples = vk::SampleCountFlagBits::e1,
+            .tiling = vk::ImageTiling::eOptimal,
+            .usage = vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst,
+            .initialLayout = vk::ImageLayout::eUndefined,
+        });
+        fill_width = ui_width; fill_height = ui_height; fill_format = ui_format;
+    }
+    scheduler.EndRendering();
+    // The UI image cannot be enlarged onto itself: the middle of the stage to the other image at
+    // the full size, then that back.
+    scheduler.Record([ui = vk::Image(ui_image), fill = vk::Image(fill_image), part, w = s32(ui_width),
+                      h = s32(ui_height)](vk::CommandBuffer cmd) {
+        const vk::ImageSubresourceRange color{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
+        const vk::ImageSubresourceLayers layer{vk::ImageAspectFlagBits::eColor, 0, 0, 1};
+        const auto move = [&](vk::Image image, vk::ImageLayout from, vk::ImageLayout to) {
+            const vk::ImageMemoryBarrier2 b{
+                .srcStageMask = vk::PipelineStageFlagBits2::eAllCommands,
+                .srcAccessMask = vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite,
+                .dstStageMask = vk::PipelineStageFlagBits2::eAllCommands,
+                .dstAccessMask = vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite,
+                .oldLayout = from, .newLayout = to, .image = image, .subresourceRange = color};
+            cmd.pipelineBarrier2({.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &b});
+        };
+        move(ui, vk::ImageLayout::eGeneral, vk::ImageLayout::eTransferSrcOptimal);
+        move(fill, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
+        cmd.blitImage(ui, vk::ImageLayout::eTransferSrcOptimal, fill, vk::ImageLayout::eTransferDstOptimal,
+                      vk::ImageBlit{
+                          .srcSubresource = layer,
+                          .srcOffsets = std::array{vk::Offset3D{part.x0, part.y0, 0}, vk::Offset3D{part.x1, part.y1, 1}},
+                          .dstSubresource = layer,
+                          .dstOffsets = std::array{vk::Offset3D{0, 0, 0}, vk::Offset3D{w, h, 1}}},
+                      vk::Filter::eLinear);
+        move(ui, vk::ImageLayout::eTransferSrcOptimal, vk::ImageLayout::eTransferDstOptimal);
+        move(fill, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eTransferSrcOptimal);
+        cmd.copyImage(fill, vk::ImageLayout::eTransferSrcOptimal, ui, vk::ImageLayout::eTransferDstOptimal,
+                      vk::ImageCopy{.srcSubresource = layer, .dstSubresource = layer, .extent = {u32(w), u32(h), 1}});
+        move(ui, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eGeneral);
+    });
+}
+
 bool TemporalUpscaler::LdrFrame(VideoCore::ImageId id) const {
     if (!id) {
         return false;
@@ -1948,6 +2001,17 @@ void TemporalUpscaler::OnDisplayPass(VAddr address, VideoCore::ImageId frame) {
     }
     if (HdrChannel::Native16() && !ui_phase && LdrFrame(ldr_target)) {
         RunUiOnly(ldr_target, camera_motion.Depth(), true); // the scene's own target: the world
+    }
+    // bbport: Widescreen on another screen shape, no world shown (title, the menus before a save,
+    // loading): a frame with no UI draw at all (a few at every change of screen, and the first
+    // second) showed the game's own buffer, grey beside the stage. The stage over black for these
+    // too, as RunUiOnly gives the frames with a UI draw. Then the loading screen fills the screen.
+    if (UiComposed() && UiComposition::StageInset(UiComposition::UiSize())) {
+        if (!ui_phase && !ldr_target && !BbEngine::Loading::WorldShown() && !HdrChannel::Native16() &&
+            LdrFrame(frame)) {
+            RunUiOnly(frame, {}, false);
+        }
+        if (ui_phase && BbEngine::Loading::Requested()) FillLoadingScreen();
     }
     // The final pass tells the HUD by its luminance against this snapshot; over highlights the
     // HUD blends with the scene, as in RenoDX.
@@ -2181,15 +2245,10 @@ void TemporalUpscaler::RunUiOnly(VideoCore::ImageId color_id, VideoCore::ImageId
     // the stage is copied, over a cleared image. UI the game draws past the stage still shows.
     // A frame of the world is copied whole: with no upscaler every frame comes here, and the
     // world's sides were cut to black bars (widescreen worked only with an upscaler on).
-    s32 x0 = 0, y0 = 0, x1 = s32(ui_width), y1 = s32(ui_height);
-    if (const auto ui = UiComposition::UiSize(); !world && (ui[0] != 1920.0f || ui[1] != 1080.0f)) {
-        const auto fit = UiComposition::Fit(ui_width, ui_height, ui);
-        const float stage = UiComposition::StageScale(ui), w = 1920.0f * stage, h = 1080.0f * stage;
-        x0 = std::clamp(s32(std::lround(fit.offset[0] + fit.scale[0] * (ui[0] - w) / 2)), 0, s32(ui_width));
-        y0 = std::clamp(s32(std::lround(fit.offset[1] + fit.scale[1] * (ui[1] - h) / 2)), 0, s32(ui_height));
-        x1 = std::clamp(s32(std::lround(x0 + fit.scale[0] * w)), x0, s32(ui_width));
-        y1 = std::clamp(s32(std::lround(y0 + fit.scale[1] * h)), y0, s32(ui_height));
-    }
+    const auto ui = UiComposition::UiSize();
+    const auto [x0, y0, x1, y1] = !world && UiComposition::StageInset(ui)
+        ? UiComposition::StageRect(ui_width, ui_height, ui)
+        : UiComposition::Rect{0, 0, s32(ui_width), s32(ui_height)};
     const bool bars = x0 > 0 || y0 > 0 || x1 < s32(ui_width) || y1 < s32(ui_height);
     const auto from = [&](s32 v, u32 dst, u32 src) { return s32(std::lround(double(v) * src / dst)); };
     const vk::ImageBlit region{
