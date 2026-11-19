@@ -66,15 +66,10 @@ int main() {
     assert(!SceneHasUiViewportSize(2560, 1440, ParseUiSize(nullptr)));
     assert(!SceneHasUiViewportSize(2296, 960, ParseUiSize("3360x1440")));
     assert(!SceneHasUiViewportSize(3440, 1440, ParseUiSize("3360x1440")));
-    // Widescreen at 16:10: the stage between two bars; the loading screen's middle covers the image.
+    // Widescreen at 16:10: the stage between two bars.
     const auto ten = ParseUiSize("1920x1200");
     assert(StageInset(ten) && !StageInset({1920.0f, 1080.0f}));
     assert((StageRect(1920, 1200, ten) == Rect{0, 60, 1920, 1140}));
     assert((StageRect(2560, 1600, ten) == Rect{0, 80, 2560, 1520}));
-    Rect part{};
-    assert(CoverPart(StageRect(1920, 1200, ten), 1920, 1200, part) && (part == Rect{96, 60, 1824, 1140}));
-    assert(!CoverPart(Rect{0, 0, 1920, 1080}, 1920, 1080, part));  // 16:9: nothing to fill
-    assert(!CoverPart(Rect{240, 0, 1680, 1080}, 1920, 1080, part)); // 4:3 stage: too much lost
-    assert(!CoverPart(Rect{440, 0, 3000, 1440}, 3440, 1440, part)); // ultrawide: the bars stay
     std::puts("UI composition: PASS (menu without camera, HUD, FSR off, viewport scaling)");
 }

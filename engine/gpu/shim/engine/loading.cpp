@@ -4,6 +4,7 @@
 #include "bbport_platform.h"
 #include "bbport_settings.h"
 #include "dlss_rules.h"
+#include "party/party_seam.h"
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -107,7 +108,7 @@ void Tick(std::uint64_t pacer) {
     const bool world = helper && ((Peek(helper + kWorldShownA, &shown_a) && shown_a) ||
                                   (Peek(helper + kWorldShownB, &shown_b) && shown_b));
     const bool loading = asked && !world;
-    g_requested.store(asked != 0 && !CutscenePlaying(), std::memory_order_relaxed);
+    g_requested.store((asked != 0 && !CutscenePlaying()) || coop::seam::ScreenHeld(), std::memory_order_relaxed);
     g_world.store(world, std::memory_order_relaxed);
     // The load request clearing (lamp travel, a death's reload, any area load) cuts the upscaler's
     // history: the first frames after it must not blend with the frames before the load.

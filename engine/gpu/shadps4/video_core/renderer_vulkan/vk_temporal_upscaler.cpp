@@ -1918,31 +1918,29 @@ void TemporalUpscaler::OnDraw(u64 vs_hash, VideoCore::ImageId color,
     }
 }
 
-void TemporalUpscaler::FillLoadingScreen() {
-    UiComposition::Rect part{};
-    if (!ui_image || !UiComposition::CoverPart(UiComposition::StageRect(ui_width, ui_height, UiComposition::UiSize()),
-                                               ui_width, ui_height, part)) {
-        return;
-    }
-    if (!fill_image || fill_width != ui_width || fill_height != ui_height || fill_format != ui_format) {
+void TemporalUpscaler::BlackBars() {
+    if (!ui_image) return;
+    const auto stage = UiComposition::StageRect(ui_width, ui_height, UiComposition::UiSize());
+    const s32 w = s32(ui_width), h = s32(ui_height);
+    const bool create = !black_image || black_format != ui_format;
+    if (create) {
         scheduler.Finish();
-        fill_image = VideoCore::UniqueImage(instance.GetDevice(), instance.GetAllocator());
-        fill_image.Create(vk::ImageCreateInfo{
+        black_image = VideoCore::UniqueImage(instance.GetDevice(), instance.GetAllocator());
+        black_image.Create(vk::ImageCreateInfo{
             .imageType = vk::ImageType::e2D,
             .format = ui_format,
-            .extent = {ui_width, ui_height, 1},
+            .extent = {8, 8, 1},
             .mipLevels = 1, .arrayLayers = 1, .samples = vk::SampleCountFlagBits::e1,
             .tiling = vk::ImageTiling::eOptimal,
             .usage = vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst,
             .initialLayout = vk::ImageLayout::eUndefined,
         });
-        fill_width = ui_width; fill_height = ui_height; fill_format = ui_format;
+        black_format = ui_format;
     }
     scheduler.EndRendering();
-    // The UI image cannot be enlarged onto itself: the middle of the stage to the other image at
-    // the full size, then that back.
-    scheduler.Record([ui = vk::Image(ui_image), fill = vk::Image(fill_image), part, w = s32(ui_width),
-                      h = s32(ui_height)](vk::CommandBuffer cmd) {
+    // The four bands around the stage (two of them empty on any one screen shape).
+    scheduler.Record([ui = vk::Image(ui_image), black = vk::Image(black_image), stage, w, h,
+                      create](vk::CommandBuffer cmd) {
         const vk::ImageSubresourceRange color{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
         const vk::ImageSubresourceLayers layer{vk::ImageAspectFlagBits::eColor, 0, 0, 1};
         const auto move = [&](vk::Image image, vk::ImageLayout from, vk::ImageLayout to) {
@@ -1954,19 +1952,26 @@ void TemporalUpscaler::FillLoadingScreen() {
                 .oldLayout = from, .newLayout = to, .image = image, .subresourceRange = color};
             cmd.pipelineBarrier2({.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &b});
         };
-        move(ui, vk::ImageLayout::eGeneral, vk::ImageLayout::eTransferSrcOptimal);
-        move(fill, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
-        cmd.blitImage(ui, vk::ImageLayout::eTransferSrcOptimal, fill, vk::ImageLayout::eTransferDstOptimal,
-                      vk::ImageBlit{
-                          .srcSubresource = layer,
-                          .srcOffsets = std::array{vk::Offset3D{part.x0, part.y0, 0}, vk::Offset3D{part.x1, part.y1, 1}},
-                          .dstSubresource = layer,
-                          .dstOffsets = std::array{vk::Offset3D{0, 0, 0}, vk::Offset3D{w, h, 1}}},
-                      vk::Filter::eLinear);
-        move(ui, vk::ImageLayout::eTransferSrcOptimal, vk::ImageLayout::eTransferDstOptimal);
-        move(fill, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eTransferSrcOptimal);
-        cmd.copyImage(fill, vk::ImageLayout::eTransferSrcOptimal, ui, vk::ImageLayout::eTransferDstOptimal,
-                      vk::ImageCopy{.srcSubresource = layer, .dstSubresource = layer, .extent = {u32(w), u32(h), 1}});
+        if (create) {
+            move(black, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
+            cmd.clearColorImage(black, vk::ImageLayout::eTransferDstOptimal,
+                                vk::ClearColorValue{std::array{0.0f, 0.0f, 0.0f, 1.0f}}, color);
+            move(black, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eTransferSrcOptimal);
+        }
+        move(ui, vk::ImageLayout::eGeneral, vk::ImageLayout::eTransferDstOptimal);
+        const std::array<std::array<s32, 4>, 4> bands{{{0, 0, w, stage.y0}, {0, stage.y1, w, h},
+                                                       {0, stage.y0, stage.x0, stage.y1},
+                                                       {stage.x1, stage.y0, w, stage.y1}}};
+        for (const auto& b : bands) {
+            if (b[2] <= b[0] || b[3] <= b[1]) continue;
+            cmd.blitImage(black, vk::ImageLayout::eTransferSrcOptimal, ui, vk::ImageLayout::eTransferDstOptimal,
+                          vk::ImageBlit{
+                              .srcSubresource = layer,
+                              .srcOffsets = std::array{vk::Offset3D{0, 0, 0}, vk::Offset3D{8, 8, 1}},
+                              .dstSubresource = layer,
+                              .dstOffsets = std::array{vk::Offset3D{b[0], b[1], 0}, vk::Offset3D{b[2], b[3], 1}}},
+                          vk::Filter::eNearest);
+        }
         move(ui, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eGeneral);
     });
 }
@@ -2005,7 +2010,8 @@ void TemporalUpscaler::OnDisplayPass(VAddr address, VideoCore::ImageId frame) {
     // bbport: Widescreen on another screen shape, no world shown (title, the menus before a save,
     // loading): a frame with no UI draw at all (a few at every change of screen, and the first
     // second) showed the game's own buffer, grey beside the stage. The stage over black for these
-    // too, as RunUiOnly gives the frames with a UI draw. Then the loading screen fills the screen.
+    // too, as RunUiOnly gives the frames with a UI draw. And black beside the loading screen while
+    // the game's load request is set: its held end drew the world there.
     if (const auto ui = UiComposition::UiSize(); UiComposed() && UiComposition::StageInset(ui) &&
         UiComposition::StageRect(target_width, target_height, ui) !=
             UiComposition::Rect{0, 0, s32(target_width), s32(target_height)}) {
@@ -2013,7 +2019,7 @@ void TemporalUpscaler::OnDisplayPass(VAddr address, VideoCore::ImageId frame) {
             LdrFrame(frame)) {
             RunUiOnly(frame, {}, false);
         }
-        if (ui_phase && BbEngine::Loading::Requested()) FillLoadingScreen();
+        if (ui_phase && BbEngine::Loading::Requested()) BlackBars();
     }
     // The final pass tells the HUD by its luminance against this snapshot; over highlights the
     // HUD blends with the scene, as in RenoDX.

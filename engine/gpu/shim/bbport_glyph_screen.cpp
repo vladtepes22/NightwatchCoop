@@ -460,6 +460,9 @@ bool BrowserOn() {
 // The altar's "Search by Chalice Glyph": with community glyphs, the chalice picker opens as the glyph screen.
 BB_COOP_SYSV u64 GlyphItem(u64 out, u64 ctx) {
     if (!BrowserOn()) return g_glyph_item_original(out, ctx);
+    // Single player: the row is the game's greyed one (GlyphRowGrey) and answers as the game's does;
+    // the list opened here before, and a pick ended in a search nothing answers.
+    if (!bbnet::settings().party) return g_glyph_item_original(out, ctx);
     {
         std::lock_guard<std::mutex> lk(g_mu);
         LoadGlyphs();

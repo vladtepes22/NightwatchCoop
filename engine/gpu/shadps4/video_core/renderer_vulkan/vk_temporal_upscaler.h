@@ -188,7 +188,7 @@ private:
     void RunScaled();
     /// world: this frame drew the 3D world into `color` (its whole image is copied).
     void RunUiOnly(VideoCore::ImageId color, VideoCore::ImageId depth, bool world);
-    void FillLoadingScreen();
+    void BlackBars();
     void EnsureUiResources(u32 width, u32 height, vk::Format color, vk::Format depth);
     void PrepareUiDepth(VideoCore::ImageId depth);
     /// Render size below the scaled-preset output size (the resolution patch is on).
@@ -319,9 +319,8 @@ private:
     std::atomic<bool> snapshot_ready{false};
     VideoCore::UniqueImage ui_image;
     VideoCore::UniqueImage ui_depth_image;
-    VideoCore::UniqueImage fill_image; ///< FillLoadingScreen's enlarged copy
-    u32 fill_width = 0, fill_height = 0;
-    vk::Format fill_format = vk::Format::eUndefined;
+    VideoCore::UniqueImage black_image; ///< BlackBars' source: a few black pixels
+    vk::Format black_format = vk::Format::eUndefined;
     vk::UniqueImageView ui_view;
     vk::UniqueImageView ui_depth_view;
     bool depth_blit = false;

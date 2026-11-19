@@ -6,9 +6,9 @@ namespace BbEngine::Loading {
 void Install(std::uint8_t* image);
 void Tick(std::uint64_t pacer);
 bool ScreenUp();
-/// The game's load request with no cutscene playing (set through the whole loading screen, its
-/// held end included) and whether the game shows its 3D world: neither on the title screen,
-/// the world alone in play.
+/// The loading screen is up: the game's load request with no cutscene playing, or the party
+/// seam holding the screen after the request cleared. And whether the game shows its 3D
+/// world: neither on the title screen, the world alone in play.
 bool Requested();
 bool WorldShown();
 /// Fast loading holds this loading screen at 30 FPS (BB_FAST_LOADING=1, no cutscene): the Live FPS
