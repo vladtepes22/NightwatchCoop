@@ -37,6 +37,8 @@ public:
     List NewConditions(const std::vector<Ref>& conditions);
     List NewCommands(const std::vector<Command>& commands, const std::vector<Ref>& then = {});
     void SetStateList(Ref state, int which, List list);
+    Ref Target(Ref condition) const;
+    void SetTarget(Ref condition, Ref target);
 
 private:
     struct Chunk {

@@ -75,6 +75,7 @@ struct State {
     std::uint64_t serial = 0;
     bool xbox = false;
     bool typing = false;  // a text box is open: its keys (Enter, Esc, Backspace) are the prompts' keys
+    bool pad_menu = false;  // Xbox icons in a menu: the controller's default buttons (menus keep them, runtime_pad.c)
     bool operator==(const State&) const = default;
 };
 
@@ -106,6 +107,8 @@ State Current() {
         s.typing = BbInput::TextEntryOpen();
     } else {
         s.xbox = XboxIcons();
+        s.serial = s.xbox ? runtime_pad_remap_serial() : 0;  // Xbox icons draw the buttons bound now
+        s.pad_menu = s.xbox && MenuPointer::Navigating();
     }
     return s;
 }
@@ -167,7 +170,7 @@ Keycap::Spec Caps(std::initializer_list<int> actions) {
     return spec;
 }
 
-std::optional<Keycap::Spec> PadSpec(int icon) {
+std::optional<Keycap::Spec> PadSpec(int icon, bool menu) {
     using namespace Keycap;
     static constexpr struct {
         Icon icon;
@@ -176,14 +179,15 @@ std::optional<Keycap::Spec> PadSpec(int icon) {
         {kCross, kPadCross}, {kCircle, kPadCircle}, {kSquare, 0x8000}, {kTriangle, 0x1000},
         {kL1, 0x400},        {kR1, 0x800},          {kL2, 0x100},      {kR2, 0x200},
         {kL3, 0x2},          {kR3, 0x4},            {kOptions, 0x8},   {kTouchLeft, 0x100000},
-        {kTouchRight, 0x100000},
+        {kTouchRight, 0x100000}, {kDpadUp, 0x10},   {kDpadDown, 0x40},
     };
     const auto it = std::find_if(std::begin(kButtons), std::end(kButtons), [&](const auto& b) { return b.icon == icon; });
     if (it == std::end(kButtons)) {
         return std::nullopt;
     }
     int button;
-    switch (runtime_pad_button(it->bit, icon == kTouchRight)) {
+    switch (menu ? runtime_pad_default_button(it->bit, icon == kTouchRight)
+                 : runtime_pad_button(it->bit, icon == kTouchRight)) {
     case SDL_GAMEPAD_BUTTON_SOUTH: button = PadA; break;
     case SDL_GAMEPAD_BUTTON_EAST: button = PadB; break;
     case SDL_GAMEPAD_BUTTON_WEST: button = PadX; break;
@@ -215,7 +219,7 @@ std::optional<Keycap::Spec> PadSpec(int icon) {
 std::optional<Keycap::Spec> IconSpec(int icon, const State& s) {
     using Keycap::Spec;
     if (!s.keys) {
-        return s.xbox ? PadSpec(icon) : std::nullopt;
+        return s.xbox ? PadSpec(icon, s.pad_menu) : std::nullopt;
     }
     if (s.typing) {
         // a text box takes the keyboard: Enter confirms, Esc cancels, Backspace deletes, whatever is bound
@@ -420,6 +424,8 @@ bool Draw(int texture, std::uint8_t* data, std::size_t size) {
     }
     return drawn;
 }
+
+bool XboxButtons() { return XboxIcons(); }
 
 bool Changed() {
     const State now = Current();

@@ -46,4 +46,10 @@ void KeyboardKeyTyped();
 /// The glyph box's preset: a glyph picked on the glyph screen (once, within a few seconds of the pick), else nullptr.
 const char* PickedGlyph(std::uint32_t max_length);
 
+/// Nightwatch: the Settings screen (bbport_settings_screen.h) is this screen's book in a second mode. Ready: every
+/// hook is in. OpenSettings: the pause menu's System item (out, its argument) opens the book as the Settings screen,
+/// as the altar's Chalice Ritual handler would; returns what the handler returns.
+bool SettingsReady();
+std::uint64_t OpenSettings(std::uint64_t out, std::uint64_t arg);
+
 } // namespace BbGlyphScreen

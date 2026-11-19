@@ -1904,6 +1904,9 @@ bool IsButton(int field) {
     return field >= 0 && std::size_t(field) < fields.size() && fields[std::size_t(field)].kind == Kind::Button;
 }
 
+bool Runs(int field) { return IsButton(field) && fields[std::size_t(field)].run != nullptr; }
+bool Confirmed(int field) { return Runs(field) && fields[std::size_t(field)].confirm; }
+
 void Press(int field, std::int64_t now_ms) {
     std::scoped_lock lock{StateMutex()};
     if (!IsButton(field)) return;

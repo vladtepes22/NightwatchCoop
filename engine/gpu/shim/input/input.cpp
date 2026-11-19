@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
@@ -49,6 +50,16 @@ constexpr float kPreviewLeft = 1028, kPreviewRight = 1810, kPreviewTop = 117, kP
 constexpr std::uint32_t kLeftButton = SDL_BUTTON_LMASK, kRightButton = SDL_BUTTON_RMASK;
 
 constexpr std::uint32_t kWheelUpInput = 1u << 5, kWheelDownInput = 1u << 6;
+
+// Nightwatch: our item-list screens' input (BbInput::HoldScreenInput): on until this steady-clock time (ms).
+std::int64_t NowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+std::atomic<std::int64_t> g_screen_until{0};
+std::atomic<bool> g_screen_own_rows{false}, g_screen_all{false};
+std::atomic<int> g_wheel_lines{0};
+bool ScreenOn() { return NowMs() < g_screen_until.load(std::memory_order_relaxed); }
 
 const char* ConfigPath() {
     const char* path = std::getenv("BB_CONFIG");
@@ -213,6 +224,11 @@ void AddKeyboardAndMouse(PadState& pad, const bool* keys, int nkeys, const Mouse
             else if (mouse.pressed & kRightButton) pad.buttons |= menu_back_button();
             if (preview && mouse.wheel != 0) {
                 pad.buttons |= mouse.wheel > 0 ? kR1 : kL1;
+            } else if (ScreenOn()) {  // our screens: the wheel scrolls the view only (TakeWheelLines)
+                if (mouse.wheel != 0) {
+                    const int lines = std::max(1, int(std::lround(std::fabs(mouse.wheel))));
+                    g_wheel_lines.fetch_add(mouse.wheel > 0 ? -lines : lines, std::memory_order_relaxed);
+                }
             } else if (navigating || keys_move_hunter) {
                 if (mouse.wheel > 0) pad.buttons |= kUp;
                 if (mouse.wheel < 0) pad.buttons |= kDown;
@@ -421,6 +437,17 @@ PadState LastPad() {
     std::scoped_lock lock(g_pad_lock);
     return g_last_pad;
 }
+
+void HoldScreenInput(const ScreenInput& how) {
+    g_screen_own_rows.store(how.own_rows, std::memory_order_relaxed);
+    g_screen_all.store(how.all, std::memory_order_relaxed);
+    g_screen_until.store(NowMs() + 250, std::memory_order_relaxed);
+}
+
+int TakeWheelLines() {
+    const int lines = g_wheel_lines.exchange(0, std::memory_order_relaxed);
+    return ScreenOn() ? lines : 0;
+}
 }
 
 extern "C" int bbgpu_menu_buttons(std::uint32_t* confirm, std::uint32_t* back) {
@@ -428,6 +455,29 @@ extern "C" int bbgpu_menu_buttons(std::uint32_t* confirm, std::uint32_t* back) {
     *confirm = menu_confirm_button();
     *back = menu_back_button();
     return MenuPointer::Navigating() ? 1 : 0;
+}
+
+// Nightwatch: our screens (BbInput::HoldScreenInput): the left stick tilted past half way is the d-pad (Up / Down;
+// Left / Right too with own_rows), the larger tilt only; let go to under a third it is off. The stick rests.
+static void StickAsDpad(PadState& pad, bool sideways) {
+    using namespace PadBits;
+    static std::uint32_t on = 0;
+    const int x = int(pad.lx) - kStickRest, y = int(pad.ly) - kStickRest;
+    const int ax = std::abs(x), ay = std::abs(y);
+    constexpr int kOn = 64, kOff = 40;
+    std::uint32_t want = 0;
+    if (ay >= ax && ay > kOn) want = y < 0 ? kUp : kDown;
+    else if (sideways && ax > ay && ax > kOn) want = x < 0 ? kLeft : kRight;
+    else if (on && ((on & (kUp | kDown)) ? ay : ax) > kOff) want = on;  // still tilted: held
+    if (want && want != on) {
+        static int told = 0;
+        if (told++ < 4) host_log("Menu screen: the left stick moves the rows (%s)\n",
+                                 want == kUp ? "up" : want == kDown ? "down" : want == kLeft ? "left" : "right");
+    }
+    on = want;
+    pad.buttons |= on;
+    pad.ly = kStickRest;
+    if (sideways) pad.lx = kStickRest;
 }
 
 extern "C" int bbgpu_pc_input(BbPcPad* d, const bool* keys, int nkeys, int gamepad_present) {
@@ -465,7 +515,7 @@ extern "C" int bbgpu_pc_input(BbPcPad* d, const bool* keys, int nkeys, int gamep
     // Nightwatch: a button still held when a text box closes (Cross on Done, Enter) is not seen by the game until it
     // is let go: the game would take it as a new press (the Contract screen opening its name box again).
     static std::uint32_t held_from_text = 0;
-    if (!g_focused || g_text_entry || host_bind_capture_blocking()) {
+    if (!g_focused || g_text_entry || host_bind_capture_blocking() || runtime_pad_remap_blocking()) {
         if (g_text_entry) held_from_text = ~0u;
         pad = PadState{};
         g_wants_relative = false;
@@ -474,9 +524,23 @@ extern "C" int bbgpu_pc_input(BbPcPad* d, const bool* keys, int nkeys, int gamep
         held_from_text &= pad.buttons;
         pad.buttons &= ~held_from_text;
     }
+    const bool screen = ScreenOn(), own_rows = screen && g_screen_own_rows.load(std::memory_order_relaxed);
+    if (screen) StickAsDpad(pad, own_rows);
     {
         std::scoped_lock lock(g_pad_lock);
         g_last_pad = pad;
+    }
+    if (screen) {  // our screens (BbInput::HoldScreenInput): L1 / R1 switch the book's tabs
+        using namespace PadBits;
+        const bool l1 = pad.buttons & kL1, r1 = pad.buttons & kR1;
+        pad.buttons &= ~(kL1 | kR1);
+        if (own_rows) pad.buttons &= ~(kLeft | kRight);
+        if (l1) pad.buttons |= kLeft;
+        if (r1) pad.buttons |= kRight;
+        if (g_screen_all.load(std::memory_order_relaxed)) {
+            pad.buttons = 0;
+            pad.lx = pad.ly = pad.rx = pad.ry = kStickRest;
+        }
     }
     d->buttons = pad.buttons;
     d->lx = pad.lx;

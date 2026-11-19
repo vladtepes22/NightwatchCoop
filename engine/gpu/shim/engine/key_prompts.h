@@ -14,4 +14,7 @@ bool Draw(int texture, std::uint8_t* data, std::size_t size);
 
 bool Changed();
 
+// The controller's buttons are named as Xbox ones (the Controller Icons setting, or the controller in use).
+bool XboxButtons();
+
 }

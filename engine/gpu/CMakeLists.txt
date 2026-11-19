@@ -593,16 +593,21 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/../tools/engine/pc_option_messages.tsv)
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/../tools/engine/pc_option_messages.tsv BB_ENGINE_MESSAGES)
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/include/pc_option_messages.inc "R\"tsv(${BB_ENGINE_MESSAGES})tsv\"\n")
+# the Settings rows' controller button icons draw the Xbox ones with the button prompts' keycaps (shim/engine)
 set(BB_MENU_ASSETS ../tools/engine/menu_assets.cpp ../tools/engine/esd.cpp ../tools/engine/rebirth_script.cpp
-    ../tools/engine/sha256.cpp)
+    ../tools/engine/sha256.cpp ../tools/engine/bc7_decode.cpp shim/engine/keycap_art.cpp)
 add_executable(bb-engine-assets ../tools/engine/menu_assets_main.cpp ${BB_MENU_ASSETS})
-target_include_directories(bb-engine-assets PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/include)
+target_include_directories(bb-engine-assets PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/include shim third_party/imgui)
+target_compile_definitions(bb-engine-assets PRIVATE
+    BB_KEYCAP_FONT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui/misc/fonts/Roboto-Medium.ttf")
 target_link_libraries(bb-engine-assets PRIVATE ZLIB::ZLIB)
 if (WIN32)
     target_link_libraries(bb-engine-assets PRIVATE shell32)
 endif()
 add_executable(menu-assets-test EXCLUDE_FROM_ALL ../tests/test_menu_assets.cpp ${BB_MENU_ASSETS})
-target_include_directories(menu-assets-test PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/include)
+target_include_directories(menu-assets-test PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/include shim third_party/imgui)
+target_compile_definitions(menu-assets-test PRIVATE
+    BB_KEYCAP_FONT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui/misc/fonts/Roboto-Medium.ttf")
 target_compile_options(menu-assets-test PRIVATE -UNDEBUG -Wall -Wextra)
 target_link_libraries(menu-assets-test PRIVATE ZLIB::ZLIB)
 add_executable(option-lighting-test EXCLUDE_FROM_ALL ../tests/test_option_lighting.cpp shim/bbport_settings.cpp

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "change_appearance.h"
 #include "engine_state.h"
+#include "bbport_settings.h"
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
@@ -26,6 +27,16 @@ constexpr std::size_t kWindowName = 0x4998486;
 constexpr std::uint64_t kWindowType = 6;
 constexpr std::size_t kController = 0x60, kControllerUpdate = 0x18;
 
+// The mirror: the prepared Dream layout's part "ダミーCHR_再キャラメイク" (the game's unused stand-in, made an
+// enemy part), entity 2100202, in the Hunter's Dream (block 0x15000000). The game's own calls turn it off and on:
+// the chr by entity id (0x13c97a0, as party_balance's ChrByEntity) and the chr's disable (0x18c6390 (chr, on): it
+// compares chr +0x18 -> +0x20 bit 0, the disabled bit, first).
+constexpr std::uint32_t kDreamBlock = 0x15000000;
+constexpr int kMirrorEntity = 2100202;
+constexpr std::size_t kChrByEntity = 0x13c97a0, kChrDisable = 0x18c6390;
+constexpr std::uint8_t kFrameEntry[] = {0x55, 0x48, 0x89, 0xe5};
+constexpr unsigned kMirrorEvery = 15;  // frames between looks while nothing changes
+
 std::uint64_t g_image = 0;
 int g_watch = -1;
 bool g_editor = false;
@@ -35,6 +46,10 @@ std::atomic<bool> g_preview{false};
 std::uint64_t g_descriptor = 0;
 std::uint8_t g_update_flag = 1;
 unsigned g_opened = 0;
+bool g_mirror_code = false;   // both calls are 1.09's
+bool g_mirror_off = false;    // this code turned the mirror off (only then does it turn it on again)
+bool g_mirror_want = true;
+unsigned g_mirror_ticks = 0;
 const bool g_hold_title = [] {
     const char* v = std::getenv("BB_HOLD_TITLE_STEP");
     return v && std::strcmp(v, "1") == 0;
@@ -92,7 +107,38 @@ bool Watch(std::uint8_t* image) {
     return g_watch >= 0;
 }
 
-void EnableEditor() { g_editor = true; }
+void EnableEditor() {
+    g_editor = true;
+    g_mirror_code = !std::memcmp(reinterpret_cast<const void*>(Image(kChrByEntity)), kFrameEntry, sizeof kFrameEntry) &&
+                    !std::memcmp(reinterpret_cast<const void*>(Image(kChrDisable)), kFrameEntry, sizeof kFrameEntry);
+    if (!g_mirror_code) host_log("change appearance: the mirror's switch is off (the chr calls are not 1.09's)");
+}
+
+void MirrorTick() {
+    if (!g_editor || !g_mirror_code) return;
+    const bool want = BbSettings::Get().change_appearance;
+    const bool changed = want != g_mirror_want;
+    g_mirror_want = want;
+    if (!changed && g_mirror_ticks++ % kMirrorEvery) return;
+    std::uint32_t block = 0;
+    if (!world_player_block(&block) || block != kDreamBlock) {
+        g_mirror_off = false;  // a load of the Dream makes the mirror anew
+        return;
+    }
+    const std::uint64_t chr = Call(Image(kChrByEntity), std::uint64_t(kMirrorEntity), std::uint64_t(kMirrorEntity), 0);
+    if (!chr) return;
+    std::uint8_t bits = 0;
+    const bool off = host_read_safe(reinterpret_cast<const void*>(Follow(chr + 0x18) + 0x20), &bits, 1) && (bits & 1);
+    if (!want && !off) {
+        Call(Image(kChrDisable), chr, 1);
+        g_mirror_off = true;
+        host_log("change appearance: the Dream's mirror turned off (Hunter's Dream Mirror off)");
+    } else if (want && off && g_mirror_off) {
+        Call(Image(kChrDisable), chr, 0);
+        g_mirror_off = false;
+        host_log("change appearance: the Dream's mirror turned on again");
+    }
+}
 
 bool PreviewShown() { return g_preview.load(std::memory_order_relaxed); }
 
@@ -105,7 +151,7 @@ void Tick() {
                 if (g_hold_title) menu_step_hold(step);
                 g_title_step = step;
             }
-        } else if (g_editor && !g_step && !g_descriptor && OpenWindow()) {
+        } else if (g_editor && BbSettings::Get().change_appearance && !g_step && !g_descriptor && OpenWindow()) {
             menu_step_hold(step);
             g_step = step;
             if (g_opened++ < 4) host_log("change appearance: the editor's window opened (ChrMake_BG, the hunter's preview)");

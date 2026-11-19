@@ -85,6 +85,17 @@ void runtime_audio_set_mod_level(float (*)(void)) {}
 __attribute__((weak)) int runtime_pad_type(void) { return 0; }
 __attribute__((weak)) int runtime_pad_button(uint32_t, int) { return 0; }
 __attribute__((weak)) void runtime_blocked_report(void) {}
+// Weak: the Settings screen's Controller Buttons (src/runtime_pad.c); bb-shader-lab defines them itself.
+__attribute__((weak)) int runtime_pad_remap_rows(void) { return 0; }
+__attribute__((weak)) int runtime_pad_default_button(uint32_t, int) { return -1; }
+__attribute__((weak)) int runtime_pad_remap_buttons(int, int*, int) { return 0; }
+__attribute__((weak)) void runtime_pad_remap_describe(int, char* out, size_t size) { if (out && size) out[0] = 0; }
+__attribute__((weak)) void runtime_pad_remap_capture(int) {}
+__attribute__((weak)) int runtime_pad_remap_capturing(void) { return -1; }
+__attribute__((weak)) int runtime_pad_remap_blocking(void) { return 0; }
+__attribute__((weak)) void runtime_pad_remap_defaults(void) {}
+__attribute__((weak)) uint64_t runtime_pad_remap_serial(void) { return 0; }
+__attribute__((weak)) int runtime_pad_remap_ini(int, char*, size_t, char*, size_t) { return 0; }
 [[noreturn]] __attribute__((weak)) void runtime_thread_exit(void*) { std::abort(); }
 void runtime_relaunch(int) { std::abort(); }
 int runtime_savedata_mount_count(void) { return 0; }

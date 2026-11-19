@@ -6,7 +6,7 @@
 
 namespace {
 constexpr const char* kGameScript = "e56163a1bb8f46ae59368160e522e11f970e2268f6d356b823e4d72a7c969ff1";
-constexpr const char* kOurScript = "00d4e0d1bce14f112eed356c29f11c6af2f327b7f8d66fe51237cfd0d3cb92ac";
+constexpr const char* kOurScript = "f155f1d1a07f3a721d755d6e7af4a47144e14464c4b8f61d6d3889fcacb10a53";
 constexpr std::int64_t kFillList = 2147483640, kTalk = 2147483641;
 constexpr std::int64_t kListEnd = 3;
 constexpr std::int64_t kChoice = 1, kEnd = 6;
@@ -34,7 +34,24 @@ bool rebirth_script(std::vector<std::uint8_t>& bytes, std::string* why) {
     if (list_end == esd::kNone || choice == esd::kNone || end == esd::kNone) return fail("the altar's menu states are missing");
     using namespace rebirth;
 
-    s.SetStateList(list_end, 1, s.NewCommands({Cmd(19, {3, kTextOption, -1})}, s.Commands(s.StateList(list_end, 1))));
+    // The altar's list (group kFillList): 4 picks 2 (two rows) or 3 (one row) by the game's own flags, 3 adds its row
+    // and goes to 5. Rebirth's row comes before 3's through a gate: on kOffered, 7 adds it; either way then 3.
+    enum { kGate = 6, kAddOurs };
+    const esd::Ref gate = s.NewState(kFillList, kGate), add = s.NewState(kFillList, kAddOurs);
+    int into_list_end = 0;
+    for (std::int64_t id = 0; id < kListEnd + 2; ++id) {
+        const esd::Ref state = s.State(kFillList, id);
+        if (state == esd::kNone || state == list_end) continue;
+        for (const esd::Ref c : s.Conditions(s.StateList(state, 0)))
+            if (s.Target(c) == list_end) {
+                s.SetTarget(c, gate);
+                ++into_list_end;
+            }
+    }
+    if (into_list_end != 2) return fail("the altar's list does not reach its last row as 1.09's does");
+    s.SetStateList(gate, 0, s.NewConditions({s.NewCondition(add, Flag(kOffered, 1)), s.NewCondition(list_end, esd::True())}));
+    s.SetStateList(add, 1, s.NewCommands({Cmd(19, {3, kTextOption, -1})}));
+    s.SetStateList(add, 0, s.NewConditions({s.NewCondition(list_end, esd::True())}));
 
     enum { kReset = 7, kFailed, kLevelUp, kAcceptUndo, kUndo };
     esd::Ref st[kUndo + 1]{};
@@ -71,7 +88,10 @@ bool rebirth_script(std::vector<std::uint8_t>& bytes, std::string* why) {
 
     std::vector<std::uint8_t> out = s.Write();
     if (!esd::Script::Read(out, why)) return false;
-    if (sha256_hex(out.data(), out.size()) != kOurScript) return fail("the edited script is not the known result");
+    if (const std::string got = sha256_hex(out.data(), out.size()); got != kOurScript) {
+        if (why) *why = "the edited script is not the known result (" + got + ")";
+        return false;
+    }
     bytes = std::move(out);
     return true;
 }

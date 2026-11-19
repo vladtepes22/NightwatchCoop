@@ -33,6 +33,9 @@ void SetValueText(u64 wrapper, const char16_t* text);
 void SetFieldText(u64 root, const char* path, const char16_t* text);
 /// The part at `path` under the wrapper at `root` shown or hidden; whether it was found.
 bool ShowPart(u64 root, const char* path, bool visible);
+/// A sprite part goes to `frame` (1-based) and stops there (as the game's 0x1ad9ab0: the interface's +0x158).
+void GotoFrame(u64 wrapper, int frame);
+bool GotoPartFrame(u64 root, const char* path, int frame);
 
 /// The menu's sounds, as the game's own menus set them (one sound a frame: one of higher priority wins).
 void CursorMoveSound();  ///< the cursor's move

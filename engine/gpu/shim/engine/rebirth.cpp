@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "rebirth.h"
 #include "engine_state.h"
+#include "bbport_settings.h"
 #include "rebirth_cost.h"
 #include "../../../tools/engine/rebirth_script.h"
 #include <cstdlib>
@@ -119,6 +120,14 @@ void LetGoOfMenu() {
     if (g_menu) menu_step_release(g_menu);
     g_menu = 0;
 }
+
+// Enhancements' Rebirth at the Altar, live: the prepared altar script lists Rebirth only while kOffered is on, so
+// the setting reaches the altar's next talk.
+void Offer() {
+    const bool want = BbSettings::Get().rebirth;
+    bool now = false;
+    if (event_flag_get(rebirth::kOffered, &now) && now != want) event_flag_set(rebirth::kOffered, want);
+}
 }
 
 bool Install(std::uint8_t* image, std::size_t size) {
@@ -149,7 +158,7 @@ bool Install(std::uint8_t* image, std::size_t size) {
         return false;
     }
     g_on = true;
-    host_log("rebirth: the Altar of Despair offers Rebirth, its refund and an undo");
+    host_log("rebirth: the Altar of Despair offers Rebirth, its refund and an undo (while the setting is on, live)");
     return true;
 }
 
@@ -161,6 +170,7 @@ void Tick() {
         g_away = true;
         return;
     }
+    Offer();
     using namespace rebirth;
     if (g_away) {
         g_away = false;

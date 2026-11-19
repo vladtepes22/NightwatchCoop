@@ -27,6 +27,7 @@
 // chalice_glyphdb), read each time the altar's glyph item is chosen: the hooks are always in and do nothing while it
 // is off. BB_GLYPH_SCREEN_TEST=1 turns it on whatever the setting (the test scripts).
 #include "bbport_glyph_screen.h"
+#include "bbport_settings_screen.h"
 #include "bbport_game_menu.h"
 #include "bbport_settings.h"
 #include "bbport_menu_widgets.h"
@@ -137,6 +138,18 @@ bool g_opening = false;
 bool g_from_glyph = false;
 u64 g_glyph_menu = 0;
 HandlerFn g_glyph_item_original = nullptr;
+
+// Nightwatch: the Settings screen (bbport_settings_screen.h) is the same book in a second mode: set by OpenSettings
+// (the pause menu's System), its menu object taken by MakeTabs, cleared by any other opening of the book. While it is
+// up the glyph screen's own state stays off. Under g_mu, except the flag.
+std::atomic<bool> g_settings{false};
+bool g_settings_opening = false;
+bool g_from_settings = false;
+u64 g_settings_menu = 0;
+u64 g_settings_list = 0;  // the tab's fresh list (after the screen filter), its rows turned away by TabCollect
+bool g_settings_setup_pending = false;   // the next item screen set up is the Settings screen's
+std::atomic<u64> g_settings_screen{0};   // the Settings screen's item screen (its rows drawn each frame)
+bool IsSettingsScreen(u64 screen) { return screen && screen == g_settings_screen.load(std::memory_order_acquire); }
 PickedFn g_picked_original = nullptr;
 
 // The glyph screen's own description panel (GlyphDetailText, a second panel in the generated itemdetailtext.gfx:
@@ -399,33 +412,29 @@ u32 TabFrame(u32 tab) {
         default: return 0;
     }
 }
-void SetTabIcons(u64 menu) {
+void SetTabIcons(u64 menu, bool settings = false) {
     const u64 tabs = menu + ((0 - menu) & 0xf);
     const u64 count = std::min<u64>(*reinterpret_cast<const u64*>(menu + kTabCount), kMostTabs);
     for (u64 i = 0; i < count; ++i) {
         const u64 t = tabs + kTabSize * i;
-        if (const u32 frame = TabFrame(*reinterpret_cast<const u32*>(t))) *reinterpret_cast<u32*>(t + kTabFrame) = frame;
+        const u32 id = *reinterpret_cast<const u32*>(t);
+        u32 frame = settings ? 0 : TabFrame(id);
+        if (settings)
+            for (const auto& s : BbSettingsScreen::Tabs())
+                if (s.id == id) frame = g_tab_icons ? s.frame : s.fallback;
+        if (frame) *reinterpret_cast<u32*>(t + kTabFrame) = frame;
     }
 }
 
-BB_COOP_SYSV u64 MakeTabs(u64 a0, u64 menu) {
-    const u64 r = g_make_tabs_original(a0, menu);
-    bool opening = false;
-    {
-        std::lock_guard<std::mutex> lk(g_mu);
-        opening = g_opening;
-    }
+// A tab after the book's own: the first tab's descriptor (its maker) with the id `id`, added at the end of the menu's
+// tab array. False when the array is full.
+bool AddTabLike(u64 menu, u32 id) {
     const u64 count = *reinterpret_cast<const u64*>(menu + kTabCount);
-    if (!opening) return r;
-    struct TabIcons {  // the icons once the tabs are all in, whichever way MakeTabs leaves
-        u64 menu;
-        ~TabIcons() { SetTabIcons(menu); }
-    } icons{menu};
-    if (count + 1 >= kMostTabs) return r;
+    if (count + 1 >= kMostTabs) return false;
     alignas(16) std::uint8_t tab[kTabSize]{};
     const u64 t = reinterpret_cast<u64>(tab);
     reinterpret_cast<u64(BB_COOP_SYSV*)(u64)>(coop::Guest(kFirstTabMaker))(t);
-    *reinterpret_cast<u32*>(t) = kCustomTab;
+    *reinterpret_cast<u32*>(t) = id;
     const u64 tabs = menu + ((0 - menu) & 0xf);
     reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kAddTab))(tabs + kTabSize * count, t);
     *reinterpret_cast<u64*>(menu + kTabCount) = count + 1;
@@ -435,12 +444,52 @@ BB_COOP_SYSV u64 MakeTabs(u64 a0, u64 menu) {
         const u64 destroy = *reinterpret_cast<const u64*>(*reinterpret_cast<const u64*>(f) + 0x20);
         reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64)>(destroy)(f, f != t + at - 0x20 ? 1 : 0);
     }
+    return true;
+}
+
+BB_COOP_SYSV u64 MakeTabs(u64 a0, u64 menu) {
+    const u64 r = g_make_tabs_original(a0, menu);
+    bool opening = false, settings = false;
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        opening = g_opening;
+        if (g_settings_opening) {  // the Settings screen's book: this menu is it
+            g_settings_opening = false;
+            g_settings_menu = menu;
+            settings = true;
+        }
+    }
+    if (settings) {
+        std::size_t added = 0;
+        const auto tabs = BbSettingsScreen::Tabs();
+        for (std::size_t i = BbSettingsScreen::kBookTabs; i < tabs.size(); ++i) added += AddTabLike(menu, tabs[i].id);
+        SetTabIcons(menu, true);
+        std::printf("Settings screen: menu 0x%llx, %llu tabs (%zu added)\n", static_cast<unsigned long long>(menu),
+                    static_cast<unsigned long long>(*reinterpret_cast<const u64*>(menu + kTabCount)), added);
+        std::fflush(stdout);
+        return r;
+    }
+    if (!opening) return r;
+    struct TabIcons {  // the icons once the tabs are all in, whichever way MakeTabs leaves
+        u64 menu;
+        ~TabIcons() { SetTabIcons(menu); }
+    } icons{menu};
+    const u64 count = *reinterpret_cast<const u64*>(menu + kTabCount);
+    if (!AddTabLike(menu, kCustomTab)) return r;
     std::printf("Glyph screen: the Custom tab added (tab %llu)\n", static_cast<unsigned long long>(count + 1));
     std::fflush(stdout);
     return r;
 }
 BB_COOP_SYSV u64 TabName(u64 out, u64 tab) {
-    if (*reinterpret_cast<const u32*>(tab) == kCustomTab && g_screen.load(std::memory_order_acquire))
+    const u32 id = *reinterpret_cast<const u32*>(tab);
+    if (g_settings.load(std::memory_order_acquire)) {
+        const auto tabs = BbSettingsScreen::Tabs();
+        for (std::size_t i = BbSettingsScreen::kBookTabs; i < tabs.size(); ++i)
+            if (tabs[i].id == id)
+                return reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64, u64)>(coop::Guest(0x1ae8cc0))(out, 0xc8,
+                                                                                                    tabs[i].text);
+    }
+    if (id == kCustomTab && g_screen.load(std::memory_order_acquire))
         return reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64, u64)>(coop::Guest(0x1ae8cc0))(out, 0xc8, kCustomTabText);
     return g_tab_name_original(out, tab);
 }
@@ -477,6 +526,12 @@ BB_COOP_SYSV u64 GlyphItem(u64 out, u64 ctx) {
         g_panel_pending = g_panel;
         g_from_glyph = true;
         g_glyph_menu = 0;
+        // a Settings screen opened before is over (its texts and tabs are no longer asked for)
+        g_settings_opening = false;
+        g_settings_setup_pending = false;
+        g_settings_menu = 0;
+        g_settings_list = 0;
+        g_settings.store(false, std::memory_order_release);
         g_screen.store(true, std::memory_order_release);  // before the picker's setup asks for its title
     }
     std::printf("Glyph screen: the glyph item opens the glyph screen (%zu glyphs)\n", g_glyphs->size());
@@ -487,14 +542,45 @@ BB_COOP_SYSV u64 GlyphItem(u64 out, u64 ctx) {
     return r;
 }
 
+// An item screen's destructor (0x1bab350, both item screen classes' vtable +8 / +0x10 call it): what we keep about
+// the screen goes with it (a new screen made at its address is not taken for it).
+constexpr u64 kScreenDestructor = 0x1bab350;
+BB_COOP_SYSV void ScreenDestroyed(u64 screen, u64, u64, u64, u64, u64) {
+    const bool settings = g_settings_screen.load(std::memory_order_acquire) == screen;
+    if (settings) g_settings_screen.store(0, std::memory_order_release);
+    if (settings) {
+        // The Settings screen gone: its book's menu and the tab list it empties are forgotten too (unless a new
+        // Settings screen is already opening). Kept, a later book made at the same addresses (the inventory's tabs)
+        // was taken for Settings' and had every row turned away: an empty inventory, at random.
+        std::lock_guard<std::mutex> lk(g_mu);
+        if (!g_settings_opening && !g_settings_setup_pending) {
+            g_settings_menu = 0;
+            g_settings_list = 0;
+            g_settings.store(false, std::memory_order_release);
+        }
+    }
+    if (g_panel_screen.load(std::memory_order_acquire) == screen) g_panel_screen.store(0, std::memory_order_release);
+    if (g_list_screen == screen) g_list_screen = 0;
+}
+
 // An item screen's setup: the first after the glyph item is the glyph screen's; a later setup of the same object is
 // another screen's.
 BB_COOP_SYSV void ScreenSetup(u64 screen, u64, u64, u64, u64, u64) {
-    bool ours = false;
+    bool ours = false, settings = false;
     {
         std::lock_guard<std::mutex> lk(g_mu);
         ours = g_panel_pending;
         g_panel_pending = false;
+        settings = g_settings_setup_pending;
+        g_settings_setup_pending = false;
+    }
+    if (settings) {
+        g_settings_screen.store(screen, std::memory_order_release);
+        BbSettingsScreen::Opened();
+        std::printf("Settings screen: item screen 0x%llx\n", static_cast<unsigned long long>(screen));
+        std::fflush(stdout);
+    } else if (g_settings_screen.load(std::memory_order_acquire) == screen) {
+        g_settings_screen.store(0, std::memory_order_release);
     }
     if (ours) {
         g_panel_screen.store(screen, std::memory_order_release);
@@ -503,12 +589,13 @@ BB_COOP_SYSV void ScreenSetup(u64 screen, u64, u64, u64, u64, u64) {
     } else if (g_panel_screen.load(std::memory_order_acquire) == screen) {
         g_panel_screen.store(0, std::memory_order_release);
     }
-    t_panel_ours = ours;
+    t_panel_ours = ours || settings;  // the Settings screen shows the same single details page
     t_in_getter = false;
 }
 BB_COOP_SYSV void PanelGetter(u64, u64 src, u64, u64, u64, u64) {
     const u64 screen = g_panel_screen.load(std::memory_order_acquire);
-    t_panel_ours = screen && src == screen + kPanelGetterOffset;
+    t_panel_ours = (screen && src == screen + kPanelGetterOffset) ||
+                   IsSettingsScreen(src - kPanelGetterOffset);
     t_in_getter = true;
     t_getter_screen = src - kPanelGetterOffset;
 }
@@ -546,6 +633,8 @@ bool g_glyph_panel_shown = false;  // the movie now shows GlyphDetailText's part
 // text fills show them again: PanelFetch hides them after).
 constexpr const char* kKeyboardHides[] = {"GlyphPart_15", "GlyphPart_19", "GlyphPart_23", "GlyphPart_34",
                                           "DetailDesc",   "ItemName",     "GlyphDepth",   "GlyphArea"};
+constexpr const char* kSettingsHides[] = {"GlyphDepth", "GlyphArea"};  // the Settings screen's page has no such rows
+constexpr const char* kSampleHides[] = {"BrightnessSample"};  // the Settings screen's brightness picture
 std::atomic<bool> g_keyboard_shown{false};
 std::atomic<bool> g_panel_blank{false};  // the game asked the glyph screen's panel hidden: no card to show (PanelShown)
 // The keyboard's cursor (any thread): its view (<< 8: 0 the A-Z grid, 1 QWERTY; kept for the session, through
@@ -622,7 +711,7 @@ BB_COOP_SYSV void StatsRefresh(u64 screen, u64, u64, u64, u64, u64) { t_stats_sc
 BB_COOP_SYSV u64 RuneFill(u64 list, u64 wrapper) {
     const u64 r = reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kRuneFill))(list, wrapper);
     const u64 screen = t_stats_screen;
-    const bool ours = screen && screen == g_panel_screen.load(std::memory_order_acquire);
+    const bool ours = screen && (screen == g_panel_screen.load(std::memory_order_acquire) || IsSettingsScreen(screen));
     if (screen && (ours || g_stats_hidden)) ShowStats(screen + kScreenMovie, ours);
     return r;
 }
@@ -637,6 +726,9 @@ BB_COOP_SYSV u64 PanelFetch(u64 out, u64 parent, u64 path) {
     if (getter && (ours || g_glyph_panel_shown) && (*reinterpret_cast<const u32*>(out + 0x48) & 0x8f) == 10) {
         Wrapper glyph, game;
         const int glyph_parts = glyph.Fetch(parent, "GlyphDetailText") ? ShowParts(glyph.at(), kGlyphParts, ours) : 0;
+        if (ours && glyph_parts && IsSettingsScreen(t_getter_screen))  // no Depth / Area rows on Settings
+            ShowParts(glyph.at(), kSettingsHides, false);
+        if (glyph_parts && !IsSettingsScreen(t_getter_screen)) ShowParts(glyph.at(), kSampleHides, false);
         if (ours && (g_keyboard_shown.load(std::memory_order_acquire) || g_panel_blank.load(std::memory_order_acquire)) &&
             glyph_parts)
             ShowParts(glyph.at(), kKeyboardHides, false);
@@ -680,13 +772,15 @@ constexpr u64 kDisplayMode = 0x1168, kDisplayModes = 0x1300, kSavedMode = 0x1380
 constexpr u32 kExpanded = 2;
 std::atomic<u64> g_display_pending{0};  // the glyph screen, until its Display mode is on
 bool IsGlyphScreen(u64 screen) { return screen && screen == g_panel_screen.load(std::memory_order_acquire); }
+// The screens with the single details page (the expanded Display mode, GlyphDetailText, no stats).
+bool IsPanelScreen(u64 screen) { return IsGlyphScreen(screen) || IsSettingsScreen(screen); }
 BB_COOP_SYSV u64 AddControl(u64 screen, u64 control, u64 action, u64 extra) {
-    if (IsGlyphScreen(screen)) return 0;
+    if (IsPanelScreen(screen)) return 0;
     return reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64, u64, u64)>(coop::Guest(kAddControl))(screen, control, action, extra);
 }
 BB_COOP_SYSV u64 StartMode(u64 screen, u64 animate) {
     const u64 r = reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kApplyMode))(screen, animate);
-    g_display_pending.store(IsGlyphScreen(screen) ? screen : 0, std::memory_order_release);
+    g_display_pending.store(IsPanelScreen(screen) ? screen : 0, std::memory_order_release);
     return r;
 }
 // The panel movie's FadeIn, as the screen's open plays it on a panel that is shown when it opens (0x1b9b3dc: the panel
@@ -721,7 +815,7 @@ void ExpandDisplay(u64 screen, const char* when, bool fade_in) {
     if (!screen || g_display_pending.load(std::memory_order_acquire) != screen) return;
     g_display_pending.store(0, std::memory_order_release);
     const u64 modes = *reinterpret_cast<const u64*>(screen + kDisplayModes);
-    if (!IsGlyphScreen(screen) || modes <= kExpanded || modes > 8) return;
+    if (!IsPanelScreen(screen) || modes <= kExpanded || modes > 8) return;
     const u64 listeners = screen + kModeListeners + ((0 - (screen + kModeListeners - 0x20)) & 0xf);
     for (u64 i = 0; i < modes; ++i)
         if (!*reinterpret_cast<const u64*>(listeners + 0x30 * i)) return;  // the game's own call would fail here too
@@ -875,7 +969,7 @@ bool IsGlyphList(u64 list) {
 }
 // Whether the stage point (x, y) is on `object` (its bounds through its matrix to the stage, in twips), as the
 // game's pointer code tests its list items.
-bool PointOn(u64 object, float x, float y) {
+bool PointOn(u64 object, float x, float y, float* fx = nullptr) {
     u64 vtable = 0, bounds_fn = 0;
     if (!object || !coop::SafeGet(object, &vtable) || !coop::SafeGet(vtable + kBoundsSlot, &bounds_fn) || !bounds_fn)
         return false;
@@ -889,6 +983,7 @@ bool PointOn(u64 object, float x, float y) {
     if (det > -1e-12f && det < 1e-12f) return false;
     const float px = x * 20 - m[3], py = y * 20 - m[7];
     const float lx = (m[5] * px - m[1] * py) / det, ly = (m[0] * py - m[4] * px) / det;
+    if (fx) *fx = (lx - b[0]) / (b[2] - b[0]);
     return lx >= b[0] && lx <= b[2] && ly >= b[1] && ly <= b[3];
 }
 // Where the menu pointer is on the bar's screen: 1 on the bar, -1 on the cards, 0 elsewhere or no menu pointer.
@@ -1048,12 +1143,15 @@ void ShowPanelParts(u64 screen, bool visible) {
 BB_COOP_SYSV void PanelShown(u64 functor, const std::uint8_t* shown) {
     u64 screen = 0;
     std::uint8_t want = 1;
-    if (!coop::SafeGet(functor + 8, &screen) || !IsGlyphScreen(screen) ||
-        !coop::SafeGet(reinterpret_cast<u64>(shown), &want)) {
+    static const std::uint8_t kOn = 1;
+    if (coop::SafeGet(functor + 8, &screen) && IsSettingsScreen(screen)) {  // its list is empty: the page stays
+        g_panel_shown_original(functor, &kOn);
+        return;
+    }
+    if (!screen || !IsGlyphScreen(screen) || !coop::SafeGet(reinterpret_cast<u64>(shown), &want)) {
         g_panel_shown_original(functor, shown);
         return;
     }
-    static const std::uint8_t kOn = 1;
     g_panel_shown_original(functor, &kOn);
     const bool blank = !want;
     if (blank != g_panel_blank.exchange(blank, std::memory_order_acq_rel)) {
@@ -1074,7 +1172,8 @@ bool NoChildScreen(u64 screen) {
 }
 BB_COOP_SYSV void DisplayAction(u64 functor) {
     u64 screen = 0;
-    if (coop::SafeGet(functor + 8, &screen) && IsGlyphScreen(screen)) {
+    if (coop::SafeGet(functor + 8, &screen) && IsSettingsScreen(screen)) return;
+    if (screen && IsGlyphScreen(screen)) {
         if (!g_swallow.load(std::memory_order_acquire) && !g_typing.load(std::memory_order_acquire))
             StartSearch(screen, true);
         return;
@@ -1083,7 +1182,8 @@ BB_COOP_SYSV void DisplayAction(u64 functor) {
 }
 BB_COOP_SYSV bool DisplayCondition(u64 functor) {
     u64 screen = 0;
-    if (coop::SafeGet(functor + 8, &screen) && IsGlyphScreen(screen)) return NoChildScreen(screen);
+    if (coop::SafeGet(functor + 8, &screen) && IsSettingsScreen(screen)) return false;
+    if (screen && IsGlyphScreen(screen)) return NoChildScreen(screen);
     return g_display_condition_original(functor);
 }
 BB_COOP_SYSV void ControlsSetup(u64 screen, u64, u64, u64, u64, u64) { t_controls_screen = screen; }
@@ -1397,8 +1497,48 @@ void TypingPrompts(u64 screen, int mode) {
 }
 // After the game sets any screen's help line or redraws its prompts (BbMenuWidgets::AddPromptsHook): the glyph
 // screen's typing ones over them.
+// The Settings screen's prompts: its own moves (Change: left / right; the tabs: L1 / R1, as the input layer gives
+// them to the book on this screen). Two key images before one label: the second image's markup rides in the first
+// image's name.
+void SettingsPrompts(u64 screen) {
+    u64 prompts = 0;
+    coop::SafeGet(screen + kPromptsField, &prompts);
+    const std::u16string gap = u"\x3000";
+    const std::u16string row = Prompt(u"KG_L_UD", u"Select") + gap + Prompt(u"KG_L_LR", u"Change") + gap +
+                               Prompt(u"KG_L1' vspace='-8'><img src='KG_R1", u"Switch Tabs") + gap +
+                               Prompt(u"KG_Cancel", u"Confirm");
+    SetValueText(prompts, row.c_str());
+}
+// The glyph screen's own prompts: the game's row (its controls, as the refresh 0x1ad6450 joined them with 0x1adf0d0
+// at 0x1ad64d2 into a wide string: its text at [out], else at out + 0x10, inline below 8 characters of capacity
+// (out + 0x28), as the refresh reads it) with L1 / R1's Switch Tabs after it (the input layer gives them to the book
+// as Left / Right on this screen, BbInput::HoldScreenInput). Taken right after the join, used by the hooks the
+// refresh runs next (a help line set later finds the row as it was left).
+constexpr u64 kPromptsJoinCall = 0x1ad64d2, kPromptsJoin = 0x1adf0d0;
+std::u16string g_game_prompts;      // the last row the game joined (menu thread)
+bool g_game_prompts_fresh = false;  // joined by the refresh now running
+BB_COOP_SYSV u64 PromptsJoin(u64 out, u64 controls) {
+    const u64 r = reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kPromptsJoin))(out, controls);
+    u64 text = 0, capacity = 0;
+    coop::SafeGet(out, &text);
+    if (!text) text = coop::SafeGet(out + 0x28, &capacity) && capacity >= 8 && coop::SafeGet(out + 0x10, &text) ? text : out + 0x10;
+    g_game_prompts.clear();
+    char16_t c = 0;
+    for (int i = 0; i < 4096 && coop::SafeGet(text + 2 * u64(i), &c) && c; ++i) g_game_prompts += c;
+    g_game_prompts_fresh = true;
+    return r;
+}
 void GlyphPrompts(u64 screen) {
+    const bool fresh = g_game_prompts_fresh;
+    g_game_prompts_fresh = false;
     if (IsGlyphScreen(screen) && g_prompts_mode) TypingPrompts(screen, g_prompts_mode);
+    else if (IsGlyphScreen(screen) && fresh) {
+        u64 prompts = 0;
+        coop::SafeGet(screen + kPromptsField, &prompts);
+        const std::u16string tabs = Prompt(u"KG_L1' vspace='-8'><img src='KG_R1", u"Switch Tabs");
+        SetValueText(prompts, (g_game_prompts.empty() ? tabs : g_game_prompts + u"\x3000" + tabs).c_str());
+    }
+    if (screen && screen == g_settings_screen.load(std::memory_order_acquire)) SettingsPrompts(screen);
 }
 // Each frame: the prompts follow the typing (started, ended, the controller's keyboard shown or hidden).
 void ShowTypingPrompts(u64 screen) {
@@ -1474,6 +1614,17 @@ void ShowList(u64 screen) {
         ++found;
     }
     normal.SetVisible(!ours);
+    const bool settings = screen == g_settings_screen.load(std::memory_order_acquire);
+    // the list movie is the same one on every item screen: the Settings screen's changes to it undone elsewhere
+    BbMenuWidgets::ShowPart(root.at(), "ItemList/NormalItem/ScrollBarV", !settings);  // Settings: SettingsScroll
+    if (!settings) {
+        BbMenuWidgets::ShowPart(root.at(), "ItemList/SettingsScroll", false);
+        BbMenuWidgets::ShowPart(root.at(), "ItemList/SettingsRows/Popup", false);
+    }
+    if (!BbMenuWidgets::ShowPart(root.at(), "ItemList/SettingsRows", settings) && settings) {
+        std::printf("Settings screen: its list movie has no ItemList/SettingsRows\n");
+        std::fflush(stdout);
+    }
     g_list_screen = screen;
     if (found != static_cast<int>(std::size(kGlyphListParts))) {
         std::printf("Glyph screen: only %d of the %zu glyph list parts found\n", found, std::size(kGlyphListParts));
@@ -1524,8 +1675,128 @@ void ShowBarCursor(u64 screen) {
     g_bar_cursor_shown = focus;
     g_bar_active_shown = typing;
 }
+// The Settings screen each frame: its rows (BbSettingsScreen::Update), its help line the selected row's.
+// An item screen's text fields (0x1ad4c20's setup fetches them, each a block whose text wrapper is 8 bytes in):
+// MenuTitle/Text_0 at +0x1f0 (+0x1f8: what BbMenuWidgets::kHelpField names on command screens is the title here),
+// StatusBar/LineHelp at +0x258 (the bottom help line: +0x260), StatusBar/KeyGuide at +0x2a0 (+0x2a8, the prompts).
+constexpr u64 kItemLineHelpField = 0x260;
+// The Settings screen's mouse: whether the stage point is on the part at `path` (its fraction across it in *fx).
+bool SettingsPointerAt(u64 root, const char* path, float x, float y, float* fx) {
+    Wrapper part;
+    return part.Fetch(root, path) && PointOn(DisplayObject(part), x, y, fx);
+}
+void SettingsUpdate(u64 screen) {
+    if (!screen || screen != g_settings_screen.load(std::memory_order_acquire) || g_list_screen != screen) return;
+    Wrapper root;
+    if (!ListRoot(screen, root)) return;
+    BbSettingsScreen::Pointer pointer;
+    pointer.on = BbInput::MouseIsMenuPointer() && !BbInput::TextEntryOpen() && BbInput::PointerOnStage(pointer.x, pointer.y);
+    pointer.at = SettingsPointerAt;
+    pointer.take_click = MenuPointer::TakeClick;
+    if (BbSettingsScreen::Update(root.at(), ShownTab(screen), pointer)) {
+        u64 help = 0;
+        coop::SafeGet(screen + kItemLineHelpField, &help);
+        if (const char16_t* text = BbSettingsScreen::Text(0xc9, 263000)) SetValueText(help, text);
+    }
+}
+
+// The Settings screen's details page: the selected row's name as its title, its help in the description box; the
+// page's parts shown (GlyphDetailText without Depth / Area), the game's and the stats hidden. Written again whenever
+// the row changes or the page was made again (its FadeIn), and tried each frame until the panel movie is there.
+std::u16string g_panel_text;  // what the page shows (menu thread)
+u64 g_panel_text_screen = 0;
+std::u16string PanelHtml(int size, const char16_t* color, const char16_t* s) {
+    std::u16string out = std::u16string(u"<p align=\"left\"><font size=\"") + (size == 24 ? u"24" : u"22") +
+                         u"\" color=\"" + color + u"\"><b>";
+    for (; s && *s; ++s) out += *s == u'&' ? std::u16string(u"&amp;") : *s == u'<' ? std::u16string(u"&lt;") : std::u16string(1, *s);
+    return out + u"</b></font></p>";
+}
+void SettingsPanel(u64 screen) {
+    if (!IsSettingsScreen(screen)) return;
+    const char16_t* name = nullptr;
+    const char16_t* help = nullptr;
+    bool picture = false;
+    BbSettingsScreen::Selected(&name, &help, &picture);
+    // The System tab: the character's profile (name as the title, then level, play time, place), no row help
+    std::u16string profile_name, profile_html;
+    std::vector<std::u16string> profile_lines;
+    if (BbSettingsScreen::Profile(&profile_name, &profile_lines)) {
+        name = profile_name.c_str();
+        for (const auto& l : profile_lines) profile_html += PanelHtml(22, u"#cccccc", l.c_str());
+        help = nullptr;
+        picture = false;
+    }
+    const std::u16string want = std::u16string(name ? name : u"") + u"\x1" + (help ? help : u"") + profile_html +
+                                (picture ? u"*" : u"");
+    if (screen == g_panel_text_screen && want == g_panel_text) return;
+    Wrapper root;
+    reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kResolveHandle))(root.at(), screen + kPanelHandle);
+    if (!*reinterpret_cast<const u64*>(root.at())) return;  // not there yet
+    Wrapper glyph, game;
+    if (!glyph.Fetch(root.at(), "GlyphDetailText")) return;
+    if (screen != g_panel_text_screen) {
+        ShowParts(glyph.at(), kGlyphParts, true);
+        ShowParts(glyph.at(), kSettingsHides, false);
+        if (game.Fetch(root.at(), "ItemDetailText")) ShowParts(game.at(), kGameParts, false);
+        ShowStats(screen + kScreenMovie, true);
+        g_glyph_panel_shown = true;
+    }
+    SetFieldText(root.at(), "GlyphDetailText/ItemName/Value_0", PanelHtml(24, u"#a0895f", name).c_str());
+    SetFieldText(root.at(), "GlyphDetailText/DetailDesc/Value_0",
+                 (profile_html.empty() ? PanelHtml(22, u"#cccccc", help) : profile_html).c_str());
+    // Brightness (Legacy): the game's Brightness screen's picture under the help (menu_assets.cpp BrightnessSample)
+    BbMenuWidgets::ShowPart(root.at(), "GlyphDetailText/BrightnessSample", picture);
+    if (screen != g_panel_text_screen) {
+        std::printf("Settings screen: its details page is up\n");
+        std::fflush(stdout);
+    }
+    g_panel_text = want;
+    g_panel_text_screen = screen;
+}
+
+// The glyph screen's cards and the mouse wheel: it scrolls their view, never their highlight (the input layer keeps
+// its turns from the game, BbInput::HoldScreenInput); a direction with the highlighted card out of view first brings
+// the view back to it (the game's move then goes on from there). One column: a line per card.
+constexpr u64 kListCells = 0x7c, kListLines = 0x80, kScrollBy = 0x1ad0dd0;
+void WheelScroll() {
+    const int wheel = BbInput::TakeWheelLines();
+    const u64 list = g_glyph_list.load(std::memory_order_acquire);
+    std::int32_t items = 0, cells = 0, lines = 0, first = 0, cursor = -1, over = -1;
+    if (!list || !coop::SafeGet(list + kListItems, &items) || !coop::SafeGet(list + kListCells, &cells) ||
+        !coop::SafeGet(list + kListLines, &lines) || !coop::SafeGet(list + kListFirstLine, &first) ||
+        !coop::SafeGet(list + kListCursor, &cursor) || !coop::SafeGet(list + kListCursorOverride, &over))
+        return;
+    if (items <= 0 || cells != 1 || lines <= 1 || lines > 64) return;
+    const int last = std::max(0, items - lines), at = over >= 0 ? over : cursor;
+    const bool bar = g_bar_focus.load(std::memory_order_acquire);
+    int want = first;
+    if (wheel) want = std::clamp(first + wheel, 0, last);
+    const bool dirs = (BbInput::LastPad().buttons & (PadBits::kUp | PadBits::kDown)) != 0;
+    if (!bar && dirs && at >= 0 && (at < first || at >= first + lines)) want = std::clamp(at < first ? at : at - lines + 1, 0, last);
+    if (want == first) return;
+    reinterpret_cast<void(BB_COOP_SYSV*)(u64, int, int)>(coop::Guest(kScrollBy))(list, 0, want - first);
+    std::int32_t now = first;
+    coop::SafeGet(list + kListFirstLine, &now);
+    if (wheel && now != first) CursorMoveSound();  // as the game's lists scrolling
+    if (!bar) {  // the highlight on the card's line while it is in view
+        reinterpret_cast<void(BB_COOP_SYSV*)(u64)>(coop::Guest(kHideCursors))(list);
+        if (at >= now && at < now + lines) ShowCardCursor(list, u32(at - now));
+    }
+    static int told = 0;
+    if (told++ < 6) {
+        std::printf("Glyph screen: the cards' view %d -> %d (%s), the highlight on card %d\n", first, now,
+                    wheel ? "the wheel" : "a direction, the card was out of view", at);
+        std::fflush(stdout);
+    }
+}
+
 BB_COOP_SYSV void ScreenUpdate(u64 screen, u64, u64, u64, u64, u64) {
     ShowList(screen);
+    SettingsUpdate(screen);
+    if (IsGlyphScreen(screen) && !g_typing.load(std::memory_order_acquire)) {
+        BbInput::HoldScreenInput({});  // the left stick moves the cards, the wheel scrolls them, L1 / R1 the tabs
+        WheelScroll();
+    }
     if (IsGlyphScreen(screen)) {
         Typing(screen);
         ShowTypingPrompts(screen);
@@ -1533,7 +1804,10 @@ BB_COOP_SYSV void ScreenUpdate(u64 screen, u64, u64, u64, u64, u64) {
         BarHover(screen);
         ShowBarCursor(screen);
     }
+    if (g_display_pending.load(std::memory_order_acquire) == screen && IsSettingsScreen(screen))
+        g_panel_text_screen = 0;  // the page's FadeIn makes it again: written again after it
     ExpandDisplay(screen, "after the screen opened", true);
+    SettingsPanel(screen);
     if (IsGlyphScreen(screen)) WriteRows(screen);
 }
 
@@ -1599,11 +1873,24 @@ BB_COOP_SYSV void RitualEntry(u64, u64, u64, u64, u64, u64) {
     g_opening = false;
     g_glyph_menu = 0;
     g_screen.store(false, std::memory_order_release);
+    if (g_from_settings) return;  // the Settings screen's book: the glyph screen is off, Settings stays
+    g_settings_opening = false;
+    g_settings_menu = 0;
+    g_settings_list = 0;
+    g_settings.store(false, std::memory_order_release);
 }
 
 // After the screen filter: `tab` = the tab descriptor (the game's r12), `frame` = the builder's rbp (the fresh list
 // at -0x2d8), `menu` = the menu object (r15).
 BB_COOP_SYSV u64 AfterScreenFilter(u64 tab, u64 frame, u64 menu) {
+    {  // the Settings screen: no rows of the game's (TabCollect turns this list's rows away)
+        std::lock_guard<std::mutex> lk(g_mu);
+        if (menu && menu == g_settings_menu) {
+            u64 list = 0;
+            g_settings_list = coop::SafeGet(frame - 0x2d8, &list) ? list : 0;
+            return 0;
+        }
+    }
     u32 tab_id = 0;
     if (!coop::SafeGet(tab, &tab_id) || tab_id < kFirstPickerTab || tab_id > kLastPickerTab) return 0;
     std::lock_guard<std::mutex> lk(g_mu);
@@ -1686,6 +1973,30 @@ BB_COOP_SYSV u64 TabCollect(u64 out, u64 src_ref, u64 filter) {
     const auto collect = reinterpret_cast<CollectFn>(coop::Guest(kCollect));
     std::unique_lock<std::mutex> lk(g_mu);
     u64 src = 0;
+    // The Settings screen's tab: every row turned away (kind 0 while the collector runs), so the list is empty.
+    if (g_settings_list && coop::SafeGet(src_ref, &src) && src == g_settings_list) {
+        g_settings_list = 0;
+        u64 begin = 0, end = 0;
+        coop::SafeGet(src + 0x18, &begin);
+        coop::SafeGet(src + 0x20, &end);
+        const std::size_t rows = end > begin ? (end - begin) / kRowSize : 0;
+        std::printf("Settings screen: its tab's %zu game rows turned away (list 0x%llx, the Settings screen 0x%llx)\n",
+                    rows, static_cast<unsigned long long>(src),
+                    static_cast<unsigned long long>(g_settings_screen.load(std::memory_order_acquire)));
+        std::fflush(stdout);
+        std::vector<u32> kinds(rows, 0);
+        for (std::size_t i = 0; i < rows; ++i) {
+            u32* kind = reinterpret_cast<u32*>(begin + i * kRowSize + 0x50);
+            kinds[i] = *kind;
+            *kind = 0;
+        }
+        lk.unlock();
+        const u64 r = collect(out, src_ref, filter);
+        lk.lock();
+        for (std::size_t i = 0; i < rows; ++i) *reinterpret_cast<u32*>(begin + i * kRowSize + 0x50) = kinds[i];
+        return r;
+    }
+    src = 0;
     if (!g_pending.list || !coop::SafeGet(src_ref, &src) || src != g_pending.list) {
         lk.unlock();
         return collect(out, src_ref, filter);
@@ -1906,8 +2217,35 @@ BB_COOP_SYSV u64 GlyphNetCheck(u64 net, u64) {
 
 } // namespace
 
+bool SettingsReady() { return g_installed.load(std::memory_order_acquire); }
+
+std::uint64_t OpenSettings(std::uint64_t out, std::uint64_t arg) {
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        g_settings_opening = true;
+        g_settings_setup_pending = true;
+        g_from_settings = true;
+        g_settings_menu = 0;
+        g_settings_list = 0;
+        g_settings.store(true, std::memory_order_release);  // before the book's setup asks for its title
+    }
+    std::printf("Settings screen: the pause menu's System opens the Settings screen\n");
+    std::fflush(stdout);
+    const u64 r = reinterpret_cast<HandlerFn>(coop::Guest(kRitualItem))(out, arg);
+    std::lock_guard<std::mutex> lk(g_mu);
+    g_from_settings = false;
+    if (g_settings_opening) {  // the book made no tabs: not ours after all
+        g_settings_opening = false;
+        std::printf("Settings screen: the book made no tabs\n");
+        std::fflush(stdout);
+    }
+    return r;
+}
+
 const char16_t* Text(std::uint32_t category, std::uint32_t id) {
-    if (!g_installed.load(std::memory_order_acquire) || !g_screen.load(std::memory_order_acquire)) return nullptr;
+    if (!g_installed.load(std::memory_order_acquire)) return nullptr;
+    if (g_settings.load(std::memory_order_acquire)) return BbSettingsScreen::Text(category, id);
+    if (!g_screen.load(std::memory_order_acquire)) return nullptr;
     // The chalice picker's own texts (the title and help at 0x1c74d2a / 0x1c74db8, the tab names at 0x1c69a05..):
     // names 0xc8, help lines 0xc9.
     if (category == 0xc8) {
@@ -2041,7 +2379,9 @@ void Install() {
     ok = ok && coop::HookCallSite(kDescCall, kGoodsDesc, reinterpret_cast<const void*>(&DescText),
                                   "glyph screen: descriptions");
     if (ok && MountPanel()) {
-        g_panel = coop::HookPrologue(kScreenSetup, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &ScreenSetup,
+        g_panel = coop::HookPrologue(kScreenDestructor, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &ScreenDestroyed,
+                                     "glyph screen: item screen destructor");
+        g_panel = g_panel && coop::HookPrologue(kScreenSetup, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &ScreenSetup,
                                      "glyph screen: item screen setup");
         g_panel = g_panel && coop::HookPrologue(kPanelGetter, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &PanelGetter,
                                                 "glyph screen: item screen panel getter");
@@ -2080,6 +2420,8 @@ void Install() {
                                                  reinterpret_cast<void**>(&g_ok_original),
                                                  "glyph screen: OK on the search bar");
         g_list = g_list && BbMenuWidgets::AddPromptsHook(&GlyphPrompts);  // the help line and prompts while typing
+        g_list = g_list && coop::HookCallSite(kPromptsJoinCall, kPromptsJoin, reinterpret_cast<const void*>(&PromptsJoin),
+                                              "glyph screen: its prompt row (Switch Tabs)");
         g_list = g_list && coop::ReplacePrologue(kPanelShown, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56},
                                                  reinterpret_cast<const void*>(&PanelShown),
                                                  reinterpret_cast<void**>(&g_panel_shown_original),

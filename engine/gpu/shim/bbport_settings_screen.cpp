@@ -1,0 +1,1199 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Nightwatch: the in-game Settings screen's content (bbport_settings_screen.h).
+#include "bbport_settings_screen.h"
+
+#include "bbport_game_menu.h"
+#include "bbport_game_menu_pages.h"
+#include "bbport_menu_widgets.h"
+#include "bbport_settings.h"
+#include "engine/camera.h"
+#include "engine/key_prompts.h"
+#include "engine/option_menu.h"
+#include "input/bindings.h"
+#include "input/ini_bindings.h"
+#include "input/input.h"
+#include "input/menu_pointer.h"
+#include "input/pad.h"
+#include "party/coop_hooks.h"
+#include "party/game_state.h"
+
+#include <SDL3/SDL.h>
+
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <iterator>
+#include <mutex>
+#include <string>
+#include <vector>
+
+extern bool debug_menu_active();  // input/input.cpp
+namespace BbMapPage { std::string PlaceHere(); }  // map/map_page.h (its Vulkan types left out)
+
+namespace BbSettingsScreen {
+namespace {
+
+// The book's own tabs keep their ids (0x24..0x27, the chalice picker's) and their name texts (40435..40438); the two
+// after them get ids past the glyph browser's Custom tab (0x28) and menu text ids of ours (0xc8, not the game's).
+// Frames: the generated inventory.gfx's (tools/engine/menu_assets.cpp SettingsTabPictures: 63..66; the glyph
+// screen's grey System icon 61) and the game's weapon hand (4); without that movie, game tab pictures stand in.
+constexpr Tab kTabs[] = {
+    {0x24, 63, 2, 40435, u"Display"},
+    {0x25, 64, 8, 40436, u"Sound"},
+    {0x26, 65, 0x3c, 40437, u"Enhancements"},
+    {0x27, 4, 4, 40438, u"Controls"},
+    {0x29, 66, 0x39, 263193, u"Party"},
+    {0x2a, 61, 0x3a, 263194, u"System"},
+};
+static_assert(std::size(kTabs) >= kBookTabs);
+
+// ---- the rows: a PC row's value is the PC pages' setting (engine/option_menu.cpp, by its name's text id), read when
+// the tab is made and saved as it changes; the others are the screen's own until they are wired ----
+// Info: a name and a value that only shows (the party's status, a guest's view of a host rule); a party button is
+// one too, Confirm runs it (asking Yes / No first when it is one that asks).
+// Key: an action's key binding (input/bindings: Confirm or a click captures the next key or mouse button), or with
+// `pad` a game button's controller button (src/runtime_pad.c: the next controller button pressed, a swap).
+enum class Kind { Head, Toggle, Slider, Pick, Command, Defaults, Info, Key };
+struct Row {
+    Kind kind;
+    const char16_t* name;
+    const char16_t* help;
+    int value = 0;                              // Toggle 0/1, Slider 0..10, Pick an index
+    std::vector<const char16_t*> choices = {};  // Pick
+    bool drop = false;                          // Pick: its choices in a pop-up (Confirm / a click opens it)
+    int def = 0;                                // its default (Defaults; set from `value` when the tab is made)
+    std::uint32_t pc = 0;                       // a PC row: its text id (BbEngine::Options::PcValue)
+    bool auto_hud = false;                      // Auto-Hide HUD (BbSettings auto_hide_hud)
+    int game = -1;                              // a game option: its byte in the game's options (GameOption)
+    bool picture = false;                       // the details page shows the game's brightness picture
+    int stored = -1;                            // the value the setting has (a change is saved once)
+    int party = -1;                             // a party page row: its field (BbGameMenu::Pages)
+    bool steps = false;                         // a party Steps row: a Pick whose value is the row's position
+    int key = -1;                               // a Key row: its action (BindAction)
+    int pad = -1;                               // a Key row of Controller Buttons: its row (runtime_pad_remap_*)
+};
+Row Pc(std::uint32_t id, Row r) {
+    r.pc = id;
+    return r;
+}
+// The game's own options: one object, [[0x553b130] + 0x48] (the System pages copy it out with 0x14ef730 and back with
+// 0x14ef550 through 0x1bb5040: nothing else is applied or saved there; the save data keeps it). Its bytes (the
+// pages' copy has them one lower from Subtitles on): +2 Brightness (0 .. 10), +4 Music, +5 Sound Effects, +6 Voice
+// (0 .. 10), +8 Subtitles, +9 Display HUD (1 On, 0 Off: the game's On / Off list, 0x1b2b3b0). Defaults as the game's
+// (0x1c8af20): Brightness 5, the volumes 10, Subtitles Off, Display HUD On.
+constexpr int kBrightness = 2, kMusic = 4, kSoundEffects = 5, kVoice = 6, kSubtitles = 8, kDisplayHud = 9;
+// The game's Controls screen's rows (its rows fn 0x1b211a0, the pages' copy one lower from Subtitles on): +0 Camera
+// Sensitivity (0 .. 10), +1 Controller Vibration (0 .. 10), +0xa Camera X-Axis, +0xb Camera Y-Axis (the list
+// 0x1b29ee0: Normal (40310) 1, Reversed (40311) 0), +0xc Auto Target Switch, +0xd Camera Auto-Adjust (On 1 / Off 0).
+// Defaults (0x1c8af20): sensitivity 5, vibration 10, both axes Normal, both switches On.
+constexpr int kCameraSpeed = 0, kVibration = 1, kCameraX = 0xa, kCameraY = 0xb, kAutoTarget = 0xc, kAutoAdjust = 0xd;
+constexpr std::uint64_t kGameOptionsOwner = 0x553b130, kGameOptions = 0x48;
+std::uint64_t GameOptions() {
+    std::uint64_t owner = 0, options = 0;
+    return coop::SafeGet(coop::Guest(kGameOptionsOwner), &owner) && owner &&
+                   coop::SafeGet(owner + kGameOptions, &options) && options
+               ? options
+               : 0;
+}
+Row Game(int byte, Row r) {
+    r.game = byte;
+    return r;
+}
+using Rows = std::vector<Row>;
+
+Rows DisplayRows() {
+    return {
+        {Kind::Head, u"Graphics", nullptr},
+        Pc(117001, {Kind::Toggle, u"Anti-Aliasing", u"The game's own anti-aliasing pass.", 1}),
+        Pc(117000, {Kind::Toggle, u"Ambient Occlusion", u"Screen-space ambient occlusion.", 1}),
+        Pc(117007, {Kind::Slider, u"AO Strength", u"How dark corners and contact get. 5 is the game's own.", 5}),
+        Pc(117006, {Kind::Slider, u"Shadow Distance", u"How far sun and moon shadows reach. 0 is the game's own.", 0}),
+        // the choices: bbport_settings.h OutputWidths' order (the PC page's 117010.. texts)
+        Pc(117004, {Kind::Pick, u"Output Resolution",
+                    u"Existing upscaler output setting. Restart required unless Live Resolution is enabled.", 2,
+                    {u"1280x720", u"1600x900", u"1920x1080", u"2560x1440", u"3840x2160", u"2560x1080 (21:9)",
+                     u"3440x1440 (21:9)", u"3840x1600 (24:10)", u"3840x1080 (32:9)", u"5120x1440 (32:9)",
+                     u"5120x2160 (21:9)", u"7680x2160 (32:9)", u"Display (auto)", u"Custom (bbport.ini)"},
+                    true}),
+        Pc(117008, {Kind::Slider, u"Fog", u"How thick the haze over distant streets is. 10 is the game's own.", 10}),
+        {Kind::Head, u"Effects", nullptr},
+        Pc(117005, {Kind::Toggle, u"Motion Blur",
+                    u"The blur on fast camera and character movement. Requires a restart in this renderer.", 0}),
+        Pc(117002, {Kind::Toggle, u"Depth of Field",
+                    u"Blurs distant scenery. Off keeps far views sharp. Requires a restart in this renderer.", 0}),
+        Pc(117003, {Kind::Toggle, u"Chromatic Aberration",
+                    u"The colour fringing at the edges of the frame. Requires a restart in this renderer.", 0}),
+        Pc(120001, {Kind::Toggle, u"Vignette", u"The darkened frame edges some areas use.", 1}),
+        Pc(120000, {Kind::Slider, u"Bloom", u"The glow around bright light. 10 is the game's own.", 10}),
+        {Kind::Head, u"Colour", nullptr},
+        Pc(125004, {Kind::Toggle, u"Picture Tuning",
+                    u"Applies the picture settings live. Off: the game's own picture. Moving one of them turns it on.",
+                    0}),
+        [] {
+            // the game's Brightness screen's instruction (112010) and picture
+            Row r = Game(kBrightness, {Kind::Slider, u"Brightness (Legacy)",
+                                       u"Adjust slider until the man is visible and beast invisible.", 5});
+            r.picture = true;
+            return r;
+        }(),
+        Pc(125000, {Kind::Slider, u"Brightness (New)", u"How bright the picture is. 5 is the game's own.", 5}),
+        Pc(125001, {Kind::Slider, u"Contrast", u"The difference between dark and bright. 5 is the game's own.", 5}),
+        Pc(125002, {Kind::Slider, u"Saturation", u"Colour. 5 is the game's own; 0 is black and white.", 5}),
+        Pc(125003, {Kind::Slider, u"Hue", u"Shifts every colour. 5 is the game's own.", 5}),
+        {Kind::Head, u"HUD", nullptr},
+        Game(kSubtitles, {Kind::Toggle, u"Subtitles", u"Turn subtitles ON/OFF.", 0}),
+        Game(kDisplayHud, {Kind::Toggle, u"Display HUD", u"Turn HUD ON/OFF.", 1}),
+        [] {
+            Row r{Kind::Toggle, u"Auto-Hide HUD",
+                  u"Bars and slots fade out when idle; damage, fights, lock-on, items and menus bring them back.", 0};
+            r.auto_hud = true;
+            return r;
+        }(),
+        {Kind::Defaults, u"Defaults", u"Every setting on this tab back to its default."},
+    };
+}
+// Key Bindings: the PC Keys page's actions (input/bindings, Lantern's engine/option_keys.cpp page) in its order, one
+// section (Keybinds); the Debug Menu's only while it is on (as the page). Their names and helps from the bindings'
+// table (English).
+std::u16string g_key_names[kBindCount], g_key_helps[kBindCount];
+std::u16string Wide(const char* s) {
+    std::u16string out;
+    for (; s && *s; ++s) out += char16_t(static_cast<unsigned char>(*s));
+    return out;
+}
+void KeyRows(Rows& rows) {
+    const int listed = debug_menu_active() ? kBindCount : kBindDebugMenu;
+    for (int a = 0; a < listed; ++a) {
+        if (a == 0) rows.push_back({Kind::Head, u"Keybinds", nullptr});  // one section, as Controller Buttons
+        const BindingInfo& b = host_binding_info(a);
+        g_key_names[a] = Wide(b.label);
+        g_key_helps[a] = Wide(b.help) + u" Confirm or click, then press a key or mouse button (Escape keeps it, Delete "
+                                        u"clears it).";
+        Row r{Kind::Key, g_key_names[a].c_str(), g_key_helps[a].c_str()};
+        r.key = a;
+        rows.push_back(r);
+    }
+    rows.push_back({Kind::Command, u"Restore Default Keys", u"Every action back to its default key and mouse button.", 0,
+                    {u"Yes", u"No"}});
+}
+
+// Controller Buttons: a row per game button (runtime_pad_remap_rows' order), its value the controller button(s) that
+// press it. Their helps: what the button does, from the bindings' table (input/bindings.cpp kActions).
+// Their names: what the button does (the Key Bindings' names); the value: the controller's button for it.
+constexpr const char16_t* kPadNames[] = {u"Interact", u"Dodge / Sprint", u"Use Item", u"Blood Vial", u"Transform",
+                                         u"Attack", u"Firearm / Parry", u"Strong Attack", u"Left Stick Press",
+                                         u"Lock On", u"Menu", u"Gestures", u"Personal Effects", u"Add Blood Bullets",
+                                         u"Switch Item", u"Switch Left Weapon", u"Switch Right Weapon", u"Ping",
+                                         u"Gather the Party"};
+constexpr const char16_t* kPadHelps[] = {
+    u"Talk, examine, pick up, open (Cross on a PlayStation controller). A menu button too (OK or Back).",
+    u"Tap to dodge, hold to sprint (Circle on a PlayStation controller). A menu button too (Back or OK).",
+    u"Use the selected quick item (Square on a PlayStation controller).",
+    u"Restore HP (Triangle on a PlayStation controller).",
+    u"Transform the trick weapon (L1 on a PlayStation controller).",
+    u"Attack with the right-hand weapon (R1 on a PlayStation controller).",
+    u"Fire or parry with the left-hand weapon (L2 on a PlayStation controller).",
+    u"A strong attack; hold to charge (R2 on a PlayStation controller).",
+    u"The left stick's press (L3 on a PlayStation controller).",
+    u"Lock on to a target, or reset the camera (R3 on a PlayStation controller).",
+    u"Open the menu (Options on a PlayStation controller).",
+    u"Open the gestures (the touchpad's left side on a PlayStation controller).",
+    u"Open the personal effects (the touchpad's right side on a PlayStation controller).",
+    u"Add Blood Bullets (D-pad Up on a PlayStation controller).",
+    u"Cycle the quick items (D-pad Down on a PlayStation controller).",
+    u"Cycle the left-hand weapons (D-pad Left on a PlayStation controller).",
+    u"Cycle the right-hand weapons (D-pad Right on a PlayStation controller).",
+    u"Co-op: mark the spot you look at for the party (Share on a PlayStation controller).",
+    u"Co-op host: bring every guest to you (each is asked first). No button by default.",
+};
+static_assert(std::size(kPadNames) == std::size(kPadHelps));
+std::u16string g_pad_helps[std::size(kPadNames)];
+void AppendPadLines(BbInputConfig::Items& lines) {
+    for (int r = 0; r < runtime_pad_remap_rows(); ++r) {
+        char key[64], value[128];
+        if (runtime_pad_remap_ini(r, key, sizeof key, value, sizeof value)) lines.emplace_back(key, value);
+    }
+}
+void PadRows(Rows& rows) {
+    rows.push_back({Kind::Head, u"Gamepad", nullptr});
+    const int count = std::min(runtime_pad_remap_rows(), int(std::size(kPadNames)));
+    for (int i = 0; i < count; ++i) {
+        g_pad_helps[i] = std::u16string(kPadHelps[i]) + u" Confirm or click, then press the controller button for it "
+                                                        u"(it swaps with the one that had it; Escape keeps it).";
+        Row r{Kind::Key, kPadNames[i], g_pad_helps[i].c_str()};
+        r.pad = i;
+        rows.push_back(r);
+    }
+    rows.push_back({Kind::Command, u"Restore Default Buttons", u"Every game button back to its own controller button.",
+                    0, {u"Yes", u"No"}});
+}
+
+// Controls: the game's own controls, the PC pages' PC Controls (118000 .., 116002) and, while the PC camera is on
+// (Enhancements' PC Camera Controls, read live; the camera code in), its Camera rows (118004, 121000, 121001).
+// "Camera Sensitivity" of PC Controls is named Mouse Sensitivity here (the game's own row has that name).
+Rows ControlsRows() {
+    Rows rows = {
+        {Kind::Head, u"General", nullptr},
+        Game(kCameraX, {Kind::Pick, u"Camera X-Axis", u"Change camera x-axis.", 1, {u"Reversed", u"Normal"}}),
+        Game(kCameraY, {Kind::Pick, u"Camera Y-Axis", u"Change camera y-axis.", 1, {u"Reversed", u"Normal"}}),
+        Game(kCameraSpeed, {Kind::Slider, u"Camera Sensitivity", u"Set camera movement speed.", 5}),
+        Game(kAutoTarget, {Kind::Toggle, u"Auto Target Switch", u"Auto lock-on to new target when former target dies.", 1}),
+        Game(kAutoAdjust, {Kind::Toggle, u"Camera Auto-Adjust", u"Set whether the camera automatically avoids walls.", 1}),
+        Game(kVibration, {Kind::Slider, u"Controller Vibration", u"Set strength of controller vibration.", 10}),
+        {Kind::Head, u"PC", nullptr},
+        Pc(118000, {Kind::Toggle, u"Mouse Camera", u"The mouse turns the camera outside menus.", 1}),
+        Pc(118001, {Kind::Slider, u"Mouse Sensitivity", u"How fast the mouse turns the camera.", 5}),
+        Pc(118002, {Kind::Toggle, u"Mouse X-Axis", u"The mouse's horizontal camera direction.", 0}),
+        Pc(118003, {Kind::Toggle, u"Mouse Y-Axis", u"The mouse's vertical camera direction.", 0}),
+        Pc(116002, {Kind::Toggle, u"Mouse in Menus", u"Move and click to select.", 1}),
+        Pc(118005, {Kind::Toggle, u"Camera Auto Rotation",
+                    u"Allow the camera to turn automatically while using the mouse.", 0}),
+        // the choices: the PC page's (118010 .., 118013 ..), in BbSettings' Prompts / PadIcons order
+        Pc(118006, {Kind::Pick, u"Button Prompts",
+                    u"The button icons in menus and prompts. Automatic shows keys while the keyboard or mouse is in use.",
+                    0, {u"Automatic", u"Keyboard", u"Controller"}}),
+        Pc(118007, {Kind::Pick, u"Controller Icons",
+                    u"The controller's buttons in menus and prompts. Automatic shows Xbox buttons while an Xbox "
+                    u"controller is in use.",
+                    0, {u"Automatic", u"PlayStation", u"Xbox"}}),
+    };
+    if (BbEngine::Camera::Active() && BbSettings::Get().camera_controls) {
+        rows.push_back({Kind::Head, u"Camera", nullptr});
+        rows.push_back(Pc(118004, {Kind::Slider, u"Field of View",
+                                   u"How wide the camera sees. 0 is the game's own; each step widens it 5%.", 0}));
+        rows.push_back(Pc(121000, {Kind::Slider, u"Camera Distance",
+                                   u"How far behind the character the camera sits. 5 is the game's own.", 5}));
+        rows.push_back(Pc(121001, {Kind::Slider, u"Camera Height",
+                                   u"How high above the character the camera looks. 5 is the game's own.", 5}));
+    }
+    KeyRows(rows);
+    PadRows(rows);
+    rows.push_back({Kind::Defaults, u"Defaults", u"Every setting on this tab back to its default, the keys and the "
+                                                 u"controller buttons too.", 0, {u"Yes", u"No"}});
+    return rows;
+}
+Rows SoundRows() {
+    return {
+        {Kind::Head, u"Sound", nullptr},
+        Game(kMusic, {Kind::Slider, u"Music", u"Adjust music volume.", 10}),
+        Game(kSoundEffects, {Kind::Slider, u"Sound Effects", u"Adjust sound effects volume.", 10}),
+        Game(kVoice, {Kind::Slider, u"Voice", u"Adjust voice volume.", 10}),
+        {Kind::Defaults, u"Defaults", u"Every setting on this tab back to its default."},
+    };
+}
+Rows EnhancementRows() {
+    return {
+        {Kind::Head, u"Enhancements", nullptr},
+        Pc(124001, {Kind::Toggle, u"Hunter's Dream Mirror",
+                    u"The Dream's mirror opens the appearance editor (the unused \"Put on Disguise\").", 0}),
+        Pc(124002, {Kind::Toggle, u"Rebirth at the Altar",
+                    u"The Altar of Despair resets level and attributes.", 0}),
+        Pc(124004, {Kind::Toggle, u"PC Camera Controls", u"Adds the Camera section to Controls: field of view, camera distance and height.", 0}),
+        {Kind::Defaults, u"Defaults", u"Every setting on this tab back to its default."},
+    };
+}
+// Party: the party pages' rows (BbGameMenu::Pages: the same values, texts and actions as the old Party Settings
+// pages, which apply and save them in their Poll), in four sections: Current Party (Party, Party mode, Party
+// members), Party Rules (the host's: a guest sees them as lines with the host's values), My Party (each player's
+// own), Network & Access (Party network, Party access). Only the rows the party's state shows now (rebuilt when that
+// changes, PartyShown).
+namespace P = BbGameMenu::Pages;
+const char16_t* PageText(std::uint32_t id) { return P::Text(id, false); }
+int PartySection(const P::Page& page) {
+    std::u16string name = PageText(page.name) ? PageText(page.name) : u"";
+    if (name.rfind(u"Party rules:", 0) == 0) return 1;
+    if (name.rfind(u"My party:", 0) == 0) return 2;
+    if (name == u"Party network" || name == u"Party access") return 3;
+    return 0;
+}
+Row FromPartyRow(const P::Row& pr) {
+    Row r{Kind::Info, PageText(pr.name), PageText(pr.help)};
+    r.party = pr.field;
+    for (const std::uint32_t c : pr.choices) r.choices.push_back(PageText(c));
+    switch (pr.kind) {
+    case P::Kind::Toggle: r.kind = Kind::Toggle; r.choices.clear(); break;
+    case P::Kind::Slider: r.kind = Kind::Slider; r.choices.clear(); break;
+    case P::Kind::Steps: r.kind = Kind::Pick; r.steps = true; break;
+    case P::Kind::List: r.kind = Kind::Pick; r.drop = r.choices.size() > 3; break;
+    case P::Kind::Button: break;
+    }
+    return r;
+}
+Rows PartyRows() {
+    static const char16_t* const kSections[] = {u"Current Party", u"Party Rules", u"My Party", u"Network & Access"};
+    Rows rows;
+    const auto& pages = P::All();
+    for (int section = 0; section < 4; ++section) {
+        bool headed = false;
+        for (const int i : P::PartySettingsEntries()) {
+            const P::Page& page = pages[std::size_t(i)];
+            if (PartySection(page) != section) continue;
+            for (const P::Row* pr : P::ShownRows(page)) {
+                if (!headed) rows.push_back({Kind::Head, kSections[section], nullptr}), headed = true;
+                rows.push_back(FromPartyRow(*pr));
+            }
+        }
+    }
+    return rows;
+}
+// What the party tab shows now, as one key (its rows change with the party's state).
+std::string PartyShown() {
+    std::string key;
+    for (const int i : P::PartySettingsEntries())
+        for (const P::Row* pr : P::ShownRows(P::All()[std::size_t(i)])) key += std::to_string(pr->field) + ",";
+    return key;
+}
+std::int64_t NowMs() {
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
+void PressParty(const Row& r, bool confirmed) {
+    P::Press(r.party, NowMs());
+    if (confirmed) P::Press(r.party, NowMs());  // the pages' second press, after our Yes
+    std::printf("Settings screen: the party row %d pressed\n", r.party);
+    std::fflush(stdout);
+}
+
+// The commands ask first: Confirm opens the choices pop-up with Yes / No (No highlighted).
+Rows SystemRows() {
+    return {
+        {Kind::Head, u"System", nullptr},
+        {Kind::Command, u"Exit Game", u"Return to the title screen.", 0, {u"Yes", u"No"}},
+        {Kind::Command, u"Quit to Desktop", u"Close the game.", 0, {u"Yes", u"No"}},
+    };
+}
+
+// Exit Game: the game's own. Its System row (the builder 0x1bb3ad0, AddCommandItem at 0x1bb436d with the opener
+// 0x1c0c9f0) asks with a dialog whose Yes runs the functor (vtable 0x5344a10) slot 2, 0x1c0d050: it takes nothing and
+// sets the game's return-to-title request. Called here after our own Yes.
+constexpr std::uint64_t kExitToTitle = 0x1c0d050;
+extern "C" void bbgpu_request_quit(void);  // bbgpu.cpp
+void ExitGame() {
+    using Fn = void(BB_COOP_SYSV*)();
+    if (!coop::MatchesOriginal(kExitToTitle, {0x48, 0x8d, 0x05, 0xd9, 0xe0, 0x92, 0x03})) {
+        std::printf("Settings screen: Exit Game left out (the game's code is not 1.09's)\n");
+        return;
+    }
+    std::printf("Settings screen: Exit Game (the game's return to the title)\n");
+    std::fflush(stdout);
+    reinterpret_cast<Fn>(coop::Guest(kExitToTitle))();
+}
+void QuitToDesktop() {
+    std::printf("Settings screen: Quit to Desktop\n");
+    std::fflush(stdout);
+    bbgpu_request_quit();
+}
+
+constexpr int kSlots = 13;  // tools/engine/menu_assets.cpp kSettingsSlots
+// The slots' layout and the choices pop-up's (tools/engine/menu_assets.cpp SettingsRowsSprite: the same numbers), in
+// the slots' own units (a line kPitch / kScale tall).
+constexpr double kLine = 49 / 0.9;
+constexpr int kPopupLines = 14, kPopupFrames = 180;
+constexpr double kPopupPitch = 38, kPopupPad = 10, kPopupStep = 4;
+
+// What one slot shows, laid out as the Environment screen: a section's heading shares the line of its first row
+// (left, above), a divider line separates two sections, Defaults and commands are buttons.
+struct Line {
+    int row = -1;                     // into State::rows; -1: a divider line
+    const char16_t* head = nullptr;   // the section heading over this line
+};
+struct State {
+    int tab = -1;
+    std::uint64_t pad_serial = runtime_pad_remap_serial();  // the controller buttons saved (bbport.ini)
+    Rows rows;
+    std::vector<Line> lines;
+    int cursor = 0;  // a line with a row
+    int top = 0;     // the first line shown
+    std::u16string shown[kSlots];  // what each slot shows (redrawn only when it changes)
+    int scroll_shown = -2;         // the scroll bar's thumb frame shown (0: hidden; -2: not yet set)
+    std::uint32_t held = 0;
+    std::chrono::steady_clock::time_point next{};
+    // Confirm / Back as last seen (for their presses); at first every button counts as held: the one that opened
+    // the screen (the pause menu's Confirm) acts only once let go and pressed again
+    std::uint32_t buttons = ~0u;
+    // the choices pop-up
+    bool popup = false;
+    int popup_line = -1;   // the line of the row it belongs to
+    int popup_cursor = 0;  // the highlighted choice
+    int popup_top = 0;     // the first choice shown
+    std::u16string popup_shown = u"\x1";
+    bool swallow = false;  // the Confirm / Back that closed it, until let go (the game never sees them)
+    // the mouse
+    bool pointer_seen = false;
+    float pointer_x = 0, pointer_y = 0;
+    // a direction moved the cursor: the mouse highlights again once it moved kNavigatedSlack px from here
+    bool navigated = false;
+    float navigated_x = 0, navigated_y = 0;
+    std::chrono::steady_clock::time_point navigated_at{};
+    // the party tab: its shown rows (PartyShown) and when to look again
+    std::string party_shown;
+    std::chrono::steady_clock::time_point party_check{};
+};
+constexpr float kNavigatedSlack = 24;  // as input/menu_pointer.cpp
+constexpr auto kNavigatedQuiet = std::chrono::milliseconds(500);
+std::mutex g_mu;
+State g_state;
+
+// The settings' values into the rows (when the tab is made, and after a change: Picture Tuning may have followed).
+void LoadValues(Rows& rows, bool defaults) {
+    for (Row& r : rows) {
+        std::int32_t v = 0, d = 0;
+        if (r.party >= 0) {
+            if (r.kind == Kind::Info) continue;
+            const int n = int(r.choices.size());
+            if (r.kind == Kind::Pick && !r.steps) r.value = *P::Value(r.party);
+            else if (r.steps) r.value = P::ChoiceFromPosition(*P::Byte(r.party), n);
+            else r.value = *P::Byte(r.party);
+            r.stored = r.value;
+            if (defaults) r.def = r.value;
+        } else if (r.pc && BbEngine::Options::PcValue(r.pc, &v, &d)) {
+            r.value = r.stored = v;
+            if (defaults) r.def = d;
+        } else if (r.auto_hud) {
+            r.value = r.stored = BbSettings::Get().auto_hide_hud ? 1 : 0;
+            if (defaults) r.def = 0;
+        } else if (r.game >= 0) {
+            std::uint8_t b = 0;
+            const std::uint64_t options = GameOptions();
+            if (!options || !coop::SafeGet(options + std::uint64_t(r.game), &b)) continue;  // not wired: the screen's
+            const int most = r.kind == Kind::Toggle ? 1 : r.kind == Kind::Pick ? int(r.choices.size()) - 1 : 10;
+            r.value = r.stored = std::clamp(int(b), 0, std::max(0, most));
+        }
+    }
+}
+// What the player changed, saved (each row once per change); true when one was.
+constexpr std::uint32_t kPictureTuning = 125004;  // a picture row's change turns it on: written after them
+bool SaveValues(Rows& rows) {
+    bool saved = false;
+    for (int k = 0; k < 2 * int(rows.size()); ++k) {  // two passes: Picture Tuning's row in the second
+        const int pass = k / int(rows.size());
+        Row& r = rows[std::size_t(k % int(rows.size()))];
+        if ((r.pc == kPictureTuning) != (pass == 1)) continue;
+        if (r.value == r.stored || (!r.pc && !r.auto_hud && r.game < 0 && r.party < 0)) continue;  // (not wired)
+        if (r.party >= 0) {
+            // the pages' bound value: their Poll applies and saves it (as the old Party Settings pages' widgets)
+            if (r.kind == Kind::Pick && !r.steps) *P::Value(r.party) = r.value;
+            else if (r.steps) *P::Byte(r.party) = P::ChoicePosition(r.value, int(r.choices.size()));
+            else *P::Byte(r.party) = std::uint8_t(r.value);
+            std::printf("Settings screen: the party row %d now %d\n", r.party, r.value);
+            std::fflush(stdout);
+        } else if (r.pc) {
+            BbEngine::Options::SetPcValue(r.pc, r.value);
+        } else if (r.game >= 0) {
+            const std::uint64_t options = GameOptions();
+            const std::uint8_t b = std::uint8_t(r.value);
+            const bool done = options && coop::SafeWrite(options + std::uint64_t(r.game), &b, 1);
+            std::printf("Settings screen: the game's option +%d now %d%s\n", r.game, r.value,
+                        done ? "" : ": the game's options are not there, not changed");
+            std::fflush(stdout);
+        } else {
+            BbSettings::Get().auto_hide_hud = r.value != 0;
+            BbSettings::Save();
+            std::printf("Settings screen: Auto-Hide HUD %s; saved to bbport.ini\n", r.value ? "on" : "off");
+            std::fflush(stdout);
+        }
+        r.stored = r.value;
+        saved = true;
+    }
+    return saved;
+}
+
+Rows RowsOf(int tab) {
+    switch (tab) {
+    case 0: return DisplayRows();
+    case 1: return SoundRows();
+    case 2: return EnhancementRows();
+    case 3: return ControlsRows();
+    case 4: return PartyRows();
+    case 5: return SystemRows();
+    default: return {};
+    }
+}
+// A heading is a line of its own (over its underline); the list ends with an empty line, so its last row keeps a
+// little room from the frame.
+std::vector<Line> LinesOf(const Rows& rows) {
+    std::vector<Line> lines;
+    for (int i = 0; i < int(rows.size()); ++i) {
+        const Row& r = rows[std::size_t(i)];
+        lines.push_back(r.kind == Kind::Head ? Line{-1, r.name} : Line{i, nullptr});
+    }
+    if (!lines.empty()) lines.push_back(Line{});
+    return lines;
+}
+const Row* RowOf(const State& s, int line) {
+    if (line < 0 || line >= int(s.lines.size()) || s.lines[std::size_t(line)].row < 0) return nullptr;
+    return &s.rows[std::size_t(s.lines[std::size_t(line)].row)];
+}
+
+std::u16string Escaped(const char16_t* s) {
+    std::u16string out;
+    for (; s && *s; ++s) {
+        if (*s == u'&') out += u"&amp;";
+        else if (*s == u'<') out += u"&lt;";
+        else out += *s;
+    }
+    return out;
+}
+std::u16string Html(const char16_t* align, int size, const char16_t* color, const std::u16string& text) {
+    std::u16string px;
+    for (char c : std::to_string(size)) px += char16_t(c);
+    return std::u16string(u"<p align=\"") + align + u"\"><font size=\"" + px + u"\" color=\"" + color +
+           u"\" letterSpacing=\"0.000000\" kerning=\"1\">" + text + u"</font></p>";
+}
+std::u16string Number(int v) {
+    std::u16string s;
+    for (char c : std::to_string(v)) s += char16_t(c);
+    return s;
+}
+// A Controller Buttons row's value: its controller button's icon (the slot's PadIcon, PadIconFrame), drawn in the
+// player's controller's style (the Controller Icons setting, or the controller in use: KeyPrompts::XboxButtons). A
+// button with no icon, or a row with more than one button (bbport.ini's own pad lines): the buttons' names.
+// The icons' order (tools/engine/menu_assets.cpp PadIconSprite: kPadIcons each style, PlayStation then Xbox).
+constexpr int kPadIcons = 24, kTouchLeftIcon = 22, kTouchRightIcon = 23;
+// runtime_pad.c's buttons after SDL's: the triggers, then the touchpad's left and right (its press, by the finger)
+constexpr int kTouchLeft = SDL_GAMEPAD_BUTTON_COUNT + 2, kTouchRight = SDL_GAMEPAD_BUTTON_COUNT + 3;
+int PadIconOf(int button) {
+    static constexpr int kOrder[kPadIcons - 2] = {
+        SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST, SDL_GAMEPAD_BUTTON_WEST, SDL_GAMEPAD_BUTTON_NORTH,
+        SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, SDL_GAMEPAD_BUTTON_COUNT,
+        SDL_GAMEPAD_BUTTON_COUNT + 1, SDL_GAMEPAD_BUTTON_LEFT_STICK, SDL_GAMEPAD_BUTTON_RIGHT_STICK,
+        SDL_GAMEPAD_BUTTON_START, SDL_GAMEPAD_BUTTON_BACK, SDL_GAMEPAD_BUTTON_TOUCHPAD, SDL_GAMEPAD_BUTTON_DPAD_UP,
+        SDL_GAMEPAD_BUTTON_DPAD_DOWN, SDL_GAMEPAD_BUTTON_DPAD_LEFT, SDL_GAMEPAD_BUTTON_DPAD_RIGHT,
+        SDL_GAMEPAD_BUTTON_MISC1, SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1, SDL_GAMEPAD_BUTTON_RIGHT_PADDLE2,
+        SDL_GAMEPAD_BUTTON_LEFT_PADDLE1, SDL_GAMEPAD_BUTTON_LEFT_PADDLE2,
+    };
+    if (button == kTouchLeft || button == SDL_GAMEPAD_BUTTON_TOUCHPAD) return kTouchLeftIcon;
+    if (button == kTouchRight) return kTouchRightIcon;
+    for (int i = 0; i < kPadIcons - 2; ++i)
+        if (kOrder[i] == button) return i;
+    return -1;
+}
+// The row's PadIcon frame (1 ..), or 0: no icon (a capture's "Press a button...", None, names).
+int PadIconFrame(int row) {
+    if (runtime_pad_remap_capturing() == row) return 0;
+    int buttons[2];
+    if (runtime_pad_remap_buttons(row, buttons, 2) != 1) return 0;
+    const int icon = PadIconOf(buttons[0]);
+    return icon < 0 ? 0 : 1 + icon + (KeyPrompts::XboxButtons() ? kPadIcons : 0);
+}
+std::u16string ButtonName(int button, bool xbox) {
+    struct Name {
+        int button;
+        const char16_t *ps, *xbox;
+    };
+    static constexpr Name kNames[] = {
+        {SDL_GAMEPAD_BUTTON_SOUTH, u"Cross", u"A"},
+        {SDL_GAMEPAD_BUTTON_EAST, u"Circle", u"B"},
+        {SDL_GAMEPAD_BUTTON_WEST, u"Square", u"X"},
+        {SDL_GAMEPAD_BUTTON_NORTH, u"Triangle", u"Y"},
+        {SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, u"L1", u"LB"},
+        {SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, u"R1", u"RB"},
+        {SDL_GAMEPAD_BUTTON_COUNT, u"L2", u"LT"},
+        {SDL_GAMEPAD_BUTTON_COUNT + 1, u"R2", u"RT"},
+        {SDL_GAMEPAD_BUTTON_LEFT_STICK, u"L3", u"LS"},
+        {SDL_GAMEPAD_BUTTON_RIGHT_STICK, u"R3", u"RS"},
+        {SDL_GAMEPAD_BUTTON_START, u"Options", u"Menu"},
+        {SDL_GAMEPAD_BUTTON_BACK, u"Share", u"View"},
+        {SDL_GAMEPAD_BUTTON_MISC1, u"Mute", u"Share"},
+        {SDL_GAMEPAD_BUTTON_TOUCHPAD, u"Touchpad", u"Touchpad"},
+        {kTouchLeft, u"Touchpad (left)", u"Touchpad (left)"},
+        {kTouchRight, u"Touchpad (right)", u"Touchpad (right)"},
+        {SDL_GAMEPAD_BUTTON_DPAD_UP, u"D-pad Up", u"D-pad Up"},
+        {SDL_GAMEPAD_BUTTON_DPAD_DOWN, u"D-pad Down", u"D-pad Down"},
+        {SDL_GAMEPAD_BUTTON_DPAD_LEFT, u"D-pad Left", u"D-pad Left"},
+        {SDL_GAMEPAD_BUTTON_DPAD_RIGHT, u"D-pad Right", u"D-pad Right"},
+        {SDL_GAMEPAD_BUTTON_LEFT_PADDLE1, u"Left Paddle 1", u"Left Paddle 1"},
+        {SDL_GAMEPAD_BUTTON_LEFT_PADDLE2, u"Left Paddle 2", u"Left Paddle 2"},
+        {SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1, u"Right Paddle 1", u"Right Paddle 1"},
+        {SDL_GAMEPAD_BUTTON_RIGHT_PADDLE2, u"Right Paddle 2", u"Right Paddle 2"},
+    };
+    for (const Name& n : kNames)
+        if (n.button == button) return xbox ? n.xbox : n.ps;
+    return u"Extra Button";
+}
+std::u16string PadValue(int row) {
+    if (runtime_pad_remap_capturing() == row) return u"Press a button...";
+    if (PadIconFrame(row)) return u"";  // the icon (PadIcon)
+    int buttons[8];
+    const int n = std::min(runtime_pad_remap_buttons(row, buttons, int(std::size(buttons))), int(std::size(buttons)));
+    if (n == 0) return u"None";
+    const bool xbox = KeyPrompts::XboxButtons();
+    std::u16string names;
+    for (int i = 0; i < n; ++i) names += (i ? u", " : u"") + ButtonName(buttons[i], xbox);
+    return Escaped(names.c_str());
+}
+std::u16string ValueText(const Row& r) {
+    switch (r.kind) {
+    case Kind::Toggle: return r.value ? u"On" : u"Off";
+    case Kind::Pick: return r.value >= 0 && r.value < int(r.choices.size()) ? Escaped(r.choices[std::size_t(r.value)]) : u"";
+    case Kind::Info: return r.choices.empty() ? u"" : Escaped(r.choices[0]);
+    case Kind::Key: {
+        if (r.pad >= 0) return PadValue(r.pad);
+        if (host_bind_capturing() == r.key) return u"Press a key...";
+        char key[64];
+        host_binding_describe(r.key, key, sizeof key);
+        return Escaped(Wide(key).c_str());
+    }
+    default: return u"";
+    }
+}
+
+std::string SlotPath(int slot, const char* part) { return "ItemList/SettingsRows/Slot_" + std::to_string(slot) + "/" + part; }
+
+void DrawSlot(std::uint64_t root, int slot, const Line* line, const Row* r, bool selected, State& s) {
+    std::u16string key;  // what the slot shows, as one key (the parts are redrawn only when it changes)
+    if (line) {
+        key = line->head ? std::u16string(line->head) : u"";
+        key += r ? std::u16string(1, char16_t('0' + int(r->kind))) + (selected ? u"*" : u"-") + r->name + u"|" +
+                       ValueText(*r) + u"|" + Number(r->value) + u"|" + Number(r->pad >= 0 ? PadIconFrame(r->pad) : 0)
+                 : u"line";
+    }
+    if (key == s.shown[slot]) return;
+    s.shown[slot] = key;
+    using BbMenuWidgets::SetFieldText;
+    const auto show = [&](const char* part, bool v) { BbMenuWidgets::ShowPart(root, SlotPath(slot, part).c_str(), v); };
+    const bool slider = r && r->kind == Kind::Slider,
+               combo = r && (r->kind == Kind::Toggle || r->kind == Kind::Pick || r->kind == Kind::Info ||
+                             r->kind == Kind::Key);
+    const bool button = r && r->kind == Kind::Defaults, command = r && r->kind == Kind::Command;
+    const bool named = r && !button && !command;  // commands: a button centred on the list
+    const char16_t* color = selected ? u"#ffffff" : u"#cccccc";
+    if (line && line->head) SetFieldText(root, SlotPath(slot, "Head").c_str(), Html(u"left", 26, u"#b49762", Escaped(line->head)).c_str());
+    if (named) SetFieldText(root, SlotPath(slot, "Name").c_str(), Html(u"right", 24, color, Escaped(r->name)).c_str());
+    if (combo)
+        SetFieldText(root, SlotPath(slot, "Combo/Item_0_0/Text_0").c_str(), Html(u"center", 24, color, ValueText(*r)).c_str());
+    if (slider) {
+        SetFieldText(root, SlotPath(slot, "Slider/Text_0").c_str(), Html(u"center", 23, u"#cccccc", Number(r->value)).c_str());
+        BbMenuWidgets::GotoPartFrame(root, SlotPath(slot, "Slider/Bar").c_str(), 1 + r->value * 99 / 10);
+    }
+    if (button) SetFieldText(root, SlotPath(slot, "Button/Text_0").c_str(), Html(u"center", 24, color, Escaped(r->name)).c_str());
+    if (command) SetFieldText(root, SlotPath(slot, "Command/Text_0").c_str(), Html(u"center", 24, color, Escaped(r->name)).c_str());
+    show("Head", line && line->head);
+    show("Name", named);
+    show("NameLine", named);
+    show("Cursor", selected && named);
+    show("Combo", combo);
+    show("Combo/Cursor", selected && combo);
+    show("Slider", slider);
+    show("Slider/Cursor", selected && slider);
+    show("Slider/LeftArrow", selected && slider);
+    show("Slider/RightArrow", selected && slider);
+    show("Button", button);
+    show("Button/Cursor", selected && button);
+    show("Command", command);
+    show("Command/Cursor", selected && command);
+    show("HeadLine", line && line->head);
+    const int icon = r && r->kind == Kind::Key && r->pad >= 0 ? PadIconFrame(r->pad) : 0;
+    if (icon) BbMenuWidgets::GotoPartFrame(root, SlotPath(slot, "PadIcon").c_str(), icon);
+    show("PadIcon", icon > 0);
+}
+
+int FirstSelectable(const State& s) {
+    for (int i = 0; i < int(s.lines.size()); ++i)
+        if (RowOf(s, i)) return i;
+    return 0;
+}
+void Scroll(State& s) {
+    int want = s.top;
+    // going up: the cursor's heading (the line above it) in view too
+    const int above = s.cursor > 0 && !RowOf(s, s.cursor - 1) && s.lines[std::size_t(s.cursor - 1)].head ? s.cursor - 1 : s.cursor;
+    if (above < want) want = above;
+    // going down: the line after the cursor in view too (the end's empty line, or what follows)
+    const int below = std::min(s.cursor + 1, int(s.lines.size()) - 1);
+    if (below >= want + kSlots) want = below - kSlots + 1;
+    s.top = std::max(0, std::min(want, std::max(0, int(s.lines.size()) - kSlots)));
+}
+void Move(State& s, int dir) {
+    for (int i = s.cursor + dir; i >= 0 && i < int(s.lines.size()); i += dir) {
+        if (!RowOf(s, i)) continue;
+        s.cursor = i;
+        Scroll(s);
+        BbMenuWidgets::CursorMoveSound();
+        return;
+    }
+}
+void Change(State& s, int dir) {
+    if (s.cursor < 0 || s.cursor >= int(s.lines.size()) || s.lines[std::size_t(s.cursor)].row < 0) return;
+    Row& r = s.rows[std::size_t(s.lines[std::size_t(s.cursor)].row)];
+    const int before = r.value;
+    switch (r.kind) {
+    case Kind::Toggle: r.value = r.value ? 0 : 1; break;
+    case Kind::Slider: r.value = std::clamp(r.value + dir, 0, 10); break;
+    case Kind::Pick:
+        if (!r.choices.empty()) r.value = (r.value + dir + int(r.choices.size())) % int(r.choices.size());
+        break;
+    default: return;
+    }
+    if (r.value != before) BbMenuWidgets::TypeSound();
+}
+Row* CurrentRow(State& s) {
+    if (s.cursor < 0 || s.cursor >= int(s.lines.size()) || s.lines[std::size_t(s.cursor)].row < 0) return nullptr;
+    return &s.rows[std::size_t(s.lines[std::size_t(s.cursor)].row)];
+}
+
+// ---- the choices pop-up ----
+// A party button asks with the same two lines as a command (its own choices are its value text).
+int PopupCount(const Row& r) { return r.kind == Kind::Info ? 2 : int(r.choices.size()); }
+// A Yes / No question: a command, a party button, a Defaults with choices.
+bool Asks(const Row& r) {
+    return r.kind == Kind::Command || r.kind == Kind::Info || (r.kind == Kind::Defaults && !r.choices.empty());
+}
+int PopupShown(const Row& r) { return std::min(PopupCount(r), kPopupLines); }
+void PopupScroll(State& s, const Row& r) {
+    const int shown = PopupShown(r);
+    s.popup_top = std::clamp(s.popup_top, std::max(0, s.popup_cursor - shown + 1), s.popup_cursor);
+    s.popup_top = std::clamp(s.popup_top, 0, std::max(0, PopupCount(r) - shown));
+}
+void OpenPopup(State& s) {
+    Row* r = CurrentRow(s);
+    if (!r || PopupCount(*r) == 0) return;
+    s.popup = true;
+    s.popup_line = s.cursor;
+    s.popup_cursor = Asks(*r) ? PopupCount(*r) - 1
+                                                                      : std::clamp(r->value, 0, int(r->choices.size()) - 1);
+    s.popup_top = s.popup_cursor - PopupShown(*r) / 2;
+    PopupScroll(s, *r);
+    s.popup_shown = u"\x1";
+    BbMenuWidgets::EnterSound();
+    std::printf("Settings screen: the %s pop-up is open\n", "choices");
+    std::fflush(stdout);
+}
+void Defaults(State& s);
+void ClosePopup(State& s, bool pick) {
+    Row* r = CurrentRow(s);
+    const bool command = r && Asks(*r), yes = command && pick && s.popup_cursor == 0;
+    if (pick && r && !command) {
+        r->value = s.popup_cursor;
+        BbMenuWidgets::DecideSound();
+    } else if (yes) {
+        BbMenuWidgets::DecideSound();
+    } else {
+        BbMenuWidgets::CancelSound();
+    }
+    s.popup = false;
+    s.swallow = true;
+    s.popup_shown = u"\x1";
+    s.shown[std::size_t(std::clamp(s.popup_line - s.top, 0, kSlots - 1))] = u"\x1";  // its row redrawn
+    std::printf("Settings screen: the choices pop-up closed (%s)\n", pick ? "a choice" : "cancelled");
+    std::fflush(stdout);
+    if (yes && r->kind == Kind::Defaults) {
+        Defaults(s);
+    } else if (yes && r->party >= 0) {
+        PressParty(*r, true);
+    } else if (yes && r->name == std::u16string(u"Exit Game")) {
+        ExitGame();
+    } else if (yes && r->name == std::u16string(u"Restore Default Buttons")) {
+        runtime_pad_remap_defaults();
+        std::printf("Settings screen: the controller buttons back to their defaults\n");
+        std::fflush(stdout);
+    } else if (yes && r->name == std::u16string(u"Restore Default Keys")) {
+        host_bindings_load_defaults();
+        std::printf("Settings screen: the key bindings back to their defaults\n");
+        std::fflush(stdout);
+    } else if (yes) {
+        QuitToDesktop();
+    }
+}
+// Under its row when it fits in the list, else over it, else as low as fits.
+int PopupFrame(const State& s, const Row& r) {
+    const double row = (s.popup_line - s.top) * kLine;
+    const double high = 2 * kPopupPad + PopupShown(r) * kPopupPitch, list = kSlots * kLine;
+    double top = row + 50;
+    if (top + high > list) top = row + 4 - high >= 0 ? row + 4 - high : std::max(0.0, list - high);
+    return 1 + std::clamp(int(std::lround(top / kPopupStep)), 0, kPopupFrames - 1);
+}
+std::string PopupPath(int item, const char* part) {
+    return "ItemList/SettingsRows/Popup/Box/Item_" + std::to_string(item) + "/" + part;
+}
+void DrawPopup(std::uint64_t root, State& s) {
+    const Row* r = RowOf(s, s.popup_line);
+    std::u16string key;
+    if (s.popup && r) {
+        key = Number(s.popup_line - s.top) + u"|" + Number(s.popup_top) + u"|" + Number(s.popup_cursor) + u"|" +
+              r->name;
+    }
+    if (key == s.popup_shown) return;
+    const bool was_open = !s.popup_shown.empty() && s.popup_shown != u"\x1";
+    s.popup_shown = key;
+    BbMenuWidgets::ShowPart(root, "ItemList/SettingsRows/Popup", !key.empty());
+    if (key.empty()) return;
+    (void)was_open;
+    const int shown = PopupShown(*r);
+    BbMenuWidgets::GotoPartFrame(root, "ItemList/SettingsRows/Popup", PopupFrame(s, *r));
+    BbMenuWidgets::GotoPartFrame(root, "ItemList/SettingsRows/Popup/Box/Frame", shown);
+    for (int k = 0; k < kPopupLines; ++k) {
+        const int choice = s.popup_top + k;
+        const bool on = k < shown && choice < PopupCount(*r);
+        BbMenuWidgets::ShowPart(root, ("ItemList/SettingsRows/Popup/Box/Item_" + std::to_string(k)).c_str(), on);
+        if (!on) continue;
+        const bool lit = choice == s.popup_cursor;
+        const bool ask = Asks(*r);
+        const char16_t* color = lit ? u"#ffffff" : choice == r->value && !ask ? u"#b49762" : u"#cccccc";
+        const char16_t* text = ask ? (choice == 0 ? u"Yes" : u"No") : r->choices[std::size_t(choice)];
+        BbMenuWidgets::SetFieldText(root, PopupPath(k, "Text/Text_0").c_str(),
+                                    Html(u"center", 22, color, Escaped(text)).c_str());
+        BbMenuWidgets::ShowPart(root, PopupPath(k, "Cursor").c_str(), lit);
+    }
+}
+
+// Every row of the tab back to its default; a tab with key or controller button rows: those too.
+void Defaults(State& s) {
+    bool keys = false, pad = false;
+    for (Row& r : s.rows) {
+        r.value = r.def;
+        r.stored = -1;  // every one written (Picture Tuning too, after the picture rows that turn it on)
+        if (r.kind == Kind::Key) (r.pad >= 0 ? pad : keys) = true;
+    }
+    if (keys) host_bindings_load_defaults();
+    if (pad) runtime_pad_remap_defaults();
+    for (auto& k : s.shown) k = u"\x1";
+    BbMenuWidgets::DecideSound();
+    std::printf("Settings screen: tab %d back to its defaults\n", s.tab);
+    std::fflush(stdout);
+}
+// Confirm (or a click) on the selected row: a toggle switches, a list steps on or opens its pop-up, Defaults resets
+// the tab, a command asks Yes / No in the pop-up.
+void Activate(State& s) {
+    Row* r = CurrentRow(s);
+    if (!r) return;
+    switch (r->kind) {
+    case Kind::Toggle: Change(s, 1); break;
+    case Kind::Pick:
+        if (r->drop) OpenPopup(s);
+        else Change(s, 1);
+        break;
+    case Kind::Defaults:  // one with choices (Yes / No) asks first
+        if (r->choices.empty()) Defaults(s);
+        else OpenPopup(s);
+        break;
+    case Kind::Command: OpenPopup(s); break;
+    case Kind::Key:
+        BbMenuWidgets::EnterSound();
+        if (r->pad >= 0) runtime_pad_remap_capture(r->pad);
+        else host_bind_capture_begin(r->key);
+        break;
+    case Kind::Info:  // a party button: runs (a confirmed one asks first); a read-only line does nothing
+        if (r->party < 0 || !P::Runs(r->party)) break;
+        if (P::Confirmed(r->party)) {
+            OpenPopup(s);
+        } else {
+            BbMenuWidgets::DecideSound();
+            PressParty(*r, false);
+        }
+        break;
+    default: break;
+    }
+}
+
+// A press, then held: again after 0.5 s, then 20 a second (as the on-screen keyboard).
+std::uint32_t Pressed(State& s, std::uint32_t now_held) {
+    using namespace std::chrono;
+    const auto now = steady_clock::now();
+    const std::uint32_t fresh = now_held & ~s.held;
+    s.held = now_held;
+    if (fresh) {
+        s.next = now + milliseconds(500);
+        return fresh;
+    }
+    if (now_held && now >= s.next) {
+        s.next = now + milliseconds(50);
+        return now_held;
+    }
+    return 0;
+}
+
+} // namespace
+
+bool Enabled() {
+    static const bool on = [] {
+        const char* v = std::getenv("BB_SETTINGS_SCREEN");
+        return !(v && *v == '0');  // on unless BB_SETTINGS_SCREEN=0
+    }();
+    return on;
+}
+
+std::span<const Tab> Tabs() { return kTabs; }
+
+const char16_t* Text(std::uint32_t category, std::uint32_t id) {
+    if (category == 0xc8) {
+        if (id == 263100) return u"Settings";  // the book's title
+        for (const Tab& t : kTabs)
+            if (t.text == id) return t.name;
+        return nullptr;
+    }
+    if (category == 0xc9 && id == 263000) return u"";  // the help line: empty (the details page has the help)
+    return nullptr;
+}
+
+namespace {
+std::u16string FromUtf8(const std::string& s) {
+    std::u16string out;
+    for (std::size_t i = 0; i < s.size();) {
+        const unsigned char c = static_cast<unsigned char>(s[i]);
+        const int more = c < 0x80 ? 0 : c < 0xe0 ? 1 : c < 0xf0 ? 2 : 3;
+        std::uint32_t cp = more == 0 ? c : more == 1 ? c & 0x1f : more == 2 ? c & 0x0f : c & 0x07;
+        for (int k = 1; k <= more && i + k < s.size(); ++k) cp = cp << 6 | (static_cast<unsigned char>(s[i + k]) & 0x3f);
+        i += std::size_t(more) + 1;
+        if (cp >= 0x10000) {
+            cp -= 0x10000;
+            out += char16_t(0xd800 + (cp >> 10));
+            out += char16_t(0xdc00 + (cp & 0x3ff));
+        } else {
+            out += char16_t(cp);
+        }
+    }
+    return out;
+}
+// The save's play time in ms: GameDataMan +0x94 (1.09; 0 on a new game, then counting ms: a headless probe), -1
+// without it.
+std::int64_t PlayTimeMs(const coop::GameSnapshot& s) {
+    std::uint32_t ms = 0;
+    return s.game_data_man && coop::SafeGet(s.game_data_man + 0x94, &ms) ? std::int64_t(ms) : -1;
+}
+// Where the player is: the map page's named place when its data is there (the generator's places), else the
+// game's own place name for the map (item text 19, PlaceName: mAA_BB_.. -> AA*100 + BB*10, e.g. m24_01 2410
+// Central Yharnam; else AA*100). "" in a Chalice Dungeon (its names go by the dungeon, not the map).
+std::u16string PlaceName(const coop::GameSnapshot& s) {
+    if (const std::string place = BbMapPage::PlaceHere(); !place.empty()) return FromUtf8(place);
+    if (s.map_id == 0xffffffffu) return std::u16string();
+    const std::uint32_t aa = s.map_id >> 24 & 0xff, bb = s.map_id >> 16 & 0xff;
+    const char16_t* t = BbGameMenu::GameText(19, aa * 100 + bb * 10);
+    if (!t) t = BbGameMenu::GameText(19, aa * 100);
+    std::u16string out = t ? t : u"";
+    while (!out.empty() && out.back() == u' ') out.pop_back();  // some of the game's names end in a space
+    return out;
+}
+}  // namespace
+
+bool Profile(std::u16string* name, std::vector<std::u16string>* lines) {
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        if (g_state.tab != 5) return false;  // System
+    }
+    *name = coop::CharacterName();
+    lines->clear();
+    const coop::GameSnapshot s = coop::ReadGameState(false);
+    if (s.level >= 0) lines->push_back(u"Level " + Wide(std::to_string(s.level).c_str()));
+    if (const std::int64_t ms = PlayTimeMs(s); ms >= 0) {
+        char text[32];
+        const long long sec = ms / 1000;
+        std::snprintf(text, sizeof text, "%lld:%02lld:%02lld", sec / 3600, sec / 60 % 60, sec % 60);
+        lines->push_back(u"Play Time " + Wide(text));
+    }
+    if (const std::u16string place = PlaceName(s); !place.empty()) lines->push_back(place);
+    return true;
+}
+
+void Selected(const char16_t** name, const char16_t** help, bool* picture) {
+    std::lock_guard<std::mutex> lk(g_mu);
+    const Row* r = RowOf(g_state, g_state.cursor);
+    *name = r ? r->name : nullptr;
+    *help = r ? r->help : nullptr;
+    if (picture) *picture = r && r->picture;
+}
+
+void Opened() {
+    std::lock_guard<std::mutex> lk(g_mu);
+    g_state = State{};
+}
+
+bool Update(std::uint64_t root, int tab, const Pointer& pointer) {
+    std::lock_guard<std::mutex> lk(g_mu);
+    State& s = g_state;
+    using namespace PadBits;
+    const PadState pad = BbInput::LastPad();
+    const std::uint32_t confirm = menu_confirm_button(), back = menu_back_button();
+    if (s.swallow && !(pad.buttons & (confirm | back))) s.swallow = false;
+    // L1 / R1 switch the tabs here, the d-pad's Left / Right (and the left stick) are the rows'; the wheel scrolls
+    // the view; the pop-up (and the button that closed it, until let go) takes every button
+    BbInput::ScreenInput how;
+    how.own_rows = true;
+    how.all = s.popup || s.swallow;
+    BbInput::HoldScreenInput(how);
+    const int wheel = BbInput::TakeWheelLines();
+    const std::uint32_t fresh_buttons = pad.buttons & ~s.buttons;
+    s.buttons = pad.buttons;
+    bool help_changed = false;
+    if (s.tab < 0 && pointer.take_click) pointer.take_click();  // opening: the pause menu's click is not ours
+    // a key binding's capture takes the next key or mouse button (the pad and keys reach no one meanwhile): its
+    // click is not ours, and nothing else moves until it ends
+    const bool capturing = host_bind_capture_blocking() || runtime_pad_remap_blocking();
+    if (capturing && pointer.take_click) pointer.take_click();
+    // a controller button changed (a capture, Restore Default Buttons): bbport.ini's pad.<button>= lines saved
+    BbInputConfig::append_pad = AppendPadLines;
+    if (const std::uint64_t serial = runtime_pad_remap_serial(); serial != s.pad_serial) {
+        s.pad_serial = serial;
+        BbSettings::Save();
+    }
+    if (tab != s.tab) {
+        s.tab = tab;
+        if (tab == 4) P::Load();  // the party rows' values from the settings (as a party page opening)
+        s.rows = RowsOf(tab);
+        s.party_shown = tab == 4 ? PartyShown() : "";
+        for (Row& r : s.rows) r.def = r.value;
+        LoadValues(s.rows, true);
+        s.popup = false;
+        s.popup_shown = u"\x1";
+        s.lines = LinesOf(s.rows);
+        s.cursor = FirstSelectable(s);
+        s.top = 0;
+        Scroll(s);
+        for (auto& k : s.shown) k = u"\x1";  // redraw every slot
+        s.scroll_shown = -2;
+        help_changed = true;
+        std::printf("Settings screen: tab %d, %zu rows on %zu lines\n", tab, s.rows.size(), s.lines.size());
+        std::fflush(stdout);
+    }
+    // Party: the rows follow the party's state (a guest's lines for the host's rules, the flow's own rows ...)
+    if (s.tab == 4 && !s.popup && std::chrono::steady_clock::now() >= s.party_check) {
+        s.party_check = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
+        if (std::string now = PartyShown(); now != s.party_shown) {
+            const Row* at = CurrentRow(s);
+            const int field = at ? at->party : -1;
+            s.party_shown = std::move(now);
+            s.rows = PartyRows();
+            LoadValues(s.rows, true);
+            s.lines = LinesOf(s.rows);
+            s.cursor = FirstSelectable(s);
+            for (int i = 0; i < int(s.lines.size()); ++i)
+                if (const Row* r = RowOf(s, i); r && field >= 0 && r->party == field) s.cursor = i;
+            Scroll(s);
+            for (auto& k : s.shown) k = u"\x1";
+            s.scroll_shown = -2;
+            help_changed = true;
+            std::printf("Settings screen: the party tab's rows changed (%zu rows)\n", s.rows.size());
+            std::fflush(stdout);
+        }
+    }
+    const std::uint32_t dirs = pad.buttons & (kUp | kDown | kLeft | kRight);  // the left stick's too (input.cpp)
+    const std::uint32_t go = Pressed(s, dirs);
+    // the mouse: moved, it highlights what it is on; a click there acts on it
+    bool moved = pointer.on && s.pointer_seen && (pointer.x != s.pointer_x || pointer.y != s.pointer_y);
+    if (dirs) {
+        s.navigated = true;
+        s.navigated_x = pointer.x, s.navigated_y = pointer.y;
+        s.navigated_at = std::chrono::steady_clock::now();
+    } else if (s.navigated) {
+        const float dx = pointer.x - s.navigated_x, dy = pointer.y - s.navigated_y;
+        if (std::chrono::steady_clock::now() - s.navigated_at > kNavigatedQuiet &&
+            dx * dx + dy * dy > kNavigatedSlack * kNavigatedSlack)
+            s.navigated = false;
+        else
+            moved = false;
+    }
+    s.pointer_seen = pointer.on;
+    s.pointer_x = pointer.x, s.pointer_y = pointer.y;
+    const auto on = [&](const std::string& path, float* fx = nullptr) {
+        return pointer.on && pointer.at && pointer.at(root, path.c_str(), pointer.x, pointer.y, fx);
+    };
+    const auto click = [&] { return pointer.take_click && pointer.take_click(); };
+    if (s.popup) {
+        const Row* r = RowOf(s, s.popup_line);
+        if (!r) {
+            s.popup = false;
+        } else {
+            const int count = PopupCount(*r), shown = PopupShown(*r);
+            int over = -1;  // the choice the mouse is on
+            for (int k = 0; k < shown && pointer.on; ++k)
+                if (s.popup_top + k < count && on(PopupPath(k, "Hit"))) over = s.popup_top + k;
+            if (moved && over >= 0 && over != s.popup_cursor) {
+                s.popup_cursor = over;
+                BbMenuWidgets::CursorMoveSound();
+            }
+            if (pointer.on && click()) {
+                if (over >= 0) {
+                    s.popup_cursor = over;
+                    ClosePopup(s, true);
+                } else if (!on("ItemList/SettingsRows/Popup/Box/Frame")) {
+                    ClosePopup(s, false);  // a click off the pop-up
+                }
+            } else if (fresh_buttons & confirm) {
+                ClosePopup(s, true);
+            } else if (fresh_buttons & back) {
+                ClosePopup(s, false);
+            } else if (go & (kUp | kDown)) {
+                const int was = s.popup_cursor;
+                s.popup_cursor = std::clamp(s.popup_cursor + (go & kUp ? -1 : 1), 0, count - 1);
+                PopupScroll(s, *r);
+                if (s.popup_cursor != was) BbMenuWidgets::CursorMoveSound();
+            }
+        }
+    } else if (capturing) {
+        // the row shows "Press a key..." (ValueText) until the capture ends
+    } else if (!s.lines.empty()) {
+        const int was = s.cursor;
+        // Delete on a key row clears its binding (the PC Keys page's way)
+        if (const Row* r = CurrentRow(s); r && r->kind == Kind::Key && r->pad < 0 && host_bind_take_clear_key()) {
+            host_binding_clear(r->key);
+            BbMenuWidgets::DecideSound();
+        }
+        // the wheel: the view only, the cursor stays (out of view, the next key or button brings it back)
+        if (wheel) {  // the cursor's move sound for each scroll that moved the view, as the game's lists
+            const int top = std::clamp(s.top + wheel, 0, std::max(0, int(s.lines.size()) - kSlots));
+            if (top != s.top) BbMenuWidgets::CursorMoveSound();
+            s.top = top;
+        }
+        if ((go || (fresh_buttons & confirm)) && (s.cursor < s.top || s.cursor >= s.top + kSlots)) Scroll(s);
+        int over = -1, over_slot = -1;  // the row line the mouse is on
+        for (int i = 0; i < kSlots && pointer.on; ++i) {
+            const int at = s.top + i;
+            if (RowOf(s, at) && on(SlotPath(i, "Hit"))) over = at, over_slot = i;
+        }
+        if (moved && over >= 0 && over != s.cursor) {
+            s.cursor = over;  // no scrolling: the line is in view, and the list stays under the mouse
+            BbMenuWidgets::CursorMoveSound();
+        }
+        if (over >= 0 && click()) {
+            if (over != s.cursor) {
+                s.cursor = over;
+                BbMenuWidgets::CursorMoveSound();
+            }
+            Row* r = CurrentRow(s);
+            float fx = 0;
+            if (r && r->kind == Kind::Slider) {
+                if (on(SlotPath(over_slot, "Slider/LeftArrow"))) Change(s, -1);
+                else if (on(SlotPath(over_slot, "Slider/RightArrow"))) Change(s, 1);
+                else if (on(SlotPath(over_slot, "BarHit"), &fx)) {
+                    const int v = std::clamp(int(std::lround(fx * 10)), 0, 10);
+                    if (v != r->value) {
+                        r->value = v;
+                        BbMenuWidgets::TypeSound();
+                    }
+                }
+            } else if (r && r->kind == Kind::Pick && !r->drop && on(SlotPath(over_slot, "Combo"), &fx)) {
+                Change(s, fx < 0.5f ? -1 : 1);
+            } else {
+                Activate(s);
+            }
+        } else if (fresh_buttons & confirm) {
+            Activate(s);
+        } else if (go & kUp) Move(s, -1);
+        else if (go & kDown) Move(s, 1);
+        else if (go & kLeft) Change(s, -1);
+        else if (go & kRight) Change(s, 1);
+        help_changed = help_changed || s.cursor != was;
+    }
+    if (SaveValues(s.rows)) LoadValues(s.rows, false);
+    for (int i = 0; i < kSlots; ++i) {
+        const int at = s.top + i;
+        const Line* line = at < int(s.lines.size()) ? &s.lines[std::size_t(at)] : nullptr;
+        DrawSlot(root, i, line, line ? RowOf(s, at) : nullptr, at == s.cursor, s);
+    }
+    DrawPopup(root, s);
+    // the scroll bar: shown while the tab has more lines than slots, its thumb at how far the list is scrolled
+    const int more = int(s.lines.size()) - kSlots;
+    // the thumb: frame 1 + size * 21 + position (tools/engine/menu_assets.cpp Thumb): size from the share of the
+    // list in view (10 .. 90 %), position in twentieths of the scroll
+    const int share = more > 0 ? std::clamp(int(std::lround(10.0 * kSlots / double(s.lines.size()))) - 1, 0, 8) : 0;
+    const int thumb = more > 0 ? 1 + share * 21 + int(std::lround(20.0 * s.top / more)) : 0;
+    if (thumb != s.scroll_shown) {
+        BbMenuWidgets::ShowPart(root, "ItemList/SettingsScroll", thumb > 0);
+        if (thumb > 0) BbMenuWidgets::GotoPartFrame(root, "ItemList/SettingsScroll/Thumb", thumb);
+        s.scroll_shown = thumb;
+    }
+    return help_changed;
+}
+
+} // namespace BbSettingsScreen

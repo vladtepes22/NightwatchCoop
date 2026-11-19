@@ -169,6 +169,9 @@ Ref Script::NewState(std::int64_t group, std::int64_t id) {
     return kNone;
 }
 
+Ref Script::Target(Ref condition) const { return Field(condition, 0); }
+void Script::SetTarget(Ref condition, Ref target) { Set(condition, 0, target, true); }
+
 Ref Script::NewCondition(Ref target, const Bytes& expression, List pass) {
     const Ref code = Add(kExpressions, section_[kName], expression);
     Bytes c(kSize[kConditions], 0);

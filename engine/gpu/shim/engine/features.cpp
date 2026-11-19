@@ -62,6 +62,7 @@ std::int64_t __attribute__((sysv_abi)) OnFrame(std::uint64_t, const std::uint64_
     if (coop::PartyRequested()) { SeamlessLauncher::Poll(); coop::CoopTick(); }
     else coop::lamptravel::Tick();
     BbGameMenu::Poll();
+    ChangeAppearance::MirrorTick();
     ChangeAppearance::Tick();
     Rebirth::Tick();
     Options::Tick();
@@ -118,6 +119,8 @@ void Install(std::uint8_t* image, std::size_t size) {
     StateInitialize(reinterpret_cast<std::uint64_t>(image));
 
     std::error_code error;
+    // the layout with the mirror is mounted whenever it is prepared; Hunter's Dream Mirror turns the mirror's chr off
+    // and on live (ChangeAppearance::MirrorTick)
     const bool mounted = mirror_asset && std::filesystem::is_regular_file(mirror_asset, error) && !error &&
                          !runtime_file_mount(kDreamLayout, mirror_asset);
     const bool input = BbInput::Install(image, size);
@@ -135,7 +138,8 @@ void Install(std::uint8_t* image, std::size_t size) {
     if (mounted && (menus || MenuMemory::Install(image, size)) && list) {
         ChangeAppearance::EnableEditor();
         editor = true;
-        host_log("Dream mirror enabled: native appearance editor and ChrMake_BG preview; %s", mirror_asset);
+        host_log("Dream mirror enabled: native appearance editor and ChrMake_BG preview (switched live by the "
+                 "setting); %s", mirror_asset);
     } else if (mounted) {
         runtime_file_unmount(kDreamLayout);
         host_log("mirror off: the menu heaps are not 1.09's");

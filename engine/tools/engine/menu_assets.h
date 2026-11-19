@@ -63,10 +63,13 @@ Kind KindOf(std::int32_t id);
 Bytes MenuMessages(const Bytes& dcx, Language language);
 Bytes MenuMessages(const Bytes& dcx, bool chinese = false);
 Bytes OptionMovie(const Bytes& gfx);
-// itemdetailtext.gfx with a second description panel, GlyphDetailText, for the Chalice glyph screen.
-Bytes GlyphPanelMovie(const Bytes& gfx);
+// itemdetailtext.gfx with a second description panel, GlyphDetailText, for the Chalice glyph screen (and the
+// Settings screen: the game's optionsetting.gfx gives its brightness picture).
+Bytes GlyphPanelMovie(const Bytes& gfx, const Bytes& option_gfx, const Bytes& common_tpf_dcx);
 // itemlist_normalitem.gfx with the Chalice glyph screen's own card list: six rows under a search bar.
-Bytes GlyphListMovie(const Bytes& gfx);
+Bytes GlyphListMovie(const Bytes& gfx, const Bytes& option_gfx, const Bytes& inventory_gfx,
+                     const Bytes& common_tpf_dcx);  // the game's
+// optionsetting.gfx and inventory.gfx (the Settings rows' parts)
 // inventory.gfx with two more tab-tile frames (61, 62) for the Chalice glyph screen's Testing and Your Dungeons tabs:
 // grey copies of the in-game menu's System and Status icons, made from common.tpf.dcx (the same menu folder).
 Bytes GlyphTabsMovie(const Bytes& gfx, const Bytes& common_tpf_dcx);

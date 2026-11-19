@@ -265,6 +265,136 @@ int main(void) {
         SDL_UpdateGamepads();
         assert(pad_read_state(1,&data)==0 && data.buttons==0);
     }
+    /* The Settings screen's Controller Buttons (runtime_pad_remap_*): Restore Default Buttons, then Cross's row
+     * captures the Circle button (East): the press is the game's to no one, the two swap, the lines say so. */
+    runtime_pad_remap_defaults();
+    #define PRESS(button,down) do { assert(SDL_SetJoystickVirtualButton(joystick,(button),(down))); \
+        SDL_UpdateJoysticks(); SDL_UpdateGamepads(); assert(pad_read_state(1,&data)==0); } while (0)
+    PRESS(SDL_GAMEPAD_BUTTON_SOUTH,true);
+    assert(data.buttons==BTN_CROSS);
+    runtime_pad_remap_capture(0);
+    assert(runtime_pad_remap_capturing()==0);
+    PRESS(SDL_GAMEPAD_BUTTON_SOUTH,true);   /* the press that began it, still held: not taken */
+    assert(data.buttons==0 && runtime_pad_remap_capturing()==0);
+    PRESS(SDL_GAMEPAD_BUTTON_SOUTH,false);
+    assert(data.buttons==0 && runtime_pad_remap_capturing()==0);
+    PRESS(SDL_GAMEPAD_BUTTON_EAST,true);    /* taken */
+    assert(data.buttons==0 && runtime_pad_remap_capturing()<0 && runtime_pad_remap_blocking());
+    PRESS(SDL_GAMEPAD_BUTTON_EAST,false);
+    assert(data.buttons==0 && !runtime_pad_remap_blocking());
+    PRESS(SDL_GAMEPAD_BUTTON_EAST,true);
+    assert(data.buttons==BTN_CROSS);
+    PRESS(SDL_GAMEPAD_BUTTON_EAST,false);
+    PRESS(SDL_GAMEPAD_BUTTON_SOUTH,true);
+    assert(data.buttons==BTN_CIRCLE);
+    PRESS(SDL_GAMEPAD_BUTTON_SOUTH,false);
+    /* In a menu the default buttons, whatever the remap: South is Cross, East is Circle, D-pad Down is Down. */
+    menu=1;
+    PRESS(SDL_GAMEPAD_BUTTON_SOUTH,true);
+    assert((data.buttons&(BTN_CROSS|BTN_CIRCLE))==BTN_CROSS);
+    PRESS(SDL_GAMEPAD_BUTTON_SOUTH,false);
+    PRESS(SDL_GAMEPAD_BUTTON_EAST,true);
+    assert((data.buttons&(BTN_CROSS|BTN_CIRCLE))==BTN_CIRCLE);
+    PRESS(SDL_GAMEPAD_BUTTON_EAST,false);
+    PRESS(SDL_GAMEPAD_BUTTON_DPAD_DOWN,true);
+    assert(data.buttons&BTN_DOWN);
+    PRESS(SDL_GAMEPAD_BUTTON_DPAD_DOWN,false);
+    menu=0;
+    assert(runtime_pad_default_button(BTN_CROSS,0)==SDL_GAMEPAD_BUTTON_SOUTH);
+    assert(runtime_pad_default_button(BTN_OPTIONS,0)==SDL_GAMEPAD_BUTTON_START);
+    char remap_key[64], remap_value[64], remap_shown[64];
+    assert(runtime_pad_remap_ini(0,remap_key,sizeof remap_key,remap_value,sizeof remap_value));
+    assert(!strcmp(remap_key,"pad.cross") && !strcmp(remap_value,"b"));
+    assert(runtime_pad_remap_ini(1,remap_key,sizeof remap_key,remap_value,sizeof remap_value));
+    assert(!strcmp(remap_key,"pad.circle") && !strcmp(remap_value,"a"));
+    runtime_pad_remap_describe(0,remap_shown,sizeof remap_shown);
+    assert(!strcmp(remap_shown,"Circle"));
+    int remap_buttons[4];
+    assert(runtime_pad_remap_buttons(0,remap_buttons,4)==1 && remap_buttons[0]==SDL_GAMEPAD_BUTTON_EAST);
+    /* And back: Cross's row (now on East, the game's Cross) begun with East, then South taken: both as before. */
+    PRESS(SDL_GAMEPAD_BUTTON_EAST,true);
+    runtime_pad_remap_capture(0);
+    PRESS(SDL_GAMEPAD_BUTTON_EAST,false);
+    PRESS(SDL_GAMEPAD_BUTTON_SOUTH,true);
+    assert(runtime_pad_remap_capturing()<0);
+    PRESS(SDL_GAMEPAD_BUTTON_SOUTH,false);
+    PRESS(SDL_GAMEPAD_BUTTON_SOUTH,true);
+    assert(data.buttons==BTN_CROSS);
+    PRESS(SDL_GAMEPAD_BUTTON_SOUTH,false);
+    PRESS(SDL_GAMEPAD_BUTTON_EAST,true);
+    assert(data.buttons==BTN_CIRCLE);
+    PRESS(SDL_GAMEPAD_BUTTON_EAST,false);
+    runtime_pad_remap_defaults();
+    PRESS(SDL_GAMEPAD_BUTTON_SOUTH,true);
+    assert(data.buttons==BTN_CROSS);
+    PRESS(SDL_GAMEPAD_BUTTON_SOUTH,false);
+    /* A Steam Input controller (a DualSense Edge through Steam, 2026-11-19's log): misc5 held all along, misc6 on and
+     * off. Neither is taken, neither keeps the capture from starting or the game waiting after it: Cross's row
+     * begun with South (held into the capture), East taken, the game's again once East is let go. */
+    PRESS(SDL_GAMEPAD_BUTTON_MISC5,true);
+    PRESS(SDL_GAMEPAD_BUTTON_SOUTH,true);
+    runtime_pad_remap_capture(0);
+    PRESS(SDL_GAMEPAD_BUTTON_MISC6,true);
+    PRESS(SDL_GAMEPAD_BUTTON_SOUTH,false);
+    PRESS(SDL_GAMEPAD_BUTTON_MISC6,false);
+    PRESS(SDL_GAMEPAD_BUTTON_MISC6,true);
+    assert(runtime_pad_remap_capturing()==0);
+    PRESS(SDL_GAMEPAD_BUTTON_EAST,true);
+    assert(runtime_pad_remap_capturing()<0 && runtime_pad_remap_blocking());
+    assert(runtime_pad_remap_buttons(0,remap_buttons,4)==1 && remap_buttons[0]==SDL_GAMEPAD_BUTTON_EAST);
+    PRESS(SDL_GAMEPAD_BUTTON_EAST,false);
+    assert(!runtime_pad_remap_blocking());   /* misc5 and misc6 still held */
+    PRESS(SDL_GAMEPAD_BUTTON_EAST,true);
+    assert(data.buttons==BTN_CROSS);
+    PRESS(SDL_GAMEPAD_BUTTON_EAST,false);
+    PRESS(SDL_GAMEPAD_BUTTON_MISC6,false);
+    PRESS(SDL_GAMEPAD_BUTTON_MISC5,false);
+    runtime_pad_remap_defaults();
+    /* Gestures (row 11) and Personal Effects (row 12): the touchpad's halves by default, the fingers the game's. */
+    assert(runtime_pad_remap_buttons(11,remap_buttons,4)==1 && remap_buttons[0]==PAD_TOUCH_LEFT);
+    assert(runtime_pad_remap_buttons(12,remap_buttons,4)==1 && remap_buttons[0]==PAD_TOUCH_RIGHT);
+    assert(SDL_SetJoystickVirtualTouchpad(joystick,0,0,true,0.8f,0.5f,1.0f));
+    PRESS(SDL_GAMEPAD_BUTTON_TOUCHPAD,true);
+    assert((data.buttons&BTN_TOUCHPAD) && data.touch_count==1 && data.touches[0].x>960);
+    PRESS(SDL_GAMEPAD_BUTTON_TOUCHPAD,false);
+    assert(SDL_SetJoystickVirtualTouchpad(joystick,0,0,false,0,0,0));
+    /* Gestures on Square (West): West opens the gestures (a left click), the touchpad's left does nothing, its
+     * right is still Personal Effects (both rows had the touchpad: Square's row takes nothing from Effects). */
+    PRESS(SDL_GAMEPAD_BUTTON_SOUTH,true);
+    runtime_pad_remap_capture(11);
+    PRESS(SDL_GAMEPAD_BUTTON_SOUTH,false);
+    PRESS(SDL_GAMEPAD_BUTTON_WEST,true);
+    PRESS(SDL_GAMEPAD_BUTTON_WEST,false);
+    assert(runtime_pad_remap_buttons(11,remap_buttons,4)==1 && remap_buttons[0]==SDL_GAMEPAD_BUTTON_WEST);
+    assert(runtime_pad_remap_buttons(12,remap_buttons,4)==1 && remap_buttons[0]==PAD_TOUCH_RIGHT);
+    PRESS(SDL_GAMEPAD_BUTTON_WEST,true);
+    assert((data.buttons&BTN_TOUCHPAD) && data.touch_count==1 && data.touches[0].x==480);
+    PRESS(SDL_GAMEPAD_BUTTON_WEST,false);
+    assert(SDL_SetJoystickVirtualTouchpad(joystick,0,0,true,0.2f,0.5f,1.0f));
+    PRESS(SDL_GAMEPAD_BUTTON_TOUCHPAD,true);
+    assert(!(data.buttons&BTN_TOUCHPAD));
+    PRESS(SDL_GAMEPAD_BUTTON_TOUCHPAD,false);
+    assert(SDL_SetJoystickVirtualTouchpad(joystick,0,0,true,0.8f,0.5f,1.0f));
+    PRESS(SDL_GAMEPAD_BUTTON_TOUCHPAD,true);
+    assert((data.buttons&BTN_TOUCHPAD) && data.touches[0].x>960);
+    PRESS(SDL_GAMEPAD_BUTTON_TOUCHPAD,false);
+    assert(SDL_SetJoystickVirtualTouchpad(joystick,0,0,false,0,0,0));
+    /* A capture of the touchpad's press takes its side: Gestures (on Square) takes the right; the right's row
+     * (Personal Effects) gets Square in its place (a swap); the left side then presses nothing. */
+    PRESS(SDL_GAMEPAD_BUTTON_SOUTH,true);
+    runtime_pad_remap_capture(11);
+    PRESS(SDL_GAMEPAD_BUTTON_SOUTH,false);
+    assert(SDL_SetJoystickVirtualTouchpad(joystick,0,0,true,0.9f,0.5f,1.0f));
+    PRESS(SDL_GAMEPAD_BUTTON_TOUCHPAD,true);
+    PRESS(SDL_GAMEPAD_BUTTON_TOUCHPAD,false);
+    assert(SDL_SetJoystickVirtualTouchpad(joystick,0,0,false,0,0,0));
+    PRESS(SDL_GAMEPAD_BUTTON_SOUTH,false);
+    assert(runtime_pad_remap_buttons(11,remap_buttons,4)==1 && remap_buttons[0]==PAD_TOUCH_RIGHT);
+    assert(runtime_pad_remap_buttons(12,remap_buttons,4)==1 && remap_buttons[0]==SDL_GAMEPAD_BUTTON_WEST);
+    assert(runtime_pad_remap_ini(11,remap_key,sizeof remap_key,remap_value,sizeof remap_value));
+    assert(!strcmp(remap_key,"pad.touchpad") && !strcmp(remap_value,"touchpadright"));
+    runtime_pad_remap_defaults();
+    #undef PRESS
     unlink(rotated_path);
     SDL_CloseJoystick(joystick);
     if (gamepad) SDL_CloseGamepad(gamepad);
