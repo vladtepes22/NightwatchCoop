@@ -1918,28 +1918,33 @@ void TemporalUpscaler::OnDraw(u64 vs_hash, VideoCore::ImageId color,
     }
 }
 
-void TemporalUpscaler::BlackBars() {
-    if (!ui_image) return;
-    const auto stage = UiComposition::StageRect(ui_width, ui_height, UiComposition::UiSize());
-    const s32 w = s32(ui_width), h = s32(ui_height);
-    const bool create = !black_image || black_format != ui_format;
+bool TemporalUpscaler::WantsGuestBars() const {
+    return !enabled && UiComposition::StageInset(UiComposition::UiSize()) &&
+           (BbEngine::Loading::Requested() || !BbEngine::Loading::WorldShown());
+}
+
+void TemporalUpscaler::BlackBars(vk::Image target, vk::ImageLayout layout, u32 width, u32 height) {
+    if (!target) return;
+    const auto stage = UiComposition::StageRect(width, height, UiComposition::UiSize());
+    const s32 w = s32(width), h = s32(height);
+    if (stage == UiComposition::Rect{0, 0, w, h}) return;
+    const bool create = !black_image;
     if (create) {
         scheduler.Finish();
         black_image = VideoCore::UniqueImage(instance.GetDevice(), instance.GetAllocator());
         black_image.Create(vk::ImageCreateInfo{
             .imageType = vk::ImageType::e2D,
-            .format = ui_format,
+            .format = vk::Format::eR8G8B8A8Unorm,
             .extent = {8, 8, 1},
             .mipLevels = 1, .arrayLayers = 1, .samples = vk::SampleCountFlagBits::e1,
             .tiling = vk::ImageTiling::eOptimal,
             .usage = vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst,
             .initialLayout = vk::ImageLayout::eUndefined,
         });
-        black_format = ui_format;
     }
     scheduler.EndRendering();
     // The four bands around the stage (two of them empty on any one screen shape).
-    scheduler.Record([ui = vk::Image(ui_image), black = vk::Image(black_image), stage, w, h,
+    scheduler.Record([ui = target, layout, black = vk::Image(black_image), stage, w, h,
                       create](vk::CommandBuffer cmd) {
         const vk::ImageSubresourceRange color{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
         const vk::ImageSubresourceLayers layer{vk::ImageAspectFlagBits::eColor, 0, 0, 1};
@@ -1958,7 +1963,7 @@ void TemporalUpscaler::BlackBars() {
                                 vk::ClearColorValue{std::array{0.0f, 0.0f, 0.0f, 1.0f}}, color);
             move(black, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eTransferSrcOptimal);
         }
-        move(ui, vk::ImageLayout::eGeneral, vk::ImageLayout::eTransferDstOptimal);
+        move(ui, layout, vk::ImageLayout::eTransferDstOptimal);
         const std::array<std::array<s32, 4>, 4> bands{{{0, 0, w, stage.y0}, {0, stage.y1, w, h},
                                                        {0, stage.y0, stage.x0, stage.y1},
                                                        {stage.x1, stage.y0, w, stage.y1}}};
@@ -1972,7 +1977,7 @@ void TemporalUpscaler::BlackBars() {
                               .dstOffsets = std::array{vk::Offset3D{b[0], b[1], 0}, vk::Offset3D{b[2], b[3], 1}}},
                           vk::Filter::eNearest);
         }
-        move(ui, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eGeneral);
+        move(ui, vk::ImageLayout::eTransferDstOptimal, layout);
     });
 }
 
@@ -2020,7 +2025,7 @@ void TemporalUpscaler::OnDisplayPass(VAddr address, VideoCore::ImageId frame) {
             (BbEngine::Loading::Requested() || (!ldr_target && !BbEngine::Loading::WorldShown()))) {
             RunUiOnly(frame, {}, false);
         }
-        if (ui_phase && BbEngine::Loading::Requested()) BlackBars();
+        if (ui_phase && BbEngine::Loading::Requested()) BlackBars(vk::Image(ui_image), vk::ImageLayout::eGeneral, ui_width, ui_height);
     }
     // The final pass tells the HUD by its luminance against this snapshot; over highlights the
     // HUD blends with the scene, as in RenoDX.

@@ -159,6 +159,10 @@ public:
         vk::Format guest_format = vk::Format::eUndefined;
     };
     bool DisplayOverride(VAddr address, Display& display);
+    /// bbport: with the upscaler off nothing is composed: the presenter blacks the bands beside the stage on
+    /// the game's own display buffer (in TransferDstOptimal) while no world is shown or a loading screen is up.
+    bool WantsGuestBars() const;
+    void GuestBars(vk::Image image, u32 w, u32 h) { BlackBars(image, vk::ImageLayout::eTransferDstOptimal, w, h); }
     bool TakePsychoSnapshot(VAddr address, std::unique_ptr<HdrGainMap>& snapshot);
     void PublishPsychoSnapshot(VAddr address);
     std::array<u32, 2> SceneSnapshotSize() const { return {snapshot_width, snapshot_height}; }
@@ -188,7 +192,7 @@ private:
     void RunScaled();
     /// world: this frame drew the 3D world into `color` (its whole image is copied).
     void RunUiOnly(VideoCore::ImageId color, VideoCore::ImageId depth, bool world);
-    void BlackBars();
+    void BlackBars(vk::Image target, vk::ImageLayout layout, u32 w, u32 h);
     void EnsureUiResources(u32 width, u32 height, vk::Format color, vk::Format depth);
     void PrepareUiDepth(VideoCore::ImageId depth);
     /// Render size below the scaled-preset output size (the resolution patch is on).
@@ -320,7 +324,6 @@ private:
     VideoCore::UniqueImage ui_image;
     VideoCore::UniqueImage ui_depth_image;
     VideoCore::UniqueImage black_image; ///< BlackBars' source: a few black pixels
-    vk::Format black_format = vk::Format::eUndefined;
     vk::UniqueImageView ui_view;
     vk::UniqueImageView ui_depth_view;
     bool depth_blit = false;

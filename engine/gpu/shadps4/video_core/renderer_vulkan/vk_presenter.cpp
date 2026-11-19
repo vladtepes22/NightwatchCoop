@@ -961,6 +961,13 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
             upscaler.DumpPresented(image.GetImage(), image_size.width, image_size.height,
                                    view_info.format);
         }
+        // bbport: Widescreen on another screen shape with the upscaler off: black beside the stage.
+        if (auto& upscaler = rasterizer->GetUpscaler(); upscaler.WantsGuestBars()) {
+            runtime.Transit(&image, vk::ImageLayout::eTransferDstOptimal, vk::PipelineStageFlagBits2::eTransfer,
+                            vk::AccessFlagBits2::eTransferWrite);
+            runtime.FlushBarriers();
+            upscaler.GuestBars(image.GetImage(), image_size.width, image_size.height);
+        }
         runtime.Transit(&image, vk::ImageLayout::eShaderReadOnlyOptimal,
                         vk::PipelineStageFlagBits2::eFragmentShader,
                         vk::AccessFlagBits2::eShaderRead);
