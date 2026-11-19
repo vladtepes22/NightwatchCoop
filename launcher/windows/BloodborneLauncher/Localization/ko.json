@@ -3000,5 +3000,6 @@
   "Steady sunlight color": "안정적인 햇빛 색상",
   "Keeps the sunlight fog's color steady: it ignores the game's default white light and fades to new colors, so it does not flicker as the camera moves. Off: the original color, which can flip to white and back. Needs Volumetric sunlight on": "햇빛 안개의 색을 안정시킵니다. 게임의 기본 흰색 빛을 무시하고 새 색으로 천천히 바뀌어 카메라를 움직여도 깜박이지 않습니다. 끔: 원래 색으로, 흰색으로 바뀌었다 돌아올 수 있습니다. 볼류메트릭 햇빛을 켜야 합니다",
   "Steady lamp fog": "안정적인 등불 안개",
-  "Keeps each lamp's fog on after the game stops listing the lamp, with slow fades, so it does not flicker as the camera moves. Can leave fog showing through a wall. Off: the original fog, from the first 64 lights the game lists. Needs Fog around lamps on": "게임이 등불을 목록에서 빼도 각 등불의 안개를 천천히 사라지게 하며 유지해 카메라를 움직여도 깜박이지 않습니다. 벽 너머로 안개가 보일 수 있습니다. 끔: 게임이 목록에 올린 처음 64개 조명의 원래 안개입니다. 등불 주위 안개를 켜야 합니다"
+  "Keeps each lamp's fog on after the game stops listing the lamp, with slow fades, so it does not flicker as the camera moves. Can leave fog showing through a wall. Off: the original fog, from the first 64 lights the game lists. Needs Fog around lamps on": "게임이 등불을 목록에서 빼도 각 등불의 안개를 천천히 사라지게 하며 유지해 카메라를 움직여도 깜박이지 않습니다. 벽 너머로 안개가 보일 수 있습니다. 끔: 게임이 목록에 올린 처음 64개 조명의 원래 안개입니다. 등불 주위 안개를 켜야 합니다",
+  "Off while co-op is on: every player in a party would need the same setting": "협동 플레이 중에는 꺼짐: 파티의 모든 플레이어가 같은 설정이어야 합니다"
 }

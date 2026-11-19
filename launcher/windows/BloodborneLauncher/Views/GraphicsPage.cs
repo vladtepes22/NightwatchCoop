@@ -11,6 +11,7 @@ namespace BloodborneLauncher.Views
     {
         private readonly TextBlock _upscalerHint, _dlssHint, _frameGenHint;
         private TextBlock? _motionBlurHint;
+        private readonly List<(ToggleSwitch Toggle, TextBlock Hint, string? Text)> _coopOff = new();
         private readonly SettingRow _glowSizeCard;
         private readonly SettingRow _presetCard, _renderScaleCard, _sharpenCard, _sharpnessCard, _mipBiasCard;
         private readonly SettingRow _frameGenFramesCard, _frameGenDynamicCard, _reflexCard, _frameGenCapCard;
@@ -123,8 +124,10 @@ namespace BloodborneLauncher.Views
             foreach (var effect in Choices.Effects.Take(Choices.FirstLightingEffect))
             {
                 var motionBlur = effect.Key == "effect_motion_blur";
-                IniToggle(EffectIcon(effect.Key), effect.Title, effect.Hint, effect.Key, changed: motionBlur ? UpdateUpscaler : null);
+                var toggle = IniToggle(EffectIcon(effect.Key), effect.Title, effect.Hint, effect.Key, changed: motionBlur ? UpdateUpscaler : null);
                 if (motionBlur) _motionBlurHint = ((SettingRow)Body.Children[^1]).Hint;
+                if (effect.Key is "debug_camera" or "debug_menu")
+                    _coopOff.Add((toggle, ((SettingRow)Body.Children[^1]).Hint, effect.Hint));
             }
 
             // Optional lighting: all off, needs an upscaler on (bbport_settings.h EffectFirstLighting).
@@ -181,7 +184,19 @@ namespace BloodborneLauncher.Views
 
         private void UpdateGlowSize() => _glowSizeCard.IsEnabled = Ini.Get("graphics_point_fog_falloff", "0") == "1";
 
-        public override void OnShown() { UpdateUpscaler(); UpdateGlowSize(); }
+        public override void OnShown() { UpdateUpscaler(); UpdateGlowSize(); UpdateCoopOff(); }
+
+        // Free camera and the debug menu are game patches that count in the party patch hash: the engine
+        // leaves them out in co-op (start/patches.cpp), and the rows say so.
+        private void UpdateCoopOff()
+        {
+            var coop = SeamlessSettings.Enabled(S);
+            foreach (var (toggle, hint, text) in _coopOff)
+            {
+                toggle.IsEnabled = !coop;
+                SetHint(hint, coop ? L.T("Off while co-op is on: every player in a party would need the same setting") : text);
+            }
+        }
 
         private static bool DlssFound() =>
             Paths.DlssRuntime != null; // the engine has DLSS built in; NVIDIA's runtime sits beside it
