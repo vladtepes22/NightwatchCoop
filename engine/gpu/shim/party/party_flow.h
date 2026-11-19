@@ -98,11 +98,14 @@ bool PartyActionsAllowed(const Context& c);
 /// `set "K=V"` lines for run.bat (values limited to [A-Za-z0-9_.:@-]; false otherwise).
 bool RelaunchBat(const Plan& p, std::string* out, std::string* error);
 
-/// The party name a player gets when party.json has none (the first party action): the user name
-/// (its [A-Za-z0-9_-], blanks as '_', at most 11; "Hunter" when nothing is left) + '-' + 4 base-36
-/// digits of `random`. The host admits one player per name, and every menu player used to be
-/// "Hunter": the second friend was refused ("the name Hunter is already in the party").
-std::string DefaultName(const std::string& user, std::uint32_t random);
+/// The party name a player gets when party.json has none (the first party action): the character's
+/// name when it is plain (1-16 of [A-Za-z0-9_-] with a letter or digit, blanks as '_'), else "Hunter" +
+/// '-' + 4 base-36 digits of `random` (the host admits one player per name). Never the Windows user
+/// name: Nightwatch Online lists hosts under this name.
+std::string DefaultName(const std::string& character, std::uint32_t random);
+/// A stored name that 0.3.2 and earlier made from the user name (its allowed characters, at most 11, +
+/// '-' + 4 digits): it counts as unset, so it never reaches the public lobby.
+bool IsUserDerivedName(const std::string& name, const std::string& user);
 
 /// A party address as typed: trimmed; "" when empty. Accepts a party code or host[:port].
 std::string NormalizeAddress(const std::string& text);

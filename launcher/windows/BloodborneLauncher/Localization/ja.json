@@ -1869,6 +1869,7 @@
   "Guest": "ゲスト",
   "Your name": "あなたの名前",
   "1–16 letters, numbers, underscores or hyphens.": "英数字、アンダースコア、ハイフンで 1～16 文字。",
+  "Nightwatch Online lists your party under this name.": "Nightwatch Online のリストには、この名前でパーティーが表示されます。",
   "Hunter": "狩人",
   "Host code or address": "ホストのコードまたはアドレス",
   "Paste the host's Internet code, LAN code or host:port.": "ホストのインターネットコード、LAN コード、または host:port を貼り付けてください。",

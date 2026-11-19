@@ -2048,10 +2048,12 @@ void start_host(LinkConfig cfg) {
         Runtime& rr = R();
         PartyLink* l;
         bbnet::lobby::Announce a;
+        std::string party_name;
         {
             std::lock_guard<std::mutex> lk(rr.mu);
             if (!rr.link || rr.stopping || rr.left) return false;
             l = rr.link;
+            party_name = rr.cfg.name;
             a.port = rr.cfg.port;
             a.build = rr.cfg.build_id;
             a.password = !rr.cfg.password.empty();
@@ -2061,10 +2063,11 @@ void start_host(LinkConfig cfg) {
                 bbnet::lobby::mods_label(env("BB_PARTY_MODS_LABEL"), !rr.cfg.mod_names.empty(), rr.cfg.mods_hash),
                 rr.cfg.patches_hash);
         }
-        const char* test_name = env("BB_PARTY_VPNLOBBY_NAME");  // tests only: a synthetic character name
-        a.name = bbnet::lobby::clean_name(test_name && *test_name ? std::string(test_name)
-                                                                  : bbnet::lobby::utf16_to_utf8(coop::CharacterName().c_str(), 16));
-        if (a.name.empty()) return false;  // no character loaded yet: nothing to show
+        // Listed under the party name ("Your name"), like LAN discovery, the party list, tags and chat.
+        const char* test_name = env("BB_PARTY_VPNLOBBY_NAME");  // tests only: a synthetic name, no character needed
+        if (!(test_name && *test_name) && coop::CharacterName().empty()) return false;  // no character loaded yet: not listed
+        a.name = bbnet::lobby::clean_name(test_name && *test_name ? std::string(test_name) : party_name);
+        if (a.name.empty()) return false;
         int players = 0;
         for (const RosterEntry& e : l->roster()) players += e.connected ? 1 : 0;
         a.max_players = static_cast<std::uint8_t>(std::clamp(l->max_players(), 1, 8));

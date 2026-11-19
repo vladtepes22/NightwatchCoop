@@ -1868,6 +1868,7 @@
   "Guest": "访客",
   "Your name": "你的名字",
   "1–16 letters, numbers, underscores or hyphens.": "1–16 个字母、数字、下划线或连字符。",
+  "Nightwatch Online lists your party under this name.": "Nightwatch Online 会以此名字列出你的队伍。",
   "Hunter": "猎人",
   "Host code or address": "房主代码或地址",
   "Paste the host's Internet code, LAN code or host:port.": "粘贴房主的互联网代码、局域网代码或 host:port。",

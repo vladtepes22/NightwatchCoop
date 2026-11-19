@@ -147,16 +147,35 @@ public static partial class SeamlessSettings
 
     public static string HunterName() => "hunter_" + Random.Shared.Next(10000).ToString("D4");
 
+    /// <summary>The name a player gets before picking one. Never the Windows user name: Nightwatch Online lists
+    /// hosts under the party name.</summary>
+    public static string DefaultName() => "Hunter-" + Random.Shared.Next(0x10000).ToString("x4");
+
+    /// <summary>A stored name that 0.3.2 and earlier made from the Windows user name (11 characters + '-' + 4 hex
+    /// digits): it counts as unset.</summary>
+    public static bool IsUserDerivedName(string name, string user)
+    {
+        var stem = SanitizeName(user);
+        stem = stem[..Math.Min(11, stem.Length)];
+        return stem.Length > 0 && stem != "Hunter" && Regex.IsMatch(name, "^" + Regex.Escape(stem) + "-[0-9a-f]{4}$");
+    }
+
+    /// <summary>No name of the player's own is stored: the next read makes a default one.</summary>
+    public static bool NameIsUnset(LauncherSettings s) =>
+        SanitizeName(s.Str("party_name")).Length == 0 || IsUserDerivedName(s.Str("party_name"), Environment.UserName);
+
     /// <summary>The first character's name in the party saves, else the solo ones, when it can be used as a party name;
-    /// null when there is no save, the editor's data cannot be read or the name has no Latin letters.</summary>
-    internal static async Task<string?> CharacterNameAsync(LauncherSettings s)
+    /// null when there is no save, the editor's data cannot be read or the name has no Latin letters.
+    /// <paramref name="plainOnly"/>: only a name that needs no repair beyond blanks (the automatic default).</summary>
+    internal static async Task<string?> CharacterNameAsync(LauncherSettings s, bool plainOnly = false)
     {
         using var worker = new SaveEditor.Worker(s);
         foreach (var kind in new[] { "party", "solo" })
             try
             {
                 var slots = SaveEditor.Parse<SaveEditor.Slot[]>(await worker.Run("slots", kind));
-                var name = slots.Select(slot => SanitizeName(slot.Name.Trim())).FirstOrDefault(HasLatin);
+                var name = slots.Where(slot => !plainOnly || Regex.IsMatch(slot.Name.Trim(), "^[A-Za-z0-9_ -]{1,16}$"))
+                    .Select(slot => SanitizeName(slot.Name.Trim())).FirstOrDefault(HasLatin);
                 if (name != null) return name;
             }
             catch (Exception e) when (e is IOException or InvalidOperationException or System.Text.Json.JsonException) { }
@@ -165,7 +184,7 @@ public static partial class SeamlessSettings
 
     public static string Name(LauncherSettings s)
     {
-        var name = s.Str("party_name");
+        var name = NameIsUnset(s) ? "" : s.Str("party_name");
         var clean = SanitizeName(name);
         if (clean.Length > 0)
         {
@@ -173,9 +192,7 @@ public static partial class SeamlessSettings
             if (clean != name) s.Set("party_name", clean);
             return clean;
         }
-        name = SanitizeName(Environment.UserName);
-        if (name.Length == 0) name = "Hunter";
-        name = name[..Math.Min(11, name.Length)] + "-" + Random.Shared.Next(0x10000).ToString("x4");
+        name = DefaultName();
         s.Set("party_name", name);
         return name;
     }

@@ -198,12 +198,13 @@ std::string LastMessage() {
 
 Plan Run(Action a) {
     Context c = CurrentContext();
-    if (c.saved.name.empty() && !Env("BB_PARTY_NAME")) {
-        // A name of its own (party.json keeps it): the default "Hunter" was the same for everyone.
-        const char* user = Env("BB_USER_NAME");
-        if (!user) user = Env("USERNAME");
-        if (!user) user = Env("USER");
-        c.saved.name = DefaultName(user ? user : "", std::random_device{}());
+    const auto from_user = [&](const char* var) { return Env(var) && IsUserDerivedName(c.saved.name, Env(var)); };
+    if (!Env("BB_PARTY_NAME") && (c.saved.name.empty() || from_user("USERNAME") || from_user("USER") || from_user("BB_USER_NAME"))) {
+        // A name of its own (party.json keeps it): the character's when it is plain, never the Windows user name
+        // (Nightwatch Online lists the host under it).
+        std::string character;
+        for (const char16_t ch : coop::CharacterName()) character += ch < 0x80 ? static_cast<char>(ch) : '?';
+        c.saved.name = DefaultName(character, std::random_device{}());
         Log("party name: %s (automatic; Party name changes it)", c.saved.name.c_str());
     }
     Plan p = PlanAction(a, c);

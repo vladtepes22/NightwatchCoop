@@ -227,14 +227,42 @@ bool Store(const std::string& path, const Saved& s, std::string* error) {
     return !ec;
 }
 
-std::string DefaultName(const std::string& user, std::uint32_t random) {
+namespace {
+// What 0.3.2 and earlier put before the '-' of an automatic name: the user name's allowed characters.
+std::string UserBase(const std::string& user) {
     std::string base;
     for (const char c : user) {
         if (base.size() >= 11) break;
         if (std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-') base += c;
         else if (c == ' ') base += '_';
     }
-    if (base.empty()) base = "Hunter";
+    return base;
+}
+}  // namespace
+
+bool IsUserDerivedName(const std::string& name, const std::string& user) {
+    const std::string base = UserBase(user);
+    if (base.empty() || base == "Hunter" || name.size() != base.size() + 5 || name.compare(0, base.size(), base) != 0 ||
+        name[base.size()] != '-')
+        return false;
+    for (std::size_t i = base.size() + 1; i < name.size(); ++i) {
+        const unsigned char c = static_cast<unsigned char>(name[i]);
+        if (!std::isdigit(c) && !std::islower(c)) return false;
+    }
+    return true;
+}
+
+std::string DefaultName(const std::string& character, std::uint32_t random) {
+    std::string plain;
+    bool ok = !character.empty() && character.size() <= 16, letter = false;
+    for (const char c : character) {
+        const unsigned char u = static_cast<unsigned char>(c);
+        if (u < 0x80 && std::isalnum(u)) letter = true;
+        else if (c != '_' && c != '-' && c != ' ') ok = false;
+        plain += c == ' ' ? '_' : c;
+    }
+    if (ok && letter) return plain;
+    std::string base = "Hunter";
     static const char kDigits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
     base += '-';
     for (int i = 0; i < 4; ++i) {

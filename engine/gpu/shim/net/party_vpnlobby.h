@@ -9,7 +9,7 @@
 //     build: u8 len + printable ASCII (<= 32)   name: u8 len + UTF-8 (<= 48 bytes, <= 16 characters)
 //   bye (host -> lobby, on leaving): [0xfa]['L'][ver 1][type 4]
 //   The lobby learns the host's tunnel address from the datagram's source; the game never sends an
-//   address, the password, the party secret or a code. The name is the player's character name.
+//   address, the password, the party secret or a code. The name is the player's party name ("Your name").
 //   announce extension (0.7.8, type 7, sent right after every announce; a lobby that does not know it drops it, so the
 //   old list keeps working): flags u8 (bit 0: the host allows invaders, bit 1: a boss fight is on)  area u32 (the host's
 //   map id 0xAABBCCDD, 0 unknown)  phase u8 (0 unknown, 1 day, 2 evening, 3 night, 4 Blood Moon)  ng u8 (0 = NG, 1..7 =
@@ -34,7 +34,7 @@ constexpr int kAnnounceEveryMs = 10000;
 constexpr std::size_t kMaxNameChars = 16, kMaxNameBytes = 48, kMaxBuild = 32, kMaxModsLabel = 255;
 
 struct Announce {
-    std::string name;  // UTF-8 character name
+    std::string name;  // UTF-8, the party name
     std::uint16_t port = 0;
     std::uint8_t players = 0, max_players = 0;
     bool password = false;

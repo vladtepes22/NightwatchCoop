@@ -32,9 +32,12 @@ public sealed class SeamlessPage : LauncherPage
             new[] { new Choice(L.T("Single player"), ""), new Choice(L.T("Host"), "host"), new Choice(L.T("Join"), "join") }, "party_mode",
             changed: () => { ShowMode(); RunCheck(); }, buttons: true);
         var party = Rows(InParty);
-        var nameBox = TextRow(SymbolRegular.Person24, L.T("Your name"), L.T("1–16 letters, numbers, underscores or hyphens."), L.T("Hunter"),
+        var automaticName = SeamlessSettings.NameIsUnset(S);
+        var nameBox = TextRow(SymbolRegular.Person24, L.T("Your name"),
+            L.T("1–16 letters, numbers, underscores or hyphens.") + " " + L.T("Nightwatch Online lists your party under this name."), L.T("Hunter"),
             () => SeamlessSettings.Name(S), v => S.Set("party_name", SeamlessSettings.SanitizeName(v)), party);
         nameBox.MaxLength = 16;
+        if (automaticName) _ = UseCharacterName(nameBox, nameBox.Text);
         nameBox.TextChanged += (_, _) =>
         {
             var clean = SeamlessSettings.SanitizeName(nameBox.Text);
@@ -1692,6 +1695,16 @@ public sealed class SeamlessPage : LauncherPage
         if (panel.Parent == to) return;
         (panel.Parent as Panel)?.Children.Remove(panel);
         to.Children.Add(panel);
+    }
+
+    /// <summary>The first automatic name becomes the character's when that is a plain one and the player has not typed
+    /// another meanwhile.</summary>
+    private async Task UseCharacterName(System.Windows.Controls.TextBox box, string automatic)
+    {
+        var character = await SeamlessSettings.CharacterNameAsync(S, plainOnly: true);
+        if (character == null || box.Text != automatic) return;
+        box.Text = character;
+        S.Set("party_name", character);
     }
 
     private void ShowMode()

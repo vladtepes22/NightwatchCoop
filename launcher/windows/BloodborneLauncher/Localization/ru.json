@@ -1869,6 +1869,7 @@
   "Guest": "Гость",
   "Your name": "Ваше имя",
   "1–16 letters, numbers, underscores or hyphens.": "От 1 до 16 букв, цифр, подчёркиваний или дефисов.",
+  "Nightwatch Online lists your party under this name.": "Nightwatch Online показывает вашу группу под этим именем.",
   "Hunter": "Охотник",
   "Host code or address": "Код хоста или адрес",
   "Paste the host's Internet code, LAN code or host:port.": "Вставьте интернет-код хоста, код локальной сети или host:port.",

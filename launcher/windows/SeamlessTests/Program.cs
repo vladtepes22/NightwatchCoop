@@ -295,6 +295,18 @@ Check(System.Text.RegularExpressions.Regex.IsMatch(hunter, "^hunter_[0-9]{4}$") 
 Check(SeamlessSettings.HasLatin("a__") && SeamlessSettings.HasLatin("_9") && !SeamlessSettings.HasLatin("___-") && !SeamlessSettings.HasLatin(""), "HasLatin is wrong");
 settings.Set("party_name", "");
 Check(SeamlessSettings.Name(settings).Length is > 0 and <= 16, "Empty name did not get a default");
+Check(System.Text.RegularExpressions.Regex.IsMatch(settings.Str("party_name"), "^Hunter-[0-9a-f]{4}$"), "The default name is not Hunter-xxxx");
+Check(SeamlessSettings.IsUserDerivedName("Some_User-0a1f", "Some User") && SeamlessSettings.IsUserDerivedName("averyverylo-ffff", "averyverylongname") &&
+      !SeamlessSettings.IsUserDerivedName("Some_User", "Some User") && !SeamlessSettings.IsUserDerivedName("Hunter-0a1f", "Hunter") &&
+      !SeamlessSettings.IsUserDerivedName("Other-0a1f", "Some User"), "Names made from the Windows user name are not recognised");
+var userStem = SeamlessSettings.SanitizeName(Environment.UserName);
+userStem = userStem[..Math.Min(11, userStem.Length)];
+if (userStem != "Hunter")
+{
+    settings.Set("party_name", userStem + "-12ab");
+    Check(SeamlessSettings.NameIsUnset(settings) && !SeamlessSettings.Name(settings).StartsWith(userStem + "-") && !SeamlessSettings.NameIsUnset(settings),
+        "A stored name made from the Windows user name was kept");
+}
 {
     LobbyGame Lobby(string name, int players = 1, bool password = false, string build = "test-hash") =>
         new() { Name = name, Players = players, Max = 2, Password = password, Build = build, Own = false, Ip = 0, Port = 9307 };
