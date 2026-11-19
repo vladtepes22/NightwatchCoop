@@ -515,9 +515,9 @@ void Set(Values& v, const std::string& key, const std::string& value) {
     } else if (key == "graphics_ao_strength") {
         v.graphics_ao_strength=Clamp(std::isfinite(f)?f:1.0f,0.0f,5.0f);
     } else if (key == "graphics_volumetric_intensity") {
-        v.graphics_volumetric_intensity=Clamp(std::isfinite(f)?f:1.0f,0.0f,3.0f);
+        v.graphics_volumetric_intensity=Clamp(std::isfinite(f)?f:0.2f,0.0f,3.0f);
     } else if (key == "graphics_point_fog_intensity") {
-        v.graphics_point_fog_intensity=Clamp(std::isfinite(f)?f:1.0f,0.0f,3.0f);
+        v.graphics_point_fog_intensity=Clamp(std::isfinite(f)?f:0.2f,0.0f,3.0f);
     } else if (key == "graphics_point_fog_glow_size") {
         v.graphics_point_fog_glow_size=PointFogGlowSize(f);
     } else if (key == "graphics_point_fog_falloff") {

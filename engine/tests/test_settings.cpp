@@ -792,7 +792,7 @@ int main() {
         static_assert(PointFogGlowSize(0.5f) == PointFogGlowSizeMax && PointFogGlowSize(0.0f) == PointFogGlowSizeMin);
         static_assert(PointFogGlowSize(0.15f) == 0.15f);
         auto& d = Get();
-        assert(d.graphics_volumetric_intensity == 1.0f && d.graphics_point_fog_intensity == 1.0f);
+        assert(d.graphics_volumetric_intensity == 0.2f && d.graphics_point_fog_intensity == 0.2f);
         assert(d.graphics_point_fog_falloff == PointFogFalloffClassic);
         assert(d.graphics_point_fog_glow_size == PointFogGlowSizeDefault);
         { std::ofstream file(path); file << "graphics_volumetric_intensity=7\ngraphics_point_fog_intensity=-1\n"
@@ -814,7 +814,7 @@ int main() {
                                             "graphics_point_fog_falloff=2\ngraphics_point_fog_glow_size=nan\n"; }
         Load();
         assert(d.graphics_volumetric_intensity == 0.0f); // atof("x") is 0, a readable 0
-        assert(d.graphics_point_fog_intensity == 1.0f);
+        assert(d.graphics_point_fog_intensity == 0.2f);
         assert(d.graphics_point_fog_falloff == PointFogFalloffClassic);
         assert(d.graphics_point_fog_glow_size == PointFogGlowSizeDefault);
     }

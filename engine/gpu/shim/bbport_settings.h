@@ -528,7 +528,7 @@ struct Values {
     std::atomic<bool> graphics_controls{false}, graphics_vignette{true};
     std::atomic<float> graphics_ao_strength{1},graphics_shadow_scale{1},graphics_bloom{1},graphics_saturation{1};
     /// Volumetric sunlight and lamp fog strengths (0-3), lamp fog's falloff and glow size (live).
-    std::atomic<float> graphics_volumetric_intensity{1}, graphics_point_fog_intensity{1};
+    std::atomic<float> graphics_volumetric_intensity{0.2f}, graphics_point_fog_intensity{0.2f};
     std::atomic<float> graphics_point_fog_glow_size{PointFogGlowSizeDefault};
     std::atomic<int> graphics_point_fog_falloff{PointFogFalloffClassic};
     /// Indirect lighting (effect_gi) strength, 0-12 (vk_ssgi.cpp multiplies its base 8 by it).

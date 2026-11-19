@@ -944,8 +944,8 @@ void PictureSection() {
             Store(s.graphics_shadow_scale, 1.0f, true);
             Store(s.graphics_gi_strength, 6.0f, true);
             Store(s.graphics_ssr_intensity, 1.0f, true);
-            Store(s.graphics_volumetric_intensity, 1.0f, true);
-            Store(s.graphics_point_fog_intensity, 1.0f, true);
+            Store(s.graphics_volumetric_intensity, 0.2f, true);
+            Store(s.graphics_point_fog_intensity, 0.2f, true);
             Store(s.graphics_point_fog_glow_size, BbSettings::PointFogGlowSizeDefault, true);
         }
     }

@@ -96,7 +96,7 @@ int main() {
     }
     const std::string saved = Text(path);
     for (const char* key : {"graphics_ao_quality=0\n", "graphics_ssr_intensity=1.00\n", "graphics_gi_strength=6.00\n",
-                            "graphics_volumetric_intensity=1.00\n", "graphics_point_fog_intensity=1.00\n",
+                            "graphics_volumetric_intensity=0.20\n", "graphics_point_fog_intensity=0.20\n",
                             "graphics_point_fog_falloff=0\n", "graphics_point_fog_glow_size=0.080\n", "effect_gtao=0\n",
                             "graphics_smooth_normals=0\n",
                             "effect_point_shadows=0\n"})
