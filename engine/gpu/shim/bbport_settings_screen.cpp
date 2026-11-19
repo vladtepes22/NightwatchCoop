@@ -137,7 +137,7 @@ Rows DisplayRows() {
     };
 }
 // Controls: the game's own controls, the PC pages' PC Controls (118000 .., 116002) and, while the PC camera is on
-// this session (Enhancements' PC Camera Controls, the camera code in), its Camera rows (118004, 121000, 121001).
+// (Enhancements' PC Camera Controls, read live; the camera code in), its Camera rows (118004, 121000, 121001).
 // "Camera Sensitivity" of PC Controls is named Mouse Sensitivity here (the game's own row has that name).
 Rows ControlsRows() {
     Rows rows = {
@@ -193,7 +193,7 @@ Rows EnhancementRows() {
                     u"Requires a restart. The Dream's mirror opens the appearance editor (the unused \"Put on Disguise\").", 0}),
         Pc(124002, {Kind::Toggle, u"Rebirth at the Altar",
                     u"Requires a restart. The Altar of Despair resets level and attributes.", 0}),
-        Pc(124004, {Kind::Toggle, u"PC Camera Controls", u"Requires a restart. Adds the Camera section to Controls.", 0}),
+        Pc(124004, {Kind::Toggle, u"PC Camera Controls", u"Adds the Camera section to Controls: field of view, camera distance and height.", 0}),
         {Kind::Defaults, u"Defaults", u"Every setting on this tab back to its default."},
     };
 }

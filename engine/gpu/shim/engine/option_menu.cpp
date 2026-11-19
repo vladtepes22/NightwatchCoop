@@ -3,6 +3,7 @@
 #include "option_keys.h"
 #include "option_rows.h"
 #include "engine_state.h"
+#include "camera.h"
 #include "graphics.h"
 #include "menu_memory.h"
 #include "bbport_settings.h"
@@ -216,7 +217,9 @@ void* GUEST QuitOpener(void* out, void* factory) { return OptionRows::AskYesNo(o
 std::uint64_t g_image = 0;
 void* GUEST SystemList(void* out, void* builder, void* functor) {
     for (int s = 0; s < kSectionCount; ++s)
-        if (g_offered[s]) OptionRows::AddCommand(builder, g_sections[s].row, kOpeners[s]);
+        // the Camera page follows PC Camera Controls live (the camera code reads it every frame)
+        if (g_offered[s] && (s != kCamera || BbSettings::Get().camera_controls))
+            OptionRows::AddCommand(builder, g_sections[s].row, kOpeners[s]);
     OptionRows::AddExitCommand(builder, kQuitRow, &QuitOpener);
     Call(g_image + kSystemFinish, out, builder, functor);
     return out;
@@ -375,7 +378,7 @@ bool Install(std::uint8_t* image, std::size_t size) {
     g_offered[kEnhance] = true;
     g_offered[kGraphics] = g_offered[kEffects] = g_offered[kColour] = Graphics::Enabled();
     g_offered[kControls] = g_offered[kKeys] = settings.pc_controls;
-    g_offered[kCamera] = settings.camera_controls;
+    g_offered[kCamera] = Camera::Active();
 
     const auto name = reinterpret_cast<std::uint64_t>(g_section);
     std::memcpy(image + kSectionSlot, &name, sizeof name);

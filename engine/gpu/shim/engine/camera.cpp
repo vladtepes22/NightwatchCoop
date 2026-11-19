@@ -23,13 +23,17 @@ constexpr std::size_t kCountAt = 0x9b8, kFirstAt = 0x9c0, kHolder = 0x70, kFile 
 constexpr std::size_t kFovCap = 0x143af4e;
 constexpr std::uint8_t kCapped[] = {0x48, 0x0f, 0x46, 0xc6};
 constexpr std::uint8_t kUncapped[] = {0x48, 0x89, 0xf0, 0x90};
+// The game's own upper FOV bound, lifted by kUncapped (the code before it keeps a row's FOV in 38 .. 48: below 38 a
+// constant, above 48 the 48.0 it stores at [rbp - 0x234], 0x143af14). While the camera settings are off (and no
+// Vert+ widening), the rows are held at this bound so the view is the game's own.
+constexpr float kGameFovBound = 48.0f;
 
 constexpr char kType[] = "LOCK_CAM_PARAM_ST";
 constexpr std::size_t kFields[3] = {0x0, 0xc, 0x14};
 
 std::uint64_t g_repository = 0;
 bool g_active = false;
-bool g_controls = false;
+bool g_over_bound = false; // a row's own FOV is above kGameFovBound (it must be held while the settings are off)
 
 struct Row {
     std::uint64_t at;
@@ -85,6 +89,7 @@ bool ReadRows(std::uint64_t file) {
             if (!Peek(row.at + kFields[f], &row.source[f]) || !std::isfinite(row.source[f])) return false;
         if (!(row.source[2] > 1 && row.source[2] < 179)) return false;
         row.written = row.source;
+        if (row.source[2] > kGameFovBound) g_over_bound = true;
         rows.push_back(row);
     }
     g_rows = std::move(rows);
@@ -93,22 +98,20 @@ bool ReadRows(std::uint64_t file) {
     return true;
 }
 
-float Value(float source, unsigned field, const std::array<float, 4>& scale) {
+float Value(float source, unsigned field, const std::array<float, 4>& scale, bool bounded) {
     float v = source * scale[field];
     if (field == 2 && scale[3] > 1.0f) {
         constexpr float kRad = 3.14159265f / 180.0f;
         v = std::min(170.0f, 2.0f * std::atan(std::tan(v * kRad * 0.5f) * scale[3]) / kRad);
     }
+    if (field == 2 && bounded) v = std::min(v, kGameFovBound);
     return v;
 }
 }
 
+// Installed whenever the follow camera's code is 1.09's, so Enhancements' PC Camera Controls switches in game: Tick
+// reads it every frame (off: the game's own distance, height and FOV).
 bool Install(std::uint8_t* image, std::size_t size) {
-    const auto& s = BbSettings::Get();
-    const int w = BbSettings::OutputWidth(s.startup_output_res), h = BbSettings::OutputHeight(s.startup_output_res);
-    const bool narrow = s.widescreen && w > 0 && h > 0 && std::int64_t(w) * 9 < std::int64_t(h) * 16;
-    g_controls = s.camera_controls;
-    if (!g_controls && !narrow) return false;
     auto matches = [&](std::size_t at, const std::uint8_t* b, std::size_t n) {
         return at <= size && n <= size - at && std::memcmp(image + at, b, n) == 0;
     };
@@ -125,8 +128,8 @@ bool Install(std::uint8_t* image, std::size_t size) {
     std::memcpy(image + kFovCap, kUncapped, sizeof kUncapped);
     g_repository = reinterpret_cast<std::uint64_t>(image + repository);
     g_active = true;
-    std::printf(g_controls ? "Engine: camera adjustments enabled (distance, height and FOV)\n"
-                           : "Engine: camera FOV for a screen narrower than 16:9 (Vert+)\n");
+    std::printf("Engine: camera adjustments ready (distance, height and FOV while PC Camera Controls is on; Vert+ for "
+                "a screen narrower than 16:9)\n");
     return true;
 }
 
@@ -135,12 +138,13 @@ bool Active() { return g_active; }
 void Tick() {
     if (!g_active) return;
     const auto& s = BbSettings::Get();
-    const std::array<float, 4> scale = {g_controls ? s.camera_distance_scale.load() : 1.0f,
-                                        g_controls ? s.camera_height_scale.load() : 1.0f,
-                                        g_controls ? s.camera_fov_scale.load() : 1.0f, Widescreen::NarrowFovFactor()};
+    const bool controls = s.camera_controls;
+    const std::array<float, 4> scale = {controls ? s.camera_distance_scale.load() : 1.0f,
+                                        controls ? s.camera_height_scale.load() : 1.0f,
+                                        controls ? s.camera_fov_scale.load() : 1.0f, Widescreen::NarrowFovFactor()};
     for (const float f : scale) if (!std::isfinite(f)) return;
+    const bool bounded = !controls && !(scale[3] > 1.0f);
     const bool neutral = scale == std::array<float, 4>{1, 1, 1, 1};
-    if (neutral && g_said == scale) return;
     if (!g_file || g_ticks++ % 150 == 0) {
         const std::uint64_t file = FindFile();
         if (!file) return;
@@ -151,6 +155,9 @@ void Tick() {
         g_rows.clear();
         return;
     }
+    // nothing to write: the game's own values are in place and none is above the game's FOV bound
+    if (neutral && g_said == scale && !(bounded && g_over_bound)) return;
+    g_over_bound = false;
     for (Row& row : g_rows) {
         for (unsigned f = 0; f < 3; ++f) {
             float now = 0;
@@ -160,7 +167,8 @@ void Tick() {
                 return;
             }
             if (now != row.written[f]) row.source[f] = now;
-            const float want = Value(row.source[f], f, scale);
+            if (f == 2 && row.source[f] > kGameFovBound) g_over_bound = true;
+            const float want = Value(row.source[f], f, scale, bounded);
             if (now != want) std::memcpy(reinterpret_cast<void*>(row.at + kFields[f]), &want, sizeof want);
             row.written[f] = want;
         }
