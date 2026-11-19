@@ -4,6 +4,7 @@
 
 #include "bbport_menu_widgets.h"
 #include "bbport_settings.h"
+#include "engine/camera.h"
 #include "engine/option_menu.h"
 #include "input/input.h"
 #include "input/menu_pointer.h"
@@ -65,6 +66,11 @@ Row Pc(std::uint32_t id, Row r) {
 // (0 .. 10), +8 Subtitles, +9 Display HUD (1 On, 0 Off: the game's On / Off list, 0x1b2b3b0). Defaults as the game's
 // (0x1c8af20): Brightness 5, the volumes 10, Subtitles Off, Display HUD On.
 constexpr int kBrightness = 2, kMusic = 4, kSoundEffects = 5, kVoice = 6, kSubtitles = 8, kDisplayHud = 9;
+// The game's Controls screen's rows (its rows fn 0x1b211a0, the pages' copy one lower from Subtitles on): +0 Camera
+// Sensitivity (0 .. 10), +1 Controller Vibration (0 .. 10), +0xa Camera X-Axis, +0xb Camera Y-Axis (the list
+// 0x1b29ee0: Normal (40310) 1, Reversed (40311) 0), +0xc Auto Target Switch, +0xd Camera Auto-Adjust (On 1 / Off 0).
+// Defaults (0x1c8af20): sensitivity 5, vibration 10, both axes Normal, both switches On.
+constexpr int kCameraSpeed = 0, kVibration = 1, kCameraX = 0xa, kCameraY = 0xb, kAutoTarget = 0xc, kAutoAdjust = 0xd;
 constexpr std::uint64_t kGameOptionsOwner = 0x553b130, kGameOptions = 0x48;
 std::uint64_t GameOptions() {
     std::uint64_t owner = 0, options = 0;
@@ -129,6 +135,47 @@ Rows DisplayRows() {
         }(),
         {Kind::Defaults, u"Defaults", u"Every setting on this tab back to its default."},
     };
+}
+// Controls: the game's own controls, the PC pages' PC Controls (118000 .., 116002) and, while the PC camera is on
+// this session (Enhancements' PC Camera Controls, the camera code in), its Camera rows (118004, 121000, 121001).
+// "Camera Sensitivity" of PC Controls is named Mouse Sensitivity here (the game's own row has that name).
+Rows ControlsRows() {
+    Rows rows = {
+        {Kind::Head, u"General", nullptr},
+        Game(kCameraX, {Kind::Pick, u"Camera X-Axis", u"Change camera x-axis.", 1, {u"Reversed", u"Normal"}}),
+        Game(kCameraY, {Kind::Pick, u"Camera Y-Axis", u"Change camera y-axis.", 1, {u"Reversed", u"Normal"}}),
+        Game(kCameraSpeed, {Kind::Slider, u"Camera Sensitivity", u"Set camera movement speed.", 5}),
+        Game(kAutoTarget, {Kind::Toggle, u"Auto Target Switch", u"Auto lock-on to new target when former target dies.", 1}),
+        Game(kAutoAdjust, {Kind::Toggle, u"Camera Auto-Adjust", u"Set whether the camera automatically avoids walls.", 1}),
+        Game(kVibration, {Kind::Slider, u"Controller Vibration", u"Set strength of controller vibration.", 10}),
+        {Kind::Head, u"PC", nullptr},
+        Pc(118000, {Kind::Toggle, u"Mouse Camera", u"The mouse turns the camera outside menus.", 1}),
+        Pc(118001, {Kind::Slider, u"Mouse Sensitivity", u"How fast the mouse turns the camera.", 5}),
+        Pc(118002, {Kind::Toggle, u"Mouse X-Axis", u"The mouse's horizontal camera direction.", 0}),
+        Pc(118003, {Kind::Toggle, u"Mouse Y-Axis", u"The mouse's vertical camera direction.", 0}),
+        Pc(116002, {Kind::Toggle, u"Mouse in Menus", u"Move and click to select.", 1}),
+        Pc(118005, {Kind::Toggle, u"Camera Auto Rotation",
+                    u"Allow the camera to turn automatically while using the mouse.", 0}),
+        // the choices: the PC page's (118010 .., 118013 ..), in BbSettings' Prompts / PadIcons order
+        Pc(118006, {Kind::Pick, u"Button Prompts",
+                    u"The button icons in menus and prompts. Automatic shows keys while the keyboard or mouse is in use.",
+                    0, {u"Automatic", u"Keyboard", u"Controller"}}),
+        Pc(118007, {Kind::Pick, u"Controller Icons",
+                    u"The controller's buttons in menus and prompts. Automatic shows Xbox buttons while an Xbox "
+                    u"controller is in use.",
+                    0, {u"Automatic", u"PlayStation", u"Xbox"}}),
+    };
+    if (BbEngine::Camera::Active() && BbSettings::Get().camera_controls) {
+        rows.push_back({Kind::Head, u"Camera", nullptr});
+        rows.push_back(Pc(118004, {Kind::Slider, u"Field of View",
+                                   u"How wide the camera sees. 0 is the game's own; each step widens it 5%.", 0}));
+        rows.push_back(Pc(121000, {Kind::Slider, u"Camera Distance",
+                                   u"How far behind the character the camera sits. 5 is the game's own.", 5}));
+        rows.push_back(Pc(121001, {Kind::Slider, u"Camera Height",
+                                   u"How high above the character the camera looks. 5 is the game's own.", 5}));
+    }
+    rows.push_back({Kind::Defaults, u"Defaults", u"Every setting on this tab back to its default."});
+    return rows;
 }
 Rows SoundRows() {
     return {
@@ -218,7 +265,8 @@ void LoadValues(Rows& rows, bool defaults) {
             std::uint8_t b = 0;
             const std::uint64_t options = GameOptions();
             if (!options || !coop::SafeGet(options + std::uint64_t(r.game), &b)) continue;  // not wired: the screen's
-            r.value = r.stored = std::clamp(int(b), 0, r.kind == Kind::Toggle ? 1 : 10);
+            const int most = r.kind == Kind::Toggle ? 1 : r.kind == Kind::Pick ? int(r.choices.size()) - 1 : 10;
+            r.value = r.stored = std::clamp(int(b), 0, std::max(0, most));
         }
     }
 }
@@ -257,6 +305,7 @@ Rows RowsOf(int tab) {
     case 0: return DisplayRows();
     case 1: return SoundRows();
     case 2: return EnhancementRows();
+    case 3: return ControlsRows();
     case 5: return SystemRows();
     default: return {};
     }
