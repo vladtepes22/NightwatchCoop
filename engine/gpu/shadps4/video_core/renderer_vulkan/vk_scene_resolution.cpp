@@ -300,7 +300,9 @@ void SceneTargets::Copy(Entry& e, VideoCore::Image& original, bool to_native) {
         const char* env = std::getenv("BB_SCENE_LINEAR_RESOLVE");
         return !(env && env[0] == '0');
     }();
-    const bool linear = linear_resolve && !BbToggle::Experiment(2) && to_native &&
+    // bbport: color goes both ways filtered: a nearest fill of a proxy at an uneven ratio (1920 -> 1708 or 2560)
+    // drops or doubles every few texels, a regular mesh over fine detail.
+    const bool linear = linear_resolve && !BbToggle::Experiment(2) &&
         original.aspect_mask == vk::ImageAspectFlags{vk::ImageAspectFlagBits::eColor} &&
         bool(Features(original.backing->image.image_ci.format) &
              vk::FormatFeatureFlagBits::eSampledImageFilterLinear);
