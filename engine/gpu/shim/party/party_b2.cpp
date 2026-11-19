@@ -11376,7 +11376,7 @@ bool DeliverSummon(const dsummon::Room& room, const std::string& host_name) {
     // with the chalice wait bit (0x14ba62e). The mode comes from the game's own data (the small bell's effect and
     // its event script, through a table-called setter): a game whose data does not set it took every room as
     // state 1 and never joined, with nothing in the log saying why (a modified game, 31 tries in one report).
-    // Set for this call, as the chalice bit above.
+    // Set here and left set, as a game in its bell wait has it (the chalice bit above is left set too).
     if (net) {
         const u32 mode = Field<u32>(net, 0xa98, 0xff);
         const bool chalice_wait = mode == 0 && (Field<u8>(net, 0xb14, 0) & 1);
