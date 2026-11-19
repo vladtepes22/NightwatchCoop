@@ -480,34 +480,7 @@ static void StickAsDpad(PadState& pad, bool sideways) {
     if (sideways) pad.lx = kStickRest;
 }
 
-extern "C" void bbgpu_request_quit(void);
-// TEMPORARY (Settings screen test builds only; remove once the Settings screen shows Quit to Desktop): with
-// BB_TEST_QUIT=1, holding Options (Start) for two seconds quits to the desktop (L3 + R3 clashed with the developer
-// console).
-static void TestQuitCombo(std::uint32_t buttons) {
-    static const bool on = [] {
-        const char* v = std::getenv("BB_TEST_QUIT");
-        return v && *v == '1';
-    }();
-    if (!on) return;
-    static std::chrono::steady_clock::time_point since{};
-    static bool held = false, sent = false;
-    const bool both = (buttons & PadBits::kOptions) != 0;
-    const auto now = std::chrono::steady_clock::now();
-    if (!both) {
-        held = false;
-        return;
-    }
-    if (!held) held = true, since = now;
-    if (!sent && now - since >= std::chrono::seconds(2)) {
-        sent = true;
-        host_log("Test quit: Options held for 2 s, quitting to the desktop\n");
-        bbgpu_request_quit();
-    }
-}
-
 extern "C" int bbgpu_pc_input(BbPcPad* d, const bool* keys, int nkeys, int gamepad_present) {
-    TestQuitCombo(d->buttons);
     const auto& s = BbSettings::Get();
     if (!g_active.load(std::memory_order_relaxed) || !s.pc_controls) {
         g_wants_relative = false;
