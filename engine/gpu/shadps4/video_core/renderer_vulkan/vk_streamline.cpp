@@ -3,6 +3,7 @@
 
 #include "video_core/renderer_vulkan/vk_streamline.h"
 
+#include <string_view>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -796,7 +797,20 @@ void DlssFrameGen::SetMode(bool on) {
     }
     // Reflex's sleep interval is the presenter's frame limit (0 = none): its sleep paces the game to the same rate the
     // presenter holds, instead of racing ahead of it (visy 8ee5500e; the limit is kept by the video-out thread).
-    const u32 reflex_limit = Libraries::VideoOut::PresenterLimit();
+    u32 reflex_limit = Libraries::VideoOut::PresenterLimit();
+    // bbport: with DLSS Frame Generation running, Reflex's limit caps the frames SHOWN, generated ones included.
+    // The uncapped preset's presenter limit is the game's share of it (driver.cpp, effective_limit: the limit
+    // divided by the frames shown per game frame), so Reflex got a third of the rate and the game a ninth
+    // (165 Hz, 3 shown per frame: 55 shown, 18 game). Reflex gets the whole of it back. The fixed presets'
+    // limit is not divided.
+    static const bool variable_timestep = [] {
+        const char* fps = std::getenv("BB_FPS");
+        return fps && std::string_view{fps} == "uncap";
+    }();
+    if (on && variable_timestep && BbSettings::Get().frame_gen_active.load(std::memory_order_relaxed)) {
+        reflex_limit *= u32(std::clamp(BbSettings::Get().frame_gen_multiplier.load(std::memory_order_relaxed), 2,
+                                       BbSettings::FrameGenFramesMax + 1));
+    }
     const u32 reflex_interval_us = reflex_limit ? 1000000u / reflex_limit : 0u;
     if (sl_reflex_set_options && (reflex != applied_reflex || reflex_interval_us != applied_reflex_interval_us)) {
         sl::ReflexOptions options{};
