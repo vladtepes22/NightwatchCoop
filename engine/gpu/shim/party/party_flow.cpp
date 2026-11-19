@@ -252,22 +252,11 @@ bool IsUserDerivedName(const std::string& name, const std::string& user) {
     return true;
 }
 
-std::string DefaultName(const std::string& character, std::uint32_t random) {
-    std::string plain;
-    bool ok = !character.empty() && character.size() <= 16, letter = false;
-    for (const char c : character) {
-        const unsigned char u = static_cast<unsigned char>(c);
-        if (u < 0x80 && std::isalnum(u)) letter = true;
-        else if (c != '_' && c != '-' && c != ' ') ok = false;
-        plain += c == ' ' ? '_' : c;
-    }
-    // A character name gets 2 digits (two players with the same character must not share a name: the host admits
-    // one player per name), "Hunter" 4.
-    const bool named = ok && letter;
-    std::string base = named ? plain.substr(0, 13) : "Hunter";
+std::string DefaultName(std::uint32_t random) {
+    std::string base = "Hunter";
     static const char kDigits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
     base += '-';
-    for (int i = 0; i < (named ? 2 : 4); ++i) {
+    for (int i = 0; i < 4; ++i) {
         base += kDigits[random % 36];
         random /= 36;
     }

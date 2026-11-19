@@ -164,24 +164,6 @@ public static partial class SeamlessSettings
     public static bool NameIsUnset(LauncherSettings s) =>
         SanitizeName(s.Str("party_name")).Length == 0 || IsUserDerivedName(s.Str("party_name"), Environment.UserName);
 
-    /// <summary>The first character's name in the party saves, else the solo ones, when it can be used as a party name;
-    /// null when there is no save, the editor's data cannot be read or the name has no Latin letters.
-    /// <paramref name="plainOnly"/>: only a name that needs no repair beyond blanks (the automatic default).</summary>
-    internal static async Task<string?> CharacterNameAsync(LauncherSettings s, bool plainOnly = false)
-    {
-        using var worker = new SaveEditor.Worker(s);
-        foreach (var kind in new[] { "party", "solo" })
-            try
-            {
-                var slots = SaveEditor.Parse<SaveEditor.Slot[]>(await worker.Run("slots", kind));
-                var name = slots.Where(slot => !plainOnly || Regex.IsMatch(slot.Name.Trim(), "^[A-Za-z0-9_ -]{1,16}$"))
-                    .Select(slot => SanitizeName(slot.Name.Trim())).FirstOrDefault(HasLatin);
-                if (name != null) return name;
-            }
-            catch (Exception e) when (e is IOException or InvalidOperationException or System.Text.Json.JsonException) { }
-        return null;
-    }
-
     public static string Name(LauncherSettings s)
     {
         var name = NameIsUnset(s) ? "" : s.Str("party_name");

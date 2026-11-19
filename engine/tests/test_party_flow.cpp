@@ -162,15 +162,9 @@ int main() {
     TestJson();
     TestPlans();
     TestBat();
-    // Automatic party names: a plain character name, else Hunter + '-' + 4 base-36 digits; never the user name.
-    assert(DefaultName("Lady Maria", 0) == "Lady_Maria-00");
-    assert(DefaultName("Lady Maria", 1) != DefaultName("Lady Maria", 2));
-    assert(DefaultName("SixteenLetters16", 35) == "SixteenLetter-z0");
-    assert(DefaultName("Visa Pimi\xc3\xa4", 0) == "Hunter-0000");
-    assert(DefaultName("", 35) == "Hunter-z000");
-    assert(DefaultName("_-_", 0) == "Hunter-0000");
-    assert(DefaultName("averyveryverylongname", 1) == "Hunter-1000");
-    assert(DefaultName("", 1) != DefaultName("", 2));
+    // Automatic party names: Hunter + '-' + 4 base-36 digits; never the user name.
+    assert(DefaultName(35) == "Hunter-z000");
+    assert(DefaultName(1) != DefaultName(2));
     // Names 0.3.2 made from the user name count as unset.
     assert(IsUserDerivedName("Visa_Pimi-0a1z", "Visa Pimi\xc3\xa4"));
     assert(IsUserDerivedName("averyverylo-0000", "averyverylongname"));
