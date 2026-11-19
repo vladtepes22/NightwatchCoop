@@ -9,6 +9,7 @@
 #include "video_core/renderer_vulkan/ui_composition.h"
 #include "video_core/renderer_vulkan/upscaler_skips.h"
 #include "engine/loading.h"
+#include "party/party_seam.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1877,13 +1878,12 @@ void TemporalUpscaler::OnDraw(u64 vs_hash, VideoCore::ImageId color,
     const bool temporal_ready = Active() && !failed;
     // bbport: on a screen that is not 16:9 (Widescreen, BB_UI_SIZE) the game's menus cover only
     // its 16:9 stage. While the game shows no world (the title, a loading screen, a loading screen
-    // kept up over the arrived world), the scene target beside the stage is an empty grey or the
+    // held over the arrived world), the scene target beside the stage is an empty grey or the
     // hidden world: the stage alone is copied, black around it. "The UI draws into the scene's
     // target" is true on those frames too, so it cannot tell them apart; and the upscaler does
     // not run under such a screen (its output has no black around the stage).
-    const auto ui_size = UiComposition::UiSize();
-    const bool stage_only = std::abs(ui_size[0] * 9.0f - ui_size[1] * 16.0f) > 16.0f && // not Sharp UI's 16:9
-                            BbEngine::Loading::WorldHidden();
+    const bool stage_only = UiComposition::UiSize() != std::array{1920.0f, 1080.0f} &&
+                            (BbEngine::Loading::WorldHidden() || coop::seam::ScreenHeld());
     const bool world = ldr_target && ldr_target == color && !stage_only;
     // bbport (upscaler_skips.h): the UI draw's own RGBA8 UNORM target of the scene's size is the
     // finished frame too (the frame's last colour target was not seen as it); not under native
