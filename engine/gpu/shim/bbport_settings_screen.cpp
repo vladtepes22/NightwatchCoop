@@ -192,7 +192,7 @@ Rows EnhancementRows() {
         Pc(124001, {Kind::Toggle, u"Hunter's Dream Mirror",
                     u"The Dream's mirror opens the appearance editor (the unused \"Put on Disguise\").", 0}),
         Pc(124002, {Kind::Toggle, u"Rebirth at the Altar",
-                    u"The Altar of Despair resets level and attributes. Takes effect the next time Upper Cathedral Ward loads.", 0}),
+                    u"The Altar of Despair resets level and attributes.", 0}),
         Pc(124004, {Kind::Toggle, u"PC Camera Controls", u"Adds the Camera section to Controls: field of view, camera distance and height.", 0}),
         {Kind::Defaults, u"Defaults", u"Every setting on this tab back to its default."},
     };

@@ -30,10 +30,6 @@ constexpr int kMenuPatience = 120;
 std::uint64_t g_image = 0;
 int g_watch = -1;
 bool g_on = false;
-// The prepared altar scripts, mounted over the game's while Enhancements' Rebirth at the Altar is on (Follow, every
-// frame): the game reads them when Upper Cathedral Ward loads, so a change shows from its next load.
-std::string g_guest, g_asset;
-bool g_mounted = false;
 bool g_away = true;
 std::optional<Hunter> g_before;
 std::uint64_t g_menu = 0;
@@ -125,18 +121,12 @@ void LetGoOfMenu() {
     g_menu = 0;
 }
 
-void Follow() {
+// Enhancements' Rebirth at the Altar, live: the prepared altar script lists Rebirth only while kOffered is on, so
+// the setting reaches the altar's next talk.
+void Offer() {
     const bool want = BbSettings::Get().rebirth;
-    if (want == g_mounted) return;
-    if (want && runtime_file_mount(g_guest.c_str(), g_asset.c_str())) {
-        host_log("rebirth: the altar's scripts could not be mounted");
-        g_on = false;
-        return;
-    }
-    if (!want) runtime_file_unmount(g_guest.c_str());
-    g_mounted = want;
-    host_log(want ? "rebirth: on (the altar offers it from Upper Cathedral Ward's next load)"
-                  : "rebirth: off (the altar's own scripts from Upper Cathedral Ward's next load)");
+    bool now = false;
+    if (event_flag_get(rebirth::kOffered, &now) && now != want) event_flag_set(rebirth::kOffered, want);
 }
 }
 
@@ -160,21 +150,19 @@ bool Install(std::uint8_t* image, std::size_t size) {
         host_log("rebirth off: a mod replaces the altar's talk scripts");
         return false;
     }
-    if (!fs::is_regular_file(asset, error)) return false;
+    if (!fs::is_regular_file(asset, error) || runtime_file_mount(guest.c_str(), asset)) return false;
     g_image = reinterpret_cast<std::uint64_t>(image);
     g_watch = menu_steps_watch(7, u"LevelUp");
-    if (g_watch < 0) return false;
-    g_guest = guest;
-    g_asset = asset;
+    if (g_watch < 0) {
+        runtime_file_unmount(guest.c_str());
+        return false;
+    }
     g_on = true;
-    host_log("rebirth: ready (the Altar of Despair offers Rebirth, its refund and an undo while the setting is on)");
-    Follow();
-    return g_on;
+    host_log("rebirth: the Altar of Despair offers Rebirth, its refund and an undo (while the setting is on, live)");
+    return true;
 }
 
 void Tick() {
-    if (!g_on) return;
-    Follow();
     if (!g_on) return;
     const std::uint64_t made = menu_steps_take(g_watch);
     std::uint32_t map = 0;
@@ -182,6 +170,7 @@ void Tick() {
         g_away = true;
         return;
     }
+    Offer();
     using namespace rebirth;
     if (g_away) {
         g_away = false;

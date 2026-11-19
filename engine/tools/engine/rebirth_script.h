@@ -6,6 +6,9 @@
 
 namespace rebirth {
 constexpr std::uint32_t kReqReset = 72500390, kReqUndo = 72500391, kFail = 72500392, kMenu = 72500393;
+// On while Enhancements' Rebirth at the Altar is (the engine sets it every frame in the world): the altar lists
+// Rebirth only then.
+constexpr std::uint32_t kOffered = 72500394;
 constexpr std::int32_t kTextOption = 14000332, kTextFail = 14000334,
                        kTextAccept = 14000335, kTextUndo = 14000336;
 }
