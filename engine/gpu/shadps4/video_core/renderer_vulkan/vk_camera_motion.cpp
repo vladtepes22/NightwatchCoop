@@ -79,13 +79,9 @@ std::array<float, 12> InverseAffine(const std::array<float, 12>& m) {
 CameraMotion::CameraMotion(const Instance& instance_, Scheduler& scheduler_,
                            VideoCore::TextureCache& texture_cache_, Runtime& runtime_)
     : instance{instance_}, scheduler{scheduler_}, texture_cache{texture_cache_}, runtime{runtime_} {
-    const char* env = std::getenv("BB_DEBUG_MOTION");
-    debug_overlay = env && env[0] == '1';
+    debug_overlay = DebugOverlayAsked();
     for_party = bb_party_enabled();
-    const char* upscaler = std::getenv("BB_UPSCALER");
-    // The upscaler can be switched on from the menu at any time: the camera is always tracked
-    // unless BB_UPSCALER=none.
-    for_upscaler = !(upscaler && std::strcmp(upscaler, "none") == 0);
+    for_upscaler = UpscalerPossible();
     const auto device = instance.GetDevice();
     if (for_upscaler) {
         const std::array<vk::DescriptorSetLayoutBinding, 3> motion_bindings = {{

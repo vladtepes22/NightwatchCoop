@@ -7,6 +7,8 @@
 #include "../../../party_env.h"
 
 #include <array>
+#include <cstdlib>
+#include <cstring>
 #include <vector>
 
 #include "common/types.h"
@@ -52,6 +54,22 @@ public:
 
     [[nodiscard]] bool Enabled() const noexcept {
         return debug_overlay || for_upscaler || for_party;
+    }
+
+    /// The three reasons of Enabled(), read from the environment: the constructor's own rule, also
+    /// for code that runs before a CameraMotion exists (PipelineCache::WarmUp).
+    [[nodiscard]] static bool DebugOverlayAsked() noexcept {
+        const char* env = std::getenv("BB_DEBUG_MOTION");
+        return env && env[0] == '1';
+    }
+    /// The upscaler can be switched on from the menu at any time: the camera is always tracked
+    /// unless BB_UPSCALER=none.
+    [[nodiscard]] static bool UpscalerPossible() noexcept {
+        const char* upscaler = std::getenv("BB_UPSCALER");
+        return !(upscaler && std::strcmp(upscaler, "none") == 0);
+    }
+    [[nodiscard]] static bool EnabledAtStart() noexcept {
+        return DebugOverlayAsked() || UpscalerPossible() || bb_party_enabled() != 0;
     }
 
     /// Both cameras and the scene depth of the current frame are known.

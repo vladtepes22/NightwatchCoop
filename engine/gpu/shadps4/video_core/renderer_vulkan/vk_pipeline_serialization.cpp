@@ -19,6 +19,7 @@
 #include "shader_recompiler/frontend/fetch_shader.h"
 #include "shader_recompiler/info.h"
 #include "video_core/cache_storage.h"
+#include "video_core/renderer_vulkan/vk_camera_motion.h"
 #include "video_core/renderer_vulkan/vk_effect_shaders.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
@@ -321,8 +322,10 @@ bool PipelineCache::LoadGraphicsPipeline(Serialization::Archive& ar, bool legacy
 
     // bbport: pipelines with position capture were stored by a run with ray traced lighting on.
     // With the row off at start (or no ray query) nothing draws with them: not built, not held.
+    // The same when the camera is not tracked (BB_UPSCALER=none outside a party): ray tracing
+    // does not run then (RtShadow's constructor). The records stay in the cache for a later run.
     if ((sel.graphics_key.motion_vectors & Shader::MotionVectors::VertexCapture) &&
-        !instance.IsRayQuerySupported()) {
+        (!instance.IsRayQuerySupported() || !CameraMotion::EnabledAtStart())) {
         return false;
     }
 
