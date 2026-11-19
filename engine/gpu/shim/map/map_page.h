@@ -5,6 +5,8 @@
 // read from BB_MAP_DATA (default <BB_MAP_DIR>/../atlas/maps), the art from beside the parchment.
 #pragma once
 
+#include <string>
+
 #include "map_page_rules.h"
 
 #include "video_core/renderer_vulkan/vk_common.h"
@@ -17,6 +19,8 @@ namespace BbMapPage {
 void Init(VkDevice device, VkPhysicalDevice physical, VkFormat format);
 /// The map is on (the map view opens, the Map tab is shown).
 bool Available();
+/// The named place the player stands in (else the area's name); "" without the map's data or a position.
+std::string PlaceHere();
 /// Present thread, every frame: maps that were still being made at the start turn the map on when
 /// they appear (no restart).
 void Poll();

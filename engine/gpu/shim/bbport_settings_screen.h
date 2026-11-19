@@ -5,6 +5,8 @@
 
 #include <cstdint>
 #include <span>
+#include <string>
+#include <vector>
 
 
 namespace BbSettingsScreen {
@@ -30,6 +32,9 @@ const char16_t* Text(std::uint32_t category, std::uint32_t id);
 /// The selected row's name and help (for the details page; null when the tab has no row).
 /// `picture`: the row's details page shows the game's brightness picture (Brightness (Legacy)).
 void Selected(const char16_t** name, const char16_t** help, bool* picture = nullptr);
+/// The System tab's details page: the character's profile (its name; level, play time, place) in place of the
+/// rows' helps. False on the other tabs.
+bool Profile(std::u16string* name, std::vector<std::u16string>* lines);
 
 /// The screen opened (its cursor and rows start over).
 void Opened();

@@ -2,6 +2,7 @@
 // Nightwatch: the in-game Settings screen's content (bbport_settings_screen.h).
 #include "bbport_settings_screen.h"
 
+#include "bbport_game_menu.h"
 #include "bbport_game_menu_pages.h"
 #include "bbport_menu_widgets.h"
 #include "bbport_settings.h"
@@ -29,6 +30,7 @@
 #include <vector>
 
 extern bool debug_menu_active();  // input/input.cpp
+namespace BbMapPage { std::string PlaceHere(); }  // map/map_page.h (its Vulkan types left out)
 
 namespace BbSettingsScreen {
 namespace {
@@ -921,12 +923,67 @@ const char16_t* Text(std::uint32_t category, std::uint32_t id) {
             if (t.text == id) return t.name;
         return nullptr;
     }
-    if (category == 0xc9 && id == 263000) {  // the help line: the selected row's help
-        std::lock_guard<std::mutex> lk(g_mu);
-        const Row* r = RowOf(g_state, g_state.cursor);
-        return r && r->help ? r->help : u"";
-    }
+    if (category == 0xc9 && id == 263000) return u"";  // the help line: empty (the details page has the help)
     return nullptr;
+}
+
+namespace {
+std::u16string FromUtf8(const std::string& s) {
+    std::u16string out;
+    for (std::size_t i = 0; i < s.size();) {
+        const unsigned char c = static_cast<unsigned char>(s[i]);
+        const int more = c < 0x80 ? 0 : c < 0xe0 ? 1 : c < 0xf0 ? 2 : 3;
+        std::uint32_t cp = more == 0 ? c : more == 1 ? c & 0x1f : more == 2 ? c & 0x0f : c & 0x07;
+        for (int k = 1; k <= more && i + k < s.size(); ++k) cp = cp << 6 | (static_cast<unsigned char>(s[i + k]) & 0x3f);
+        i += std::size_t(more) + 1;
+        if (cp >= 0x10000) {
+            cp -= 0x10000;
+            out += char16_t(0xd800 + (cp >> 10));
+            out += char16_t(0xdc00 + (cp & 0x3ff));
+        } else {
+            out += char16_t(cp);
+        }
+    }
+    return out;
+}
+// The save's play time in ms: GameDataMan +0x94 (1.09; 0 on a new game, then counting ms: a headless probe), -1
+// without it.
+std::int64_t PlayTimeMs(const coop::GameSnapshot& s) {
+    std::uint32_t ms = 0;
+    return s.game_data_man && coop::SafeGet(s.game_data_man + 0x94, &ms) ? std::int64_t(ms) : -1;
+}
+// Where the player is: the map page's named place when its data is there (the generator's places), else the
+// game's own place name for the map (item text 19, PlaceName: mAA_BB_.. -> AA*100 + BB*10, e.g. m24_01 2410
+// Central Yharnam; else AA*100). "" in a Chalice Dungeon (its names go by the dungeon, not the map).
+std::u16string PlaceName(const coop::GameSnapshot& s) {
+    if (const std::string place = BbMapPage::PlaceHere(); !place.empty()) return FromUtf8(place);
+    if (s.map_id == 0xffffffffu) return std::u16string();
+    const std::uint32_t aa = s.map_id >> 24 & 0xff, bb = s.map_id >> 16 & 0xff;
+    const char16_t* t = BbGameMenu::GameText(19, aa * 100 + bb * 10);
+    if (!t) t = BbGameMenu::GameText(19, aa * 100);
+    std::u16string out = t ? t : u"";
+    while (!out.empty() && out.back() == u' ') out.pop_back();  // some of the game's names end in a space
+    return out;
+}
+}  // namespace
+
+bool Profile(std::u16string* name, std::vector<std::u16string>* lines) {
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        if (g_state.tab != 5) return false;  // System
+    }
+    *name = coop::CharacterName();
+    lines->clear();
+    const coop::GameSnapshot s = coop::ReadGameState(false);
+    if (s.level >= 0) lines->push_back(u"Level " + Wide(std::to_string(s.level).c_str()));
+    if (const std::int64_t ms = PlayTimeMs(s); ms >= 0) {
+        char text[32];
+        const long long sec = ms / 1000;
+        std::snprintf(text, sizeof text, "%lld:%02lld:%02lld", sec / 3600, sec / 60 % 60, sec % 60);
+        lines->push_back(u"Play Time " + Wide(text));
+    }
+    if (const std::u16string place = PlaceName(s); !place.empty()) lines->push_back(place);
+    return true;
 }
 
 void Selected(const char16_t** name, const char16_t** help, bool* picture) {

@@ -527,29 +527,6 @@ static void remap_assign(int row, int button) {
     remap_touched=1;
     __atomic_add_fetch(&remap_serial,1,__ATOMIC_RELAXED);
 }
-/* The capture's trace: the controller read (and its extra buttons held, not offered), each change of what is held. */
-static uint64_t remap_trace_held=~0ull;
-static void remap_trace(SDL_Gamepad *g, uint64_t held) {
-    char names[256]="";
-    size_t used=0;
-    if (remap_trace_held==~0ull) {
-        int count=0;
-        SDL_JoystickID *ids=SDL_GetGamepads(&count);
-        SDL_free(ids);
-        for (int b=0;g && b<SDL_GAMEPAD_BUTTON_COUNT && used<sizeof names;++b)
-            if (!remap_offered(b) && SDL_GetGamepadButton(g,(SDL_GamepadButton)b))
-                used+=(size_t)snprintf(names+used,sizeof names-used,"%s%s",used ? " " : "",remap_ini_name(b));
-        printf("Runtime: controller buttons: trace: reading %s (id %u; %d controller(s) connected; not offered, held: [%s])\n",
-               g ? SDL_GetGamepadName(g) : "no controller",g ? (unsigned)SDL_GetGamepadID(g) : 0u,count,names);
-        names[0]=0, used=0;
-    }
-    if (held!=remap_trace_held) {
-        for (int b=0;b<=PAD_TOUCH_RIGHT && used<sizeof names;++b)
-            if (held>>b&1) used+=(size_t)snprintf(names+used,sizeof names-used,"%s%s",used ? " " : "",remap_ini_name(b));
-        printf("Runtime: controller buttons: trace: held [%s]\n",names);
-        remap_trace_held=held;
-    }
-}
 /* 1: the game gets no buttons this read (a capture, or what was held at its end still held). */
 static int remap_step(SDL_Gamepad *g, const bool *k) {
     const int escape=k && k[SDL_SCANCODE_ESCAPE];
@@ -557,11 +534,9 @@ static int remap_step(SDL_Gamepad *g, const bool *k) {
     const uint64_t pressed=held&~remap_prev;
     remap_prev=held;
     if (__atomic_load_n(&remap_target,__ATOMIC_RELAXED)<0) {
-        remap_trace_held=~0ull;
         if (remap_release && !(held&remap_release_mask) && !escape) __atomic_store_n(&remap_release,0,__ATOMIC_RELAXED);
         return remap_release;
     }
-    remap_trace(g,held);
     if (remap_fresh) { remap_fresh=0; return 1; }  /* the first read: what is held now began it */
     if (escape || now_us()-remap_since>REMAP_TIMEOUT_US) {
         remap_end(escape ? "kept (Escape)" : "kept (no button in 8 s)",held);
@@ -625,27 +600,6 @@ static void sample_host(PadData *d) {
         const int gestures=touch_down(g,IN_TOUCHPAD,menus);
         touch_right=touch_down(g,IN_TOUCHPAD_RIGHT,menus);
         if (gestures) d->buttons|=BTN_TOUCHPAD;
-        {  /* the trace (the first 400 changes): the touchpad's button, every finger, the extra buttons held */
-            static char was[256];
-            static int told;
-            char now[256];
-            int used=snprintf(now,sizeof now,"button %s; Gestures %d, Personal Effects %d; side %d;",
-                              SDL_GetGamepadButton(g,SDL_GAMEPAD_BUTTON_TOUCHPAD) ? "down" : "up",gestures,touch_right,side);
-            for (int t=0;t<SDL_GetNumGamepadTouchpads(g) && used<(int)sizeof now;++t)
-                for (int f=0;f<SDL_GetNumGamepadTouchpadFingers(g,t) && used<(int)sizeof now;++f) {
-                    bool down=false;
-                    float x=0, y=0;
-                    if (SDL_GetGamepadTouchpadFinger(g,t,f,&down,&x,&y,NULL) && down)
-                        used+=snprintf(now+used,sizeof now-(size_t)used," pad %d at %.1f,%.1f;",t,(double)x,(double)y);
-                }
-            for (int b=SDL_GAMEPAD_BUTTON_MISC2;b<=SDL_GAMEPAD_BUTTON_MISC6 && used<(int)sizeof now;++b)
-                if (SDL_GetGamepadButton(g,(SDL_GamepadButton)b)) used+=snprintf(now+used,sizeof now-(size_t)used," misc%d",b-SDL_GAMEPAD_BUTTON_MISC2+2);
-            if (strcmp(now,was) && told<400) {
-                ++told;
-                printf("Runtime: touchpad: %s\n",now);
-                snprintf(was,sizeof was,"%s",now);
-            }
-        }
         if (in_menu) {
             if (menu_down&1) d->buttons|=menu_confirm;
             if (menu_down&2) d->buttons|=menu_back;

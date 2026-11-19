@@ -216,9 +216,18 @@ bool Enable(const Pending& p) {
 
 // ---- Drawing helpers ----
 
+// The generator's data once its worker is done (any thread: PumpData on the render thread, PlaceHere on the game's).
+std::mutex g_data_mu;
+std::shared_ptr<const Data> g_data_any;  // under g_data_mu
+std::shared_ptr<const Data> DataNow() {
+    std::lock_guard<std::mutex> lk(g_data_mu);
+    if (!g_data_any && g_data_job.valid() && g_data_job.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        g_data_any = g_data_job.get();
+    return g_data_any;
+}
+
 void PumpData() {
-    if (g_data_job.valid() && g_data_job.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-        g_data = g_data_job.get();
+    if (!g_data && (g_data = DataNow())) {
         auto ids = std::make_shared<const std::vector<std::uint32_t>>(CollectFlags(g_data->areas));
         std::printf("Map: %zu areas, %zu event flags watched%s%s\n", g_data->areas.size(), ids->size(),
                     g_data->error.empty() ? "" : "; ", g_data->error.c_str());
@@ -842,6 +851,29 @@ const char* NoteText() {
 
 bool Available() {
     return g_available.load(std::memory_order_relaxed);
+}
+
+std::string PlaceHere() {
+    if (!g_available.load()) return std::string();  // after StartData made the data's job
+    Where w;
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        w = g_where;
+    }
+    const std::shared_ptr<const Data> data = DataNow();
+    const Area* area = data && w.valid ? Find(data->areas, w.region) : nullptr;
+    if (!area) return std::string();
+    // A walk over many triangles: once a second is enough.
+    static std::mutex mu;
+    static std::string last, region;
+    static std::int64_t at = 0;
+    std::lock_guard<std::mutex> lk(mu);
+    if (NowMs() - at > 1000 || region != w.region) {
+        last = Title(*area, w.x, w.y, w.z);
+        region = w.region;
+        at = NowMs();
+    }
+    return last;
 }
 
 bool OpensWithKey(int scancode) {

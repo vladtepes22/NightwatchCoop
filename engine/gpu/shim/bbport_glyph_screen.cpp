@@ -1714,7 +1714,17 @@ void SettingsPanel(u64 screen) {
     const char16_t* help = nullptr;
     bool picture = false;
     BbSettingsScreen::Selected(&name, &help, &picture);
-    const std::u16string want = std::u16string(name ? name : u"") + u"\x1" + (help ? help : u"") + (picture ? u"*" : u"");
+    // The System tab: the character's profile (name as the title, then level, play time, place), no row help
+    std::u16string profile_name, profile_html;
+    std::vector<std::u16string> profile_lines;
+    if (BbSettingsScreen::Profile(&profile_name, &profile_lines)) {
+        name = profile_name.c_str();
+        for (const auto& l : profile_lines) profile_html += PanelHtml(22, u"#cccccc", l.c_str());
+        help = nullptr;
+        picture = false;
+    }
+    const std::u16string want = std::u16string(name ? name : u"") + u"\x1" + (help ? help : u"") + profile_html +
+                                (picture ? u"*" : u"");
     if (screen == g_panel_text_screen && want == g_panel_text) return;
     Wrapper root;
     reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kResolveHandle))(root.at(), screen + kPanelHandle);
@@ -1729,7 +1739,8 @@ void SettingsPanel(u64 screen) {
         g_glyph_panel_shown = true;
     }
     SetFieldText(root.at(), "GlyphDetailText/ItemName/Value_0", PanelHtml(24, u"#a0895f", name).c_str());
-    SetFieldText(root.at(), "GlyphDetailText/DetailDesc/Value_0", PanelHtml(22, u"#cccccc", help).c_str());
+    SetFieldText(root.at(), "GlyphDetailText/DetailDesc/Value_0",
+                 (profile_html.empty() ? PanelHtml(22, u"#cccccc", help) : profile_html).c_str());
     // Brightness (Legacy): the game's Brightness screen's picture under the help (menu_assets.cpp BrightnessSample)
     BbMenuWidgets::ShowPart(root.at(), "GlyphDetailText/BrightnessSample", picture);
     if (screen != g_panel_text_screen) {
