@@ -84,7 +84,6 @@ RUNE_CATEGORY = 8  # catalog only: a rune is added through add_gems, not "add"
 MOD_CATEGORY = 9  # catalog only: the items the Nocturne mod adds (each row names its own category)
 ADD_CATEGORIES = (0, 1, 4)  # weapons, armour, goods: what "add item" offers (gems and runes are copied: copy_gems)
 ADD_MAX_COUNT = 99
-CATALOG_LIMIT = 60
 
 
 def catalog(catalogue, request, game, cache):
@@ -92,7 +91,7 @@ def catalog(catalogue, request, game, cache):
     if isinstance(request, dict) and request.get("category") == RUNE_CATEGORY:
         return rune_catalog(catalogue, str(request.get("text", ""))[:60].lower(), game, cache)
     if isinstance(request, dict) and request.get("category") == MOD_CATEGORY:
-        found = catalogue.search_mod_items(str(request.get("text", ""))[:60])[:CATALOG_LIMIT]
+        found = catalogue.search_mod_items(str(request.get("text", ""))[:60])
         wanted = {catalogue.icon(c, n) for c, n, _ in found} - {None}
         paths = icons.ensure(game, cache, wanted) if game and wanted else {}
         return [dict(number=n, name=name, icon=paths.get(catalogue.icon(c, n)), category=c) for c, n, name in found]
@@ -101,7 +100,8 @@ def catalog(catalogue, request, game, cache):
     category, text = request["category"], str(request.get("text", ""))[:60]
     rows = [(n, name) for n, name in catalogue.search(category, text)
             if catalogue.name(category, n) is not None and catalogue.fallback_name(category, n) is None
-            and (category, n) not in PLACEHOLDERS][:CATALOG_LIMIT]
+            and (category, n) not in PLACEHOLDERS]
+    # The whole list: a cap of 60 rows hid every later weapon from the list (the search still found it).
     wanted = {catalogue.icon(category, n) for n, _ in rows} - {None}
     paths = icons.ensure(game, cache, wanted) if game and wanted else {}
     return [dict(number=n, name=name, icon=paths.get(catalogue.icon(category, n))) for n, name in rows]
@@ -114,7 +114,7 @@ def rune_catalog(catalogue, text, game, cache):
         name, icon, _ = catalogue.gem(gen, shape, [effect])
         if name is not None and (not text or text in name.lower() or text == str(effect)):
             rows.append((effect, name, icon, shape))
-    # No CATALOG_LIMIT: the game's rune list is fixed and short (73 rows), and the oath runes come last.
+    # The game's rune list is fixed and short (73 rows), and the oath runes come last.
     paths = icons.ensure(game, cache, {r[2] for r in rows} - {None}) if game and rows else {}
     return [dict(number=e, name=n, icon=paths.get(i), shape=s) for e, n, i, s in rows]
 

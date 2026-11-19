@@ -168,7 +168,7 @@ internal sealed class SaveEditorAddDialog : Window
         Content = body;
 
         _kind.SelectionChanged += async (_, _) => { _list.ItemsSource = null; Update(); await Load(); };
-        // One search when typing pauses, not one per key: each asks the worker (requests queue) and decodes up to 60 icons.
+        // One search when typing pauses, not one per key: each asks the worker (requests queue) and decodes the icons it has not cached yet.
         _search.TextChanged += async (_, _) =>
         {
             var typed = ++_run;
