@@ -197,12 +197,34 @@ Rows EnhancementRows() {
         {Kind::Defaults, u"Defaults", u"Every setting on this tab back to its default."},
     };
 }
+// The commands ask first: Confirm opens the choices pop-up with Yes / No (No highlighted).
 Rows SystemRows() {
     return {
         {Kind::Head, u"System", nullptr},
-        {Kind::Command, u"Exit Game", u"Return to the title screen."},
-        {Kind::Command, u"Quit to Desktop", u"Close the game."},
+        {Kind::Command, u"Exit Game", u"Return to the title screen.", 0, {u"Yes", u"No"}},
+        {Kind::Command, u"Quit to Desktop", u"Close the game.", 0, {u"Yes", u"No"}},
     };
+}
+
+// Exit Game: the game's own. Its System row (the builder 0x1bb3ad0, AddCommandItem at 0x1bb436d with the opener
+// 0x1c0c9f0) asks with a dialog whose Yes runs the functor (vtable 0x5344a10) slot 2, 0x1c0d050: it takes nothing and
+// sets the game's return-to-title request. Called here after our own Yes.
+constexpr std::uint64_t kExitToTitle = 0x1c0d050;
+extern "C" void bbgpu_request_quit(void);  // bbgpu.cpp
+void ExitGame() {
+    using Fn = void(BB_COOP_SYSV*)();
+    if (!coop::MatchesOriginal(kExitToTitle, {0x48, 0x8d, 0x05, 0xd9, 0xe0, 0x92, 0x03})) {
+        std::printf("Settings screen: Exit Game left out (the game's code is not 1.09's)\n");
+        return;
+    }
+    std::printf("Settings screen: Exit Game (the game's return to the title)\n");
+    std::fflush(stdout);
+    reinterpret_cast<Fn>(coop::Guest(kExitToTitle))();
+}
+void QuitToDesktop() {
+    std::printf("Settings screen: Quit to Desktop\n");
+    std::fflush(stdout);
+    bbgpu_request_quit();
 }
 
 constexpr int kSlots = 13;  // tools/engine/menu_assets.cpp kSettingsSlots
@@ -454,7 +476,7 @@ void OpenPopup(State& s) {
     if (!r || r->choices.empty()) return;
     s.popup = true;
     s.popup_line = s.cursor;
-    s.popup_cursor = std::clamp(r->value, 0, int(r->choices.size()) - 1);
+    s.popup_cursor = r->kind == Kind::Command ? int(r->choices.size()) - 1 : std::clamp(r->value, 0, int(r->choices.size()) - 1);
     s.popup_top = s.popup_cursor - PopupShown(*r) / 2;
     PopupScroll(s, *r);
     s.popup_shown = u"\x1";
@@ -464,8 +486,11 @@ void OpenPopup(State& s) {
 }
 void ClosePopup(State& s, bool pick) {
     Row* r = CurrentRow(s);
-    if (pick && r) {
+    const bool command = r && r->kind == Kind::Command, yes = command && pick && s.popup_cursor == 0;
+    if (pick && r && !command) {
         r->value = s.popup_cursor;
+        BbMenuWidgets::DecideSound();
+    } else if (yes) {
         BbMenuWidgets::DecideSound();
     } else {
         BbMenuWidgets::CancelSound();
@@ -476,6 +501,8 @@ void ClosePopup(State& s, bool pick) {
     s.shown[std::size_t(std::clamp(s.popup_line - s.top, 0, kSlots - 1))] = u"\x1";  // its row redrawn
     std::printf("Settings screen: the choices pop-up closed (%s)\n", pick ? "a choice" : "cancelled");
     std::fflush(stdout);
+    if (yes && r->name == std::u16string(u"Exit Game")) ExitGame();
+    else if (yes) QuitToDesktop();
 }
 // Under its row when it fits in the list, else over it, else as low as fits.
 int PopupFrame(const State& s, const Row& r) {
@@ -510,7 +537,7 @@ void DrawPopup(std::uint64_t root, State& s) {
         BbMenuWidgets::ShowPart(root, ("ItemList/SettingsRows/Popup/Box/Item_" + std::to_string(k)).c_str(), on);
         if (!on) continue;
         const bool lit = choice == s.popup_cursor;
-        const char16_t* color = lit ? u"#ffffff" : choice == r->value ? u"#b49762" : u"#cccccc";
+        const char16_t* color = lit ? u"#ffffff" : choice == r->value && r->kind != Kind::Command ? u"#b49762" : u"#cccccc";
         BbMenuWidgets::SetFieldText(root, PopupPath(k, "Text/Text_0").c_str(),
                                     Html(u"center", 22, color, Escaped(r->choices[std::size_t(choice)])).c_str());
         BbMenuWidgets::ShowPart(root, PopupPath(k, "Cursor").c_str(), lit);
@@ -529,7 +556,7 @@ void Defaults(State& s) {
     std::fflush(stdout);
 }
 // Confirm (or a click) on the selected row: a toggle switches, a list steps on or opens its pop-up, Defaults resets
-// the tab; a command is not wired yet.
+// the tab, a command asks Yes / No in the pop-up.
 void Activate(State& s) {
     Row* r = CurrentRow(s);
     if (!r) return;
@@ -540,11 +567,7 @@ void Activate(State& s) {
         else Change(s, 1);
         break;
     case Kind::Defaults: Defaults(s); break;
-    case Kind::Command:
-        BbMenuWidgets::DecideSound();
-        std::printf("Settings screen: %s (not wired yet)\n", r->name == std::u16string(u"Exit Game") ? "Exit Game" : "Quit to Desktop");
-        std::fflush(stdout);
-        break;
+    case Kind::Command: OpenPopup(s); break;
     default: break;
     }
 }
