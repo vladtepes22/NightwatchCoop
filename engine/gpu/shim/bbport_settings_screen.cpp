@@ -2,6 +2,7 @@
 // Nightwatch: the in-game Settings screen's content (bbport_settings_screen.h).
 #include "bbport_settings_screen.h"
 
+#include "bbport_game_menu_pages.h"
 #include "bbport_menu_widgets.h"
 #include "bbport_settings.h"
 #include "engine/camera.h"
@@ -41,7 +42,9 @@ static_assert(std::size(kTabs) >= kBookTabs);
 
 // ---- the rows: a PC row's value is the PC pages' setting (engine/option_menu.cpp, by its name's text id), read when
 // the tab is made and saved as it changes; the others are the screen's own until they are wired ----
-enum class Kind { Head, Toggle, Slider, Pick, Command, Defaults };
+// Info: a name and a value that only shows (the party's status, a guest's view of a host rule); a party button is
+// one too, Confirm runs it (asking Yes / No first when it is one that asks).
+enum class Kind { Head, Toggle, Slider, Pick, Command, Defaults, Info };
 struct Row {
     Kind kind;
     const char16_t* name;
@@ -55,6 +58,8 @@ struct Row {
     int game = -1;                              // a game option: its byte in the game's options (GameOption)
     bool picture = false;                       // the details page shows the game's brightness picture
     int stored = -1;                            // the value the setting has (a change is saved once)
+    int party = -1;                             // a party page row: its field (BbGameMenu::Pages)
+    bool steps = false;                         // a party Steps row: a Pick whose value is the row's position
 };
 Row Pc(std::uint32_t id, Row r) {
     r.pc = id;
@@ -197,6 +202,68 @@ Rows EnhancementRows() {
         {Kind::Defaults, u"Defaults", u"Every setting on this tab back to its default."},
     };
 }
+// Party: the party pages' rows (BbGameMenu::Pages: the same values, texts and actions as the old Party Settings
+// pages, which apply and save them in their Poll), in four sections: Current Party (Party, Party mode, Party
+// members), Party Rules (the host's: a guest sees them as lines with the host's values), My Party (each player's
+// own), Network & Access (Party network, Party access). Only the rows the party's state shows now (rebuilt when that
+// changes, PartyShown).
+namespace P = BbGameMenu::Pages;
+const char16_t* PageText(std::uint32_t id) { return P::Text(id, false); }
+int PartySection(const P::Page& page) {
+    std::u16string name = PageText(page.name) ? PageText(page.name) : u"";
+    if (name.rfind(u"Party rules:", 0) == 0) return 1;
+    if (name.rfind(u"My party:", 0) == 0) return 2;
+    if (name == u"Party network" || name == u"Party access") return 3;
+    return 0;
+}
+Row FromPartyRow(const P::Row& pr) {
+    Row r{Kind::Info, PageText(pr.name), PageText(pr.help)};
+    r.party = pr.field;
+    for (const std::uint32_t c : pr.choices) r.choices.push_back(PageText(c));
+    switch (pr.kind) {
+    case P::Kind::Toggle: r.kind = Kind::Toggle; r.choices.clear(); break;
+    case P::Kind::Slider: r.kind = Kind::Slider; r.choices.clear(); break;
+    case P::Kind::Steps: r.kind = Kind::Pick; r.steps = true; break;
+    case P::Kind::List: r.kind = Kind::Pick; r.drop = r.choices.size() > 3; break;
+    case P::Kind::Button: break;
+    }
+    return r;
+}
+Rows PartyRows() {
+    static const char16_t* const kSections[] = {u"Current Party", u"Party Rules", u"My Party", u"Network & Access"};
+    Rows rows;
+    const auto& pages = P::All();
+    for (int section = 0; section < 4; ++section) {
+        bool headed = false;
+        for (const int i : P::PartySettingsEntries()) {
+            const P::Page& page = pages[std::size_t(i)];
+            if (PartySection(page) != section) continue;
+            for (const P::Row* pr : P::ShownRows(page)) {
+                if (!headed) rows.push_back({Kind::Head, kSections[section], nullptr}), headed = true;
+                rows.push_back(FromPartyRow(*pr));
+            }
+        }
+    }
+    return rows;
+}
+// What the party tab shows now, as one key (its rows change with the party's state).
+std::string PartyShown() {
+    std::string key;
+    for (const int i : P::PartySettingsEntries())
+        for (const P::Row* pr : P::ShownRows(P::All()[std::size_t(i)])) key += std::to_string(pr->field) + ",";
+    return key;
+}
+std::int64_t NowMs() {
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
+void PressParty(const Row& r, bool confirmed) {
+    P::Press(r.party, NowMs());
+    if (confirmed) P::Press(r.party, NowMs());  // the pages' second press, after our Yes
+    std::printf("Settings screen: the party row %d pressed\n", r.party);
+    std::fflush(stdout);
+}
+
 // The commands ask first: Confirm opens the choices pop-up with Yes / No (No highlighted).
 Rows SystemRows() {
     return {
@@ -267,6 +334,9 @@ struct State {
     bool navigated = false;
     float navigated_x = 0, navigated_y = 0;
     std::chrono::steady_clock::time_point navigated_at{};
+    // the party tab: its shown rows (PartyShown) and when to look again
+    std::string party_shown;
+    std::chrono::steady_clock::time_point party_check{};
 };
 constexpr float kNavigatedSlack = 24;  // as input/menu_pointer.cpp
 constexpr auto kNavigatedQuiet = std::chrono::milliseconds(500);
@@ -277,7 +347,15 @@ State g_state;
 void LoadValues(Rows& rows, bool defaults) {
     for (Row& r : rows) {
         std::int32_t v = 0, d = 0;
-        if (r.pc && BbEngine::Options::PcValue(r.pc, &v, &d)) {
+        if (r.party >= 0) {
+            if (r.kind == Kind::Info) continue;
+            const int n = int(r.choices.size());
+            if (r.kind == Kind::Pick && !r.steps) r.value = *P::Value(r.party);
+            else if (r.steps) r.value = P::ChoiceFromPosition(*P::Byte(r.party), n);
+            else r.value = *P::Byte(r.party);
+            r.stored = r.value;
+            if (defaults) r.def = r.value;
+        } else if (r.pc && BbEngine::Options::PcValue(r.pc, &v, &d)) {
             r.value = r.stored = v;
             if (defaults) r.def = d;
         } else if (r.auto_hud) {
@@ -300,8 +378,15 @@ bool SaveValues(Rows& rows) {
         const int pass = k / int(rows.size());
         Row& r = rows[std::size_t(k % int(rows.size()))];
         if ((r.pc == kPictureTuning) != (pass == 1)) continue;
-        if (r.value == r.stored || (!r.pc && !r.auto_hud && r.game < 0)) continue;  // (a row that is not wired)
-        if (r.pc) {
+        if (r.value == r.stored || (!r.pc && !r.auto_hud && r.game < 0 && r.party < 0)) continue;  // (not wired)
+        if (r.party >= 0) {
+            // the pages' bound value: their Poll applies and saves it (as the old Party Settings pages' widgets)
+            if (r.kind == Kind::Pick && !r.steps) *P::Value(r.party) = r.value;
+            else if (r.steps) *P::Byte(r.party) = P::ChoicePosition(r.value, int(r.choices.size()));
+            else *P::Byte(r.party) = std::uint8_t(r.value);
+            std::printf("Settings screen: the party row %d now %d\n", r.party, r.value);
+            std::fflush(stdout);
+        } else if (r.pc) {
             BbEngine::Options::SetPcValue(r.pc, r.value);
         } else if (r.game >= 0) {
             const std::uint64_t options = GameOptions();
@@ -328,6 +413,7 @@ Rows RowsOf(int tab) {
     case 1: return SoundRows();
     case 2: return EnhancementRows();
     case 3: return ControlsRows();
+    case 4: return PartyRows();
     case 5: return SystemRows();
     default: return {};
     }
@@ -372,6 +458,7 @@ std::u16string ValueText(const Row& r) {
     switch (r.kind) {
     case Kind::Toggle: return r.value ? u"On" : u"Off";
     case Kind::Pick: return r.value >= 0 && r.value < int(r.choices.size()) ? Escaped(r.choices[std::size_t(r.value)]) : u"";
+    case Kind::Info: return r.choices.empty() ? u"" : Escaped(r.choices[0]);
     default: return u"";
     }
 }
@@ -390,7 +477,8 @@ void DrawSlot(std::uint64_t root, int slot, const Line* line, const Row* r, bool
     s.shown[slot] = key;
     using BbMenuWidgets::SetFieldText;
     const auto show = [&](const char* part, bool v) { BbMenuWidgets::ShowPart(root, SlotPath(slot, part).c_str(), v); };
-    const bool slider = r && r->kind == Kind::Slider, combo = r && (r->kind == Kind::Toggle || r->kind == Kind::Pick);
+    const bool slider = r && r->kind == Kind::Slider,
+               combo = r && (r->kind == Kind::Toggle || r->kind == Kind::Pick || r->kind == Kind::Info);
     const bool button = r && r->kind == Kind::Defaults, command = r && r->kind == Kind::Command;
     const bool named = r && !button && !command;  // commands: a button centred on the list
     const char16_t* color = selected ? u"#ffffff" : u"#cccccc";
@@ -465,18 +553,21 @@ Row* CurrentRow(State& s) {
 }
 
 // ---- the choices pop-up ----
-int PopupShown(const Row& r) { return std::min(int(r.choices.size()), kPopupLines); }
+// A party button asks with the same two lines as a command (its own choices are its value text).
+int PopupCount(const Row& r) { return r.kind == Kind::Info ? 2 : int(r.choices.size()); }
+int PopupShown(const Row& r) { return std::min(PopupCount(r), kPopupLines); }
 void PopupScroll(State& s, const Row& r) {
     const int shown = PopupShown(r);
     s.popup_top = std::clamp(s.popup_top, std::max(0, s.popup_cursor - shown + 1), s.popup_cursor);
-    s.popup_top = std::clamp(s.popup_top, 0, std::max(0, int(r.choices.size()) - shown));
+    s.popup_top = std::clamp(s.popup_top, 0, std::max(0, PopupCount(r) - shown));
 }
 void OpenPopup(State& s) {
     Row* r = CurrentRow(s);
-    if (!r || r->choices.empty()) return;
+    if (!r || PopupCount(*r) == 0) return;
     s.popup = true;
     s.popup_line = s.cursor;
-    s.popup_cursor = r->kind == Kind::Command ? int(r->choices.size()) - 1 : std::clamp(r->value, 0, int(r->choices.size()) - 1);
+    s.popup_cursor = r->kind == Kind::Command || r->kind == Kind::Info ? PopupCount(*r) - 1
+                                                                      : std::clamp(r->value, 0, int(r->choices.size()) - 1);
     s.popup_top = s.popup_cursor - PopupShown(*r) / 2;
     PopupScroll(s, *r);
     s.popup_shown = u"\x1";
@@ -486,7 +577,7 @@ void OpenPopup(State& s) {
 }
 void ClosePopup(State& s, bool pick) {
     Row* r = CurrentRow(s);
-    const bool command = r && r->kind == Kind::Command, yes = command && pick && s.popup_cursor == 0;
+    const bool command = r && (r->kind == Kind::Command || r->kind == Kind::Info), yes = command && pick && s.popup_cursor == 0;
     if (pick && r && !command) {
         r->value = s.popup_cursor;
         BbMenuWidgets::DecideSound();
@@ -501,7 +592,8 @@ void ClosePopup(State& s, bool pick) {
     s.shown[std::size_t(std::clamp(s.popup_line - s.top, 0, kSlots - 1))] = u"\x1";  // its row redrawn
     std::printf("Settings screen: the choices pop-up closed (%s)\n", pick ? "a choice" : "cancelled");
     std::fflush(stdout);
-    if (yes && r->name == std::u16string(u"Exit Game")) ExitGame();
+    if (yes && r->party >= 0) PressParty(*r, true);
+    else if (yes && r->name == std::u16string(u"Exit Game")) ExitGame();
     else if (yes) QuitToDesktop();
 }
 // Under its row when it fits in the list, else over it, else as low as fits.
@@ -533,13 +625,15 @@ void DrawPopup(std::uint64_t root, State& s) {
     BbMenuWidgets::GotoPartFrame(root, "ItemList/SettingsRows/Popup/Box/Frame", shown);
     for (int k = 0; k < kPopupLines; ++k) {
         const int choice = s.popup_top + k;
-        const bool on = k < shown && choice < int(r->choices.size());
+        const bool on = k < shown && choice < PopupCount(*r);
         BbMenuWidgets::ShowPart(root, ("ItemList/SettingsRows/Popup/Box/Item_" + std::to_string(k)).c_str(), on);
         if (!on) continue;
         const bool lit = choice == s.popup_cursor;
-        const char16_t* color = lit ? u"#ffffff" : choice == r->value && r->kind != Kind::Command ? u"#b49762" : u"#cccccc";
+        const bool ask = r->kind == Kind::Command || r->kind == Kind::Info;
+        const char16_t* color = lit ? u"#ffffff" : choice == r->value && !ask ? u"#b49762" : u"#cccccc";
+        const char16_t* text = ask ? (choice == 0 ? u"Yes" : u"No") : r->choices[std::size_t(choice)];
         BbMenuWidgets::SetFieldText(root, PopupPath(k, "Text/Text_0").c_str(),
-                                    Html(u"center", 22, color, Escaped(r->choices[std::size_t(choice)])).c_str());
+                                    Html(u"center", 22, color, Escaped(text)).c_str());
         BbMenuWidgets::ShowPart(root, PopupPath(k, "Cursor").c_str(), lit);
     }
 }
@@ -568,6 +662,15 @@ void Activate(State& s) {
         break;
     case Kind::Defaults: Defaults(s); break;
     case Kind::Command: OpenPopup(s); break;
+    case Kind::Info:  // a party button: runs (a confirmed one asks first); a read-only line does nothing
+        if (r->party < 0 || !P::Runs(r->party)) break;
+        if (P::Confirmed(r->party)) {
+            OpenPopup(s);
+        } else {
+            BbMenuWidgets::DecideSound();
+            PressParty(*r, false);
+        }
+        break;
     default: break;
     }
 }
@@ -649,7 +752,9 @@ bool Update(std::uint64_t root, int tab, const Pointer& pointer) {
     if (s.tab < 0 && pointer.take_click) pointer.take_click();  // opening: the pause menu's click is not ours
     if (tab != s.tab) {
         s.tab = tab;
+        if (tab == 4) P::Load();  // the party rows' values from the settings (as a party page opening)
         s.rows = RowsOf(tab);
+        s.party_shown = tab == 4 ? PartyShown() : "";
         for (Row& r : s.rows) r.def = r.value;
         LoadValues(s.rows, true);
         s.popup = false;
@@ -663,6 +768,27 @@ bool Update(std::uint64_t root, int tab, const Pointer& pointer) {
         help_changed = true;
         std::printf("Settings screen: tab %d, %zu rows on %zu lines\n", tab, s.rows.size(), s.lines.size());
         std::fflush(stdout);
+    }
+    // Party: the rows follow the party's state (a guest's lines for the host's rules, the flow's own rows ...)
+    if (s.tab == 4 && !s.popup && std::chrono::steady_clock::now() >= s.party_check) {
+        s.party_check = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
+        if (std::string now = PartyShown(); now != s.party_shown) {
+            const Row* at = CurrentRow(s);
+            const int field = at ? at->party : -1;
+            s.party_shown = std::move(now);
+            s.rows = PartyRows();
+            LoadValues(s.rows, true);
+            s.lines = LinesOf(s.rows);
+            s.cursor = FirstSelectable(s);
+            for (int i = 0; i < int(s.lines.size()); ++i)
+                if (const Row* r = RowOf(s, i); r && field >= 0 && r->party == field) s.cursor = i;
+            Scroll(s);
+            for (auto& k : s.shown) k = u"\x1";
+            s.scroll_shown = -2;
+            help_changed = true;
+            std::printf("Settings screen: the party tab's rows changed (%zu rows)\n", s.rows.size());
+            std::fflush(stdout);
+        }
     }
     const std::uint32_t dirs = pad.buttons & (kUp | kDown | kLeft | kRight);  // the left stick's too (input.cpp)
     const std::uint32_t go = Pressed(s, dirs);
@@ -691,7 +817,7 @@ bool Update(std::uint64_t root, int tab, const Pointer& pointer) {
         if (!r) {
             s.popup = false;
         } else {
-            const int count = int(r->choices.size()), shown = PopupShown(*r);
+            const int count = PopupCount(*r), shown = PopupShown(*r);
             int over = -1;  // the choice the mouse is on
             for (int k = 0; k < shown && pointer.on; ++k)
                 if (s.popup_top + k < count && on(PopupPath(k, "Hit"))) over = s.popup_top + k;

@@ -142,6 +142,9 @@ bool IsButton(int field);
 /// a confirmed one arms first and runs on a second press within 10 s; a read-only line does
 /// nothing. Present thread (BbGameMenu::Poll). `now_ms`: the Poll clock.
 void Press(int field, std::int64_t now_ms);
+/// A button row with an action (false: a read-only line), and whether it asks first (Press arms, a second runs).
+bool Runs(int field);
+bool Confirmed(int field);
 /// A list row's choice `choice` can be offered (the upscalers this GPU and build run).
 bool ChoiceAvailable(int field, int choice);
 
