@@ -2006,7 +2006,9 @@ void TemporalUpscaler::OnDisplayPass(VAddr address, VideoCore::ImageId frame) {
     // loading): a frame with no UI draw at all (a few at every change of screen, and the first
     // second) showed the game's own buffer, grey beside the stage. The stage over black for these
     // too, as RunUiOnly gives the frames with a UI draw. Then the loading screen fills the screen.
-    if (UiComposed() && UiComposition::StageInset(UiComposition::UiSize())) {
+    if (const auto ui = UiComposition::UiSize(); UiComposed() && UiComposition::StageInset(ui) &&
+        UiComposition::StageRect(target_width, target_height, ui) !=
+            UiComposition::Rect{0, 0, s32(target_width), s32(target_height)}) {
         if (!ui_phase && !ldr_target && !BbEngine::Loading::WorldShown() && !HdrChannel::Native16() &&
             LdrFrame(frame)) {
             RunUiOnly(frame, {}, false);
