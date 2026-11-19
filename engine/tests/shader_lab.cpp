@@ -52,6 +52,16 @@ void runtime_blocked_report(void) {}
 [[noreturn]] void runtime_thread_exit(void*) { std::abort(); }
 int runtime_pad_type(void) { return 0; }
 int runtime_pad_button(uint32_t, int) { return 0; }
+int runtime_pad_remap_rows(void) { return 0; }
+int runtime_pad_default_button(uint32_t, int) { return -1; }
+int runtime_pad_remap_buttons(int, int*, int) { return 0; }
+void runtime_pad_remap_describe(int, char* out, size_t size) { if (out && size) out[0] = 0; }
+void runtime_pad_remap_capture(int) {}
+int runtime_pad_remap_capturing(void) { return -1; }
+int runtime_pad_remap_blocking(void) { return 0; }
+void runtime_pad_remap_defaults(void) {}
+uint64_t runtime_pad_remap_serial(void) { return 0; }
+int runtime_pad_remap_ini(int, char*, size_t, char*, size_t) { return 0; }
 }
 
 namespace {

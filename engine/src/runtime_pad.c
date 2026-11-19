@@ -199,11 +199,24 @@ static const uint32_t input_buttons[IN_COUNT]={
     BTN_OPTIONS,BTN_TOUCHPAD,0,BTN_UP,BTN_DOWN,BTN_LEFT,BTN_RIGHT,
 };
 #define MAX_BIND 4
-enum { PAD_LEFT_TRIGGER=SDL_GAMEPAD_BUTTON_COUNT, PAD_RIGHT_TRIGGER };
+/* Buttons after SDL's: the triggers, and the touchpad's press on its left and right side (Nightwatch: the
+ * touchpad's one button pressed where the finger is, touch_side; a controller with two trackpads, as a Steam
+ * Controller, gives one button for both). */
+enum { PAD_LEFT_TRIGGER=SDL_GAMEPAD_BUTTON_COUNT, PAD_RIGHT_TRIGGER, PAD_TOUCH_LEFT, PAD_TOUCH_RIGHT };
 typedef struct { int key_count, pad_count; SDL_Scancode keys[MAX_BIND]; int pad[MAX_BIND]; } Binding;
 static Binding bindings[IN_COUNT];
 static int bindings_ready;
 static int pad_swap_sticks, pad_invert_look_x, pad_invert_look_y, pad_deadzone;
+/* Nightwatch: the Settings screen's Controller Buttons rows (input.h, runtime_pad_remap_*): the game buttons, in
+ * the rows' order. remap_touched: a row's pad.<input>= line was in bbport.ini or a row changed (its lines saved). */
+static const int remap_inputs[]={IN_CROSS,IN_CIRCLE,IN_SQUARE,IN_TRIANGLE,IN_L1,IN_R1,IN_L2,IN_R2,IN_L3,IN_R3,
+    IN_OPTIONS,IN_TOUCHPAD,IN_TOUCHPAD_RIGHT,IN_UP,IN_DOWN,IN_LEFT,IN_RIGHT,IN_PING,IN_GATHER};
+#define REMAP_ROWS ((int)(sizeof(remap_inputs)/sizeof(*remap_inputs)))
+static int remap_touched;
+static int remap_row_of(int input) {
+    for (int r=0;r<REMAP_ROWS;++r) if (remap_inputs[r]==input) return r;
+    return -1;
+}
 
 /* A round dead zone on the whole stick; speed starts from zero at its edge. */
 static void apply_deadzone(uint8_t *x, uint8_t *y) {
@@ -215,6 +228,21 @@ static void apply_deadzone(uint8_t *x, uint8_t *y) {
     *y=(uint8_t)(ny<0.0f ? 0 : ny>255.0f ? 255 : (int)(ny+0.5f));
 }
 
+/* The default controller buttons (a game button's defaults in order). Menus always take these (sample_host): a
+ * remap is the game's actions only, so a slip there never moves the menus' buttons. */
+static const struct { int input, button; } default_pads[]={
+    {IN_CROSS,SDL_GAMEPAD_BUTTON_SOUTH}, {IN_CIRCLE,SDL_GAMEPAD_BUTTON_EAST},
+    {IN_SQUARE,SDL_GAMEPAD_BUTTON_WEST}, {IN_TRIANGLE,SDL_GAMEPAD_BUTTON_NORTH},
+    {IN_L1,SDL_GAMEPAD_BUTTON_LEFT_SHOULDER}, {IN_R1,SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER},
+    {IN_L2,PAD_LEFT_TRIGGER}, {IN_R2,PAD_RIGHT_TRIGGER},
+    {IN_L3,SDL_GAMEPAD_BUTTON_LEFT_STICK}, {IN_R3,SDL_GAMEPAD_BUTTON_RIGHT_STICK},
+    {IN_OPTIONS,SDL_GAMEPAD_BUTTON_START},
+    {IN_TOUCHPAD,PAD_TOUCH_LEFT}, {IN_TOUCHPAD_RIGHT,PAD_TOUCH_RIGHT},
+    {IN_PING,SDL_GAMEPAD_BUTTON_BACK}, /* the Share button; Touchpad + R3 always works too */
+    {IN_UP,SDL_GAMEPAD_BUTTON_DPAD_UP}, {IN_DOWN,SDL_GAMEPAD_BUTTON_DPAD_DOWN},
+    {IN_LEFT,SDL_GAMEPAD_BUTTON_DPAD_LEFT}, {IN_RIGHT,SDL_GAMEPAD_BUTTON_DPAD_RIGHT},
+    {IN_MAP,SDL_GAMEPAD_BUTTON_START},
+};
 static void bind_defaults(void) {
     static const struct { int input; SDL_Scancode key; } keys[]={
         {IN_CROSS,SDL_SCANCODE_SPACE}, {IN_CIRCLE,SDL_SCANCODE_LSHIFT}, {IN_SQUARE,SDL_SCANCODE_E},
@@ -227,30 +255,20 @@ static void bind_defaults(void) {
         {IN_MOVE_RIGHT,SDL_SCANCODE_D}, {IN_LOOK_UP,SDL_SCANCODE_UP}, {IN_LOOK_DOWN,SDL_SCANCODE_DOWN},
         {IN_LOOK_LEFT,SDL_SCANCODE_LEFT}, {IN_LOOK_RIGHT,SDL_SCANCODE_RIGHT},
     };
-    static const struct { int input, button; } pads[]={
-        {IN_CROSS,SDL_GAMEPAD_BUTTON_SOUTH}, {IN_CIRCLE,SDL_GAMEPAD_BUTTON_EAST},
-        {IN_SQUARE,SDL_GAMEPAD_BUTTON_WEST}, {IN_TRIANGLE,SDL_GAMEPAD_BUTTON_NORTH},
-        {IN_L1,SDL_GAMEPAD_BUTTON_LEFT_SHOULDER}, {IN_R1,SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER},
-        {IN_L2,PAD_LEFT_TRIGGER}, {IN_R2,PAD_RIGHT_TRIGGER},
-        {IN_L3,SDL_GAMEPAD_BUTTON_LEFT_STICK}, {IN_R3,SDL_GAMEPAD_BUTTON_RIGHT_STICK},
-        {IN_OPTIONS,SDL_GAMEPAD_BUTTON_START},
-        {IN_TOUCHPAD,SDL_GAMEPAD_BUTTON_TOUCHPAD},
-        {IN_PING,SDL_GAMEPAD_BUTTON_BACK}, /* the Share button; Touchpad + R3 always works too */
-        {IN_UP,SDL_GAMEPAD_BUTTON_DPAD_UP}, {IN_DOWN,SDL_GAMEPAD_BUTTON_DPAD_DOWN},
-        {IN_LEFT,SDL_GAMEPAD_BUTTON_DPAD_LEFT}, {IN_RIGHT,SDL_GAMEPAD_BUTTON_DPAD_RIGHT},
-        {IN_MAP,SDL_GAMEPAD_BUTTON_START},
-    };
     memset(bindings,0,sizeof bindings);
     for (size_t i=0;i<sizeof(keys)/sizeof(*keys);++i) {
         Binding *b=&bindings[keys[i].input]; b->keys[b->key_count++]=keys[i].key;
     }
-    for (size_t i=0;i<sizeof(pads)/sizeof(*pads);++i) {
-        Binding *b=&bindings[pads[i].input]; b->pad[b->pad_count++]=pads[i].button;
+    for (size_t i=0;i<sizeof(default_pads)/sizeof(*default_pads);++i) {
+        Binding *b=&bindings[default_pads[i].input]; b->pad[b->pad_count++]=default_pads[i].button;
     }
 }
+
 static int pad_button_from_name(const char *name) {
     if (!SDL_strcasecmp(name,"lefttrigger")) return PAD_LEFT_TRIGGER;
     if (!SDL_strcasecmp(name,"righttrigger")) return PAD_RIGHT_TRIGGER;
+    if (!SDL_strcasecmp(name,"touchpadleft")) return PAD_TOUCH_LEFT;
+    if (!SDL_strcasecmp(name,"touchpadright")) return PAD_TOUCH_RIGHT;
     const SDL_GamepadButton b=SDL_GetGamepadButtonFromString(name);
     return b==SDL_GAMEPAD_BUTTON_INVALID ? -1 : (int)b;
 }
@@ -280,6 +298,7 @@ static void load_bindings(void) {
         }
         Binding *b=&bindings[input];
         if (keyboard) b->key_count=0; else b->pad_count=0;
+        if (pad && remap_row_of(input)>=0) remap_touched=1;
         for (char *name=strtok(eq+1,",\r\n"); name; name=strtok(NULL,",\r\n")) {
             while (*name==' ') ++name;
             for (char *end=name+strlen(name); end>name && end[-1]==' ';) *--end=0;
@@ -291,7 +310,9 @@ static void load_bindings(void) {
             } else {
                 const int button=pad_button_from_name(name);
                 if (button<0) printf("Runtime: controls: unknown gamepad button \"%s\" for %s\n",name,line+4);
-                else if (b->pad_count<MAX_BIND) b->pad[b->pad_count++]=button;
+                else if (b->pad_count<MAX_BIND)
+                    b->pad[b->pad_count++]=button!=SDL_GAMEPAD_BUTTON_TOUCHPAD ? button
+                                          : input==IN_TOUCHPAD_RIGHT ? PAD_TOUCH_RIGHT : PAD_TOUCH_LEFT;
             }
         }
     }
@@ -322,17 +343,74 @@ static uint32_t map_shared_buttons(void) {
 static PadHold map_hold;
 static int map_hold_reset_due;
 
+/* The touchpad's side this read (touch_side, set at the read's start): 0 left, 1 right, -1 no finger. */
+static int touch_now=-1;
+/* The touchpad's left or right side pressed. One touchpad: its button, on the finger's half (no finger seen: the
+ * left, Gestures, as the PS4's press). Two trackpads (a Steam Controller): the touchpad button is the left pad's
+ * click and MISC2 the right pad's (2026-11-19's log: the right pad's click never set the touchpad button, MISC2
+ * came with its finger; unproven beyond that one controller). */
+static int touch_pressed(SDL_Gamepad *g, int right) {
+    if (SDL_GetNumGamepadTouchpads(g)>=2)
+        return SDL_GetGamepadButton(g,right ? SDL_GAMEPAD_BUTTON_MISC2 : SDL_GAMEPAD_BUTTON_TOUCHPAD);
+    return SDL_GetGamepadButton(g,SDL_GAMEPAD_BUTTON_TOUCHPAD) && (touch_now==1)==right;
+}
+static int button_value(SDL_Gamepad *g, int b) {
+    if (b==PAD_LEFT_TRIGGER) return trigger(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_LEFT_TRIGGER));
+    if (b==PAD_RIGHT_TRIGGER) return trigger(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_RIGHT_TRIGGER));
+    if (b==PAD_TOUCH_LEFT || b==PAD_TOUCH_RIGHT) return touch_pressed(g,b==PAD_TOUCH_RIGHT) ? 255 : 0;
+    return SDL_GetGamepadButton(g,(SDL_GamepadButton)b) ? 255 : 0;
+}
 static int pad_value(SDL_Gamepad *g, int input, int in_menu) {
     int value=0;
     for (int i=0;i<bindings[input].pad_count;++i) {
         const int b=bindings[input].pad[i];
         if (in_menu && menu_pad_button(b)) continue;
-        const int v=b==PAD_LEFT_TRIGGER ? trigger(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_LEFT_TRIGGER))
-                  : b==PAD_RIGHT_TRIGGER ? trigger(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_RIGHT_TRIGGER))
-                  : SDL_GetGamepadButton(g,(SDL_GamepadButton)b) ? 255 : 0;
+        const int v=button_value(g,b);
         if (v>value) value=v;
     }
     return value;
+}
+
+/* pad_value with the default buttons (default_pads): a menu's. */
+static int default_value(SDL_Gamepad *g, int input, int in_menu) {
+    int value=0;
+    for (size_t i=0;i<sizeof(default_pads)/sizeof(*default_pads);++i) {
+        if (default_pads[i].input!=input) continue;
+        const int b=default_pads[i].button;
+        if (in_menu && menu_pad_button(b)) continue;
+        const int v=button_value(g,b);
+        if (v>value) value=v;
+    }
+    return value;
+}
+
+/* Gestures (touchpad: the touchpad's left) and Personal Effects (touchpad_right: its right): which side a finger
+ * is on (-1: none). One touchpad: its half. Two or more (a Steam Controller's trackpads): the first is the left, the
+ * others the right; fingers on both: the side whose finger came last (the other thumb rests). */
+static int touch_side(SDL_Gamepad *g) {
+    static int had_left, had_right, newest=-1;
+    const int pads=SDL_GetNumGamepadTouchpads(g);
+    int left=0, right=0;
+    for (int t=0;t<pads;++t)
+        for (int f=0;f<SDL_GetNumGamepadTouchpadFingers(g,t);++f) {
+            bool down=false;
+            float x=0, y=0;
+            if (SDL_GetGamepadTouchpadFinger(g,t,f,&down,&x,&y,NULL) && down) {
+                if (pads>=2 ? t>0 : x>=0.5f) right=1;
+                else left=1;
+            }
+        }
+    if (left && !had_left) newest=0;
+    if (right && !had_right) newest=1;
+    had_left=left, had_right=right;
+    return left && right ? newest : right ? 1 : left ? 0 : -1;
+}
+/* A touch input pressed: one of its buttons; in a menu the default one too (the menus' own), and its own still
+ * (pressed again, it closes the gestures it opened). */
+static int touch_down(SDL_Gamepad *g, int input, int menus) {
+    for (int i=0;i<bindings[input].pad_count;++i)
+        if (button_value(g,bindings[input].pad[i])>30) return 1;
+    return menus && default_value(g,input,0)>30;
 }
 
 static uint8_t key_axis(uint8_t value, int negative, int positive) {
@@ -351,6 +429,154 @@ static void apply_keyboard(PadData *d, const bool *k) {
     d->right_y=key_axis(d->right_y,key_down(k,IN_LOOK_UP),key_down(k,IN_LOOK_DOWN));
 }
 
+/* Nightwatch: a Controller Buttons capture (runtime_pad_remap_capture), run on the pad's reads (under lock). It
+ * takes the next button pressed after it began (one held then, the press that began it, only when pressed again);
+ * Escape or REMAP_TIMEOUT_US keeps the row. remap_release: ended, until what was held then (and Escape) is let go. */
+#define REMAP_TIMEOUT_US 8000000u
+static int remap_target=-1, remap_release;
+static uint64_t remap_since, remap_serial;
+static const char *remap_button_name(int b) {
+    switch (b) {
+    case SDL_GAMEPAD_BUTTON_SOUTH: return "Cross";
+    case SDL_GAMEPAD_BUTTON_EAST: return "Circle";
+    case SDL_GAMEPAD_BUTTON_WEST: return "Square";
+    case SDL_GAMEPAD_BUTTON_NORTH: return "Triangle";
+    case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: return "L1";
+    case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: return "R1";
+    case PAD_LEFT_TRIGGER: return "L2";
+    case PAD_RIGHT_TRIGGER: return "R2";
+    case SDL_GAMEPAD_BUTTON_LEFT_STICK: return "L3";
+    case SDL_GAMEPAD_BUTTON_RIGHT_STICK: return "R3";
+    case SDL_GAMEPAD_BUTTON_START: return "Options";
+    case SDL_GAMEPAD_BUTTON_BACK: return "Share";
+    case SDL_GAMEPAD_BUTTON_TOUCHPAD: return "Touchpad";
+    case PAD_TOUCH_LEFT: return "Touchpad (left)";
+    case PAD_TOUCH_RIGHT: return "Touchpad (right)";
+    case SDL_GAMEPAD_BUTTON_DPAD_UP: return "D-pad Up";
+    case SDL_GAMEPAD_BUTTON_DPAD_DOWN: return "D-pad Down";
+    case SDL_GAMEPAD_BUTTON_DPAD_LEFT: return "D-pad Left";
+    case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: return "D-pad Right";
+    case SDL_GAMEPAD_BUTTON_MISC1: return "Mute";
+    case SDL_GAMEPAD_BUTTON_LEFT_PADDLE1: return "Left Paddle 1";
+    case SDL_GAMEPAD_BUTTON_LEFT_PADDLE2: return "Left Paddle 2";
+    case SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1: return "Right Paddle 1";
+    case SDL_GAMEPAD_BUTTON_RIGHT_PADDLE2: return "Right Paddle 2";
+    default: return "Extra Button";
+    }
+}
+static const char *remap_ini_name(int b) {
+    if (b==PAD_LEFT_TRIGGER) return "lefttrigger";
+    if (b==PAD_RIGHT_TRIGGER) return "righttrigger";
+    if (b==PAD_TOUCH_LEFT) return "touchpadleft";
+    if (b==PAD_TOUCH_RIGHT) return "touchpadright";
+    const char *name=SDL_GetGamepadStringForButton((SDL_GamepadButton)b);
+    return name ? name : "";
+}
+/* The buttons a capture offers: not the PS / Guide button (the system's) and not the extra ones (MISC2 .. MISC6): a
+ * Steam Input controller reports some of those as held all the time, or flickering (a DualSense Edge through
+ * Steam: misc5 held, misc6 on and off), which kept a capture from ever starting and took misc6 as a button. */
+static int remap_offered(int b) {
+    return b!=SDL_GAMEPAD_BUTTON_GUIDE && (b<SDL_GAMEPAD_BUTTON_MISC2 || b>SDL_GAMEPAD_BUTTON_MISC6);
+}
+/* Every offered button held now (bit b: SDL_GamepadButton b; the triggers PAD_LEFT_TRIGGER, PAD_RIGHT_TRIGGER). */
+static uint64_t remap_held(SDL_Gamepad *g) {
+    uint64_t held=0;
+    if (!g) return 0;
+    for (int b=0;b<SDL_GAMEPAD_BUTTON_COUNT;++b)
+        if (remap_offered(b) && SDL_GetGamepadButton(g,(SDL_GamepadButton)b)) held|=1ull<<b;
+    if (trigger(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_LEFT_TRIGGER))>30) held|=1ull<<PAD_LEFT_TRIGGER;
+    if (trigger(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_RIGHT_TRIGGER))>30) held|=1ull<<PAD_RIGHT_TRIGGER;
+    held&=~(1ull<<SDL_GAMEPAD_BUTTON_TOUCHPAD);  /* the touchpad's press: its side */
+    if (touch_pressed(g,0)) held|=1ull<<PAD_TOUCH_LEFT;
+    if (touch_pressed(g,1)) held|=1ull<<PAD_TOUCH_RIGHT;
+    return held;
+}
+/* remap_prev: what was held at the last read (a capture takes a button pressed since); remap_fresh: the capture's
+ * first read is still to come (what is held then, the press that began it, is not taken until pressed again);
+ * remap_release_mask: what was held when it ended, kept from the game until let go. */
+static uint64_t remap_prev, remap_release_mask;
+static int remap_fresh;
+static void remap_end(const char *how, uint64_t held) {
+    printf("Runtime: controller buttons: %s %s\n",input_names[remap_inputs[remap_target]],how);
+    __atomic_store_n(&remap_target,-1,__ATOMIC_RELAXED);
+    remap_release_mask=held;
+    __atomic_store_n(&remap_release,1,__ATOMIC_RELAXED);
+}
+/* The row takes the button alone; a row that had it gets the row's old button in its place (a swap), so every
+ * button pressed before still presses a game button. */
+static void remap_assign(int row, int button) {
+    Binding *t=&bindings[remap_inputs[row]];
+    const int old=t->pad_count ? t->pad[0] : -1;
+    for (int r=0;r<REMAP_ROWS;++r) {
+        if (r==row) continue;
+        Binding *o=&bindings[remap_inputs[r]];
+        int has_old=0;
+        for (int i=0;i<o->pad_count;++i) has_old|=o->pad[i]==old;
+        for (int i=0;i<o->pad_count;++i) {
+            if (o->pad[i]!=button) continue;
+            if (old>=0 && old!=button && !has_old) {
+                o->pad[i]=old;
+                printf("Runtime: controller buttons: %s now on %s\n",input_names[remap_inputs[r]],remap_ini_name(old));
+            } else {
+                memmove(&o->pad[i],&o->pad[i+1],sizeof(int)*(size_t)(o->pad_count-i-1));
+                --o->pad_count; --i;
+            }
+        }
+    }
+    t->pad_count=1; t->pad[0]=button;
+    remap_touched=1;
+    __atomic_add_fetch(&remap_serial,1,__ATOMIC_RELAXED);
+}
+/* The capture's trace: the controller read (and its extra buttons held, not offered), each change of what is held. */
+static uint64_t remap_trace_held=~0ull;
+static void remap_trace(SDL_Gamepad *g, uint64_t held) {
+    char names[256]="";
+    size_t used=0;
+    if (remap_trace_held==~0ull) {
+        int count=0;
+        SDL_JoystickID *ids=SDL_GetGamepads(&count);
+        SDL_free(ids);
+        for (int b=0;g && b<SDL_GAMEPAD_BUTTON_COUNT && used<sizeof names;++b)
+            if (!remap_offered(b) && SDL_GetGamepadButton(g,(SDL_GamepadButton)b))
+                used+=(size_t)snprintf(names+used,sizeof names-used,"%s%s",used ? " " : "",remap_ini_name(b));
+        printf("Runtime: controller buttons: trace: reading %s (id %u; %d controller(s) connected; not offered, held: [%s])\n",
+               g ? SDL_GetGamepadName(g) : "no controller",g ? (unsigned)SDL_GetGamepadID(g) : 0u,count,names);
+        names[0]=0, used=0;
+    }
+    if (held!=remap_trace_held) {
+        for (int b=0;b<=PAD_TOUCH_RIGHT && used<sizeof names;++b)
+            if (held>>b&1) used+=(size_t)snprintf(names+used,sizeof names-used,"%s%s",used ? " " : "",remap_ini_name(b));
+        printf("Runtime: controller buttons: trace: held [%s]\n",names);
+        remap_trace_held=held;
+    }
+}
+/* 1: the game gets no buttons this read (a capture, or what was held at its end still held). */
+static int remap_step(SDL_Gamepad *g, const bool *k) {
+    const int escape=k && k[SDL_SCANCODE_ESCAPE];
+    const uint64_t held=remap_held(g);
+    const uint64_t pressed=held&~remap_prev;
+    remap_prev=held;
+    if (__atomic_load_n(&remap_target,__ATOMIC_RELAXED)<0) {
+        remap_trace_held=~0ull;
+        if (remap_release && !(held&remap_release_mask) && !escape) __atomic_store_n(&remap_release,0,__ATOMIC_RELAXED);
+        return remap_release;
+    }
+    remap_trace(g,held);
+    if (remap_fresh) { remap_fresh=0; return 1; }  /* the first read: what is held now began it */
+    if (escape || now_us()-remap_since>REMAP_TIMEOUT_US) {
+        remap_end(escape ? "kept (Escape)" : "kept (no button in 8 s)",held);
+        return 1;
+    }
+    if (pressed) {
+        int b=0;
+        while (!(pressed>>b&1)) ++b;
+        remap_assign(remap_target,b);
+        printf("Runtime: controller buttons: %s now on %s\n",input_names[remap_inputs[remap_target]],remap_ini_name(b));
+        remap_end("rebound",held);
+    }
+    return 1;
+}
+
 static void sample_host(PadData *d) {
     report_guest_heap();
     memset(d,0,sizeof(*d));
@@ -365,6 +591,9 @@ static void sample_host(PadData *d) {
     if (!bindings_ready) { load_bindings(); bindings_ready=1; }
     if (bbgpu_overlay_captures_input()) { map_hold_reset_due=1; return; } /* settings menu or map open: neutral input */
     const bool *k=SDL_WasInit(SDL_INIT_VIDEO) ? SDL_GetKeyboardState(NULL) : NULL;
+    touch_now=g ? touch_side(g) : -1;
+    const int remap_hold=remap_step(g,k); /* a Controller Buttons capture: the game gets nothing */
+    if (remap_hold) g=NULL;
     static int ping_pad_down;
     const int ping_pad = g && pad_value(g,IN_PING,0)>30;
     if (ping_pad && !ping_pad_down && bbgpu_ping_combo_enabled()) bbgpu_ping_request();
@@ -378,17 +607,44 @@ static void sample_host(PadData *d) {
         uint32_t menu_confirm=0, menu_back=0;
         int in_menu=0, menu_down=0;
         static int menu_held;
+        /* a menu (the game's, the front end, a list with a choice): the default buttons, not the remapped ones */
+        const int menus=bbgpu_menu_buttons(&menu_confirm,&menu_back);
         if (bindings[IN_MENU_CONFIRM].pad_count || bindings[IN_MENU_BACK].pad_count) {
-            in_menu=bbgpu_menu_buttons(&menu_confirm,&menu_back);
+            in_menu=menus;
             menu_down=(pad_value(g,IN_MENU_CONFIRM,0)>30 ? 1 : 0)|(pad_value(g,IN_MENU_BACK,0)>30 ? 2 : 0);
             menu_held=in_menu ? menu_down : menu_held&menu_down;
         }
         for (int i=IN_CROSS;i<=IN_RIGHT;++i) {
-            const int v=pad_value(g,i,in_menu || menu_held);
+            if (i==IN_TOUCHPAD || i==IN_TOUCHPAD_RIGHT) continue;  /* below */
+            const int v=menus ? default_value(g,i,in_menu || menu_held) : pad_value(g,i,in_menu || menu_held);
             if (i==IN_L2) d->l2=(uint8_t)v;
             if (i==IN_R2) d->r2=(uint8_t)v;
-            if (i==IN_TOUCHPAD_RIGHT) touch_right=v>30;
-            else if (v>30) d->buttons|=input_buttons[i];
+            if (v>30) d->buttons|=input_buttons[i];
+        }
+        const int side=touch_now;
+        const int gestures=touch_down(g,IN_TOUCHPAD,menus);
+        touch_right=touch_down(g,IN_TOUCHPAD_RIGHT,menus);
+        if (gestures) d->buttons|=BTN_TOUCHPAD;
+        {  /* the trace (the first 400 changes): the touchpad's button, every finger, the extra buttons held */
+            static char was[256];
+            static int told;
+            char now[256];
+            int used=snprintf(now,sizeof now,"button %s; Gestures %d, Personal Effects %d; side %d;",
+                              SDL_GetGamepadButton(g,SDL_GAMEPAD_BUTTON_TOUCHPAD) ? "down" : "up",gestures,touch_right,side);
+            for (int t=0;t<SDL_GetNumGamepadTouchpads(g) && used<(int)sizeof now;++t)
+                for (int f=0;f<SDL_GetNumGamepadTouchpadFingers(g,t) && used<(int)sizeof now;++f) {
+                    bool down=false;
+                    float x=0, y=0;
+                    if (SDL_GetGamepadTouchpadFinger(g,t,f,&down,&x,&y,NULL) && down)
+                        used+=snprintf(now+used,sizeof now-(size_t)used," pad %d at %.1f,%.1f;",t,(double)x,(double)y);
+                }
+            for (int b=SDL_GAMEPAD_BUTTON_MISC2;b<=SDL_GAMEPAD_BUTTON_MISC6 && used<(int)sizeof now;++b)
+                if (SDL_GetGamepadButton(g,(SDL_GamepadButton)b)) used+=snprintf(now+used,sizeof now-(size_t)used," misc%d",b-SDL_GAMEPAD_BUTTON_MISC2+2);
+            if (strcmp(now,was) && told<400) {
+                ++told;
+                printf("Runtime: touchpad: %s\n",now);
+                snprintf(was,sizeof was,"%s",now);
+            }
         }
         if (in_menu) {
             if (menu_down&1) d->buttons|=menu_confirm;
@@ -429,14 +685,19 @@ static void sample_host(PadData *d) {
         }
         if (game==PAD_GAME_HIDE) d->buttons&=~shared;
         else if (game==PAD_GAME_PRESS) d->buttons|=shared;
-        // Back/Select on pads without a touch surface is a left-side click.
-        if ((d->buttons & BTN_TOUCHPAD) && !d->touch_count) touch_click(d,0);
-        if (touch_right) touch_click(d,1);
+        // The touchpad pressed where its side's input has it: the game reads the fingers (their side, as ever). Else
+        // Gestures is a click on the touchpad's left, Personal Effects on its right (a button, a second trackpad).
+        const int real=d->touch_count && SDL_GetNumGamepadTouchpads(g)==1 &&
+                       SDL_GetGamepadButton(g,SDL_GAMEPAD_BUTTON_TOUCHPAD) && (side==0 ? gestures : touch_right);
+        if (real) d->buttons|=BTN_TOUCHPAD;
+        else if (d->buttons & BTN_TOUCHPAD) touch_click(d,0);
+        else if (touch_right) touch_click(d,1);
     }
     int nk=0; if(k) SDL_GetKeyboardState(&nk);
     BbPcPad pc={.buttons=d->buttons,.lx=d->left_x,.ly=d->left_y,.rx=d->right_x,.ry=d->right_y,
         .l2=d->l2,.r2=d->r2,.touch_count=d->touch_count};
     for(int i=0;i<d->touch_count && i<2;i++) {pc.touch[i].x=d->touches[i].x;pc.touch[i].y=d->touches[i].y;pc.touch[i].id=d->touches[i].id;}
+    if (remap_hold) k=NULL, nk=0; /* the keys too (input.cpp holds them as well: runtime_pad_remap_blocking) */
     if(bbgpu_pc_input(&pc,k,nk,g!=NULL)) {
         d->buttons=pc.buttons;d->left_x=pc.lx;d->left_y=pc.ly;d->right_x=pc.rx;d->right_y=pc.ry;
         d->l2=pc.l2;d->r2=pc.r2;d->touch_count=pc.touch_count;
@@ -780,12 +1041,101 @@ int runtime_pad_button(uint32_t ps_button, int right_side) {
         const int has=!gamepad ? 1
             : p==PAD_LEFT_TRIGGER ? SDL_GamepadHasAxis(gamepad,SDL_GAMEPAD_AXIS_LEFT_TRIGGER)
             : p==PAD_RIGHT_TRIGGER ? SDL_GamepadHasAxis(gamepad,SDL_GAMEPAD_AXIS_RIGHT_TRIGGER)
+            : p==PAD_TOUCH_LEFT || p==PAD_TOUCH_RIGHT ? SDL_GamepadHasButton(gamepad,SDL_GAMEPAD_BUTTON_TOUCHPAD)
             : SDL_GamepadHasButton(gamepad,(SDL_GamepadButton)p);
         if (has) found=p;
     }
     if (found<0 && b->pad_count) found=b->pad[0];
     host_unlock(&lock);
     return found;
+}
+int runtime_pad_default_button(uint32_t ps_button, int right_side) {
+    int input=-1;
+    if (ps_button==BTN_TOUCHPAD) input=IN_TOUCHPAD;  /* the touchpad's both sides: its button */
+    else for (int i=IN_CROSS;i<=IN_RIGHT && input<0;++i) if (input_buttons[i]==ps_button) input=i;
+    (void)right_side;
+    for (size_t i=0;input>=0 && i<sizeof(default_pads)/sizeof(*default_pads);++i)
+        if (default_pads[i].input==input) return default_pads[i].button;
+    return -1;
+}
+int runtime_pad_remap_rows(void) { return REMAP_ROWS; }
+int runtime_pad_remap_buttons(int row, int *out, int max) {
+    if (row<0 || row>=REMAP_ROWS) return 0;
+    host_lock(&lock);
+    if (!bindings_ready) { load_bindings(); bindings_ready=1; }
+    const Binding *b=&bindings[remap_inputs[row]];
+    int n=0;
+    for (int i=0;i<b->pad_count;++i) { if (out && n<max) out[n]=b->pad[i]; ++n; }
+    host_unlock(&lock);
+    return n;
+}
+void runtime_pad_remap_describe(int row, char *out, size_t size) {
+    if (!out || !size) return;
+    out[0]=0;
+    if (row<0 || row>=REMAP_ROWS) return;
+    host_lock(&lock);
+    if (!bindings_ready) { load_bindings(); bindings_ready=1; }
+    const Binding *b=&bindings[remap_inputs[row]];
+    for (int i=0;i<b->pad_count;++i) {
+        const size_t used=strlen(out);
+        snprintf(out+used,size-used,"%s%s",i ? ", " : "",remap_button_name(b->pad[i]));
+    }
+    if (!b->pad_count) snprintf(out,size,"None");
+    host_unlock(&lock);
+}
+void runtime_pad_remap_capture(int row) {
+    host_lock(&lock);
+    if (!bindings_ready) { load_bindings(); bindings_ready=1; }
+    const int target=row>=0 && row<REMAP_ROWS ? row : -1;
+    if (target<0 && remap_target>=0) remap_end("kept",remap_prev);
+    else if (target>=0) {
+        remap_fresh=1;
+        remap_since=now_us();
+        __atomic_store_n(&remap_target,target,__ATOMIC_RELAXED);
+        printf("Runtime: controller buttons: rebinding %s (the next button pressed; Escape or 8 s keeps it)\n",
+               input_names[remap_inputs[target]]);
+    }
+    host_unlock(&lock);
+}
+int runtime_pad_remap_capturing(void) { return __atomic_load_n(&remap_target,__ATOMIC_RELAXED); }
+int runtime_pad_remap_blocking(void) {
+    return __atomic_load_n(&remap_target,__ATOMIC_RELAXED)>=0 || __atomic_load_n(&remap_release,__ATOMIC_RELAXED);
+}
+void runtime_pad_remap_defaults(void) {
+    host_lock(&lock);
+    if (!bindings_ready) { load_bindings(); bindings_ready=1; }
+    Binding kept[IN_COUNT];
+    memcpy(kept,bindings,sizeof kept);
+    bind_defaults();
+    for (int i=0;i<IN_COUNT;++i) {
+        if (remap_row_of(i)>=0) { /* the row's buttons back; its keys (key.<input>=) stay */
+            bindings[i].key_count=kept[i].key_count;
+            memcpy(bindings[i].keys,kept[i].keys,sizeof kept[i].keys);
+        } else {
+            bindings[i]=kept[i];
+        }
+    }
+    remap_touched=1;
+    __atomic_add_fetch(&remap_serial,1,__ATOMIC_RELAXED);
+    host_unlock(&lock);
+    puts("Runtime: controller buttons back to their defaults");
+}
+uint64_t runtime_pad_remap_serial(void) { return __atomic_load_n(&remap_serial,__ATOMIC_RELAXED); }
+int runtime_pad_remap_ini(int row, char *key, size_t key_size, char *value, size_t value_size) {
+    if (row<0 || row>=REMAP_ROWS || !key || !value || !key_size || !value_size) return 0;
+    host_lock(&lock);
+    const int touched=bindings_ready && remap_touched;
+    if (touched) {
+        const Binding *b=&bindings[remap_inputs[row]];
+        snprintf(key,key_size,"pad.%s",input_names[remap_inputs[row]]);
+        value[0]=0;
+        for (int i=0;i<b->pad_count;++i) {
+            const size_t used=strlen(value);
+            snprintf(value+used,value_size-used,"%s%s",i ? "," : "",remap_ini_name(b->pad[i]));
+        }
+    }
+    host_unlock(&lock);
+    return touched;
 }
 uintptr_t runtime_pad_resolve(const char *name) { return RUNTIME_LOOKUP(exports,name); }
 void runtime_pad_report(void) { printf("Runtime: pad reads=%zu, gamepad=%s\n",reads,gamepad ? SDL_GetGamepadName(gamepad) : "none"); }

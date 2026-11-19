@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#include "engine/keycap_art.h"
 #include "menu_assets.h"
 #include "rebirth_script.h"
 #include "bc7_decode.h"
@@ -1711,7 +1712,7 @@ bool IsShape(const Tag& t);
 std::vector<Tag> SettingsRowsSprite(const Movie& m, std::uint16_t& next, std::uint16_t text_of, double bx, double by,
                                     std::int64_t text_left, std::int64_t text_right, std::int64_t text_top,
                                     std::uint8_t fill_type, std::uint16_t* sprite_id, const Movie& option,
-                                    const Movie& inventory);
+                                    const Movie& inventory, const Bytes& tpf);
 }  // namespace
 
 // The Chalice glyph screen's card list: ItemList (its one sprite) gets, beside the game's NormalItem (left as it is),
@@ -1726,7 +1727,16 @@ std::vector<Tag> SettingsRowsSprite(const Movie& m, std::uint16_t& next, std::ui
 //                    Query (a card name's gold text) over an underline, the card's focus highlight Cursor and
 //                    Active, the bar being typed in (a steady gold frame and underline; both hidden). Sizes and colours from the agreed mock (work/mockups/3-card-height-bar-with-caption).
 // The glyph screen's list widget is made on "ItemList/GlyphNormalItem" (gpu/shim/bbport_glyph_screen.cpp).
-Bytes GlyphListMovie(const Bytes& gfx, const Bytes& option_gfx, const Bytes& inventory_gfx) {
+// DefineExternalImage2 (tag 1009): a bitmap the game loads by name; DefineEditText's text settings (tag 74).
+constexpr std::uint16_t kExternalImage = 1009, kTextSettings = 74;
+std::string ExternalImageName(const Tag& t) {  // u32 id, u16 format, u16 w, u16 h, u8 n + export name, u8 n + file
+    if (t.body.size() < 11) throw Error("an external image record is too short");
+    const std::size_t n = t.body[10];
+    if (11 + n > t.body.size()) throw Error("an external image record is too short");
+    return std::string(t.body.begin() + 11, t.body.begin() + 11 + std::ptrdiff_t(n));
+}
+Bytes GlyphListMovie(const Bytes& gfx, const Bytes& option_gfx, const Bytes& inventory_gfx,
+                     const Bytes& common_tpf_dcx) {
     constexpr double kPitch = 93.85, kCard = 90;  // the rows' spacing; a card's height
     Movie m = ReadMovie(gfx);
     const std::size_t list_place = FindPlaced(m, "ItemList");
@@ -1961,7 +1971,7 @@ Bytes GlyphListMovie(const Bytes& gfx, const Bytes& option_gfx, const Bytes& inv
         constexpr std::uint8_t kSmoothClipped = 0x41;
         const auto rows_defs = SettingsRowsSprite(m, next, only_text(*name_box), bx, by, name_left, name_right,
                                                   name_top, kSmoothClipped, &settings_rows, ReadMovie(option_gfx),
-                                                  ReadMovie(inventory_gfx));
+                                                  ReadMovie(inventory_gfx), DcxRead(common_tpf_dcx).data);
         defs.insert(defs.end(), rows_defs.begin(), rows_defs.end());
     }
     // SettingsScroll (hidden): the list's own scroll bar for the Settings rows (the game moves NormalItem's Bar from
@@ -2535,13 +2545,6 @@ Tag SwapOnDepth(std::uint16_t depth, std::uint16_t id);
 // characters), the bitmaps its shapes fill with (DefineExternalImage2, tag 1009: shared with the target by name when
 // it has the image, else copied) and the text settings of its edit texts (tag 74). Characters get ids after the
 // target's; placements keep every other byte (colour transforms, blend modes, clip depths).
-constexpr std::uint16_t kExternalImage = 1009, kTextSettings = 74;
-std::string ExternalImageName(const Tag& t) {  // u32 id, u16 format, u16 w, u16 h, u8 n + export name, u8 n + file
-    if (t.body.size() < 11) throw Error("an external image record is too short");
-    const std::size_t n = t.body[10];
-    if (11 + n > t.body.size()) throw Error("an external image record is too short");
-    return std::string(t.body.begin() + 11, t.body.begin() + 11 + std::ptrdiff_t(n));
-}
 // The byte offsets of a shape's bitmap ids (fill styles 0x40..0x43, in its style arrays and its line styles' fills).
 // Shapes that change styles in their records (StateNewStyles) are refused: none of the parts copied has one.
 std::vector<std::size_t> ShapeBitmapRefs(const Tag& t) {
@@ -2776,9 +2779,72 @@ Tag AlphaPlacement(std::uint16_t id, std::uint16_t depth, const Matrix& at, cons
     return Changed(kPlace3, std::move(b));
 }
 
+// The Controller Buttons rows' icons (PadIcon in each slot; gpu/shim/bbport_settings_screen.cpp picks the frame):
+// kPadIcons controller buttons, frames 1 .. kPadIcons the PlayStation style, kPadIcons + 1 .. 2 * kPadIcons the Xbox
+// style, in this order: South, East, West, North, the shoulders, the triggers, the stick presses, Start, Back,
+// Touchpad, the d-pad (up, down, left, right), Misc1, the paddles (right 1, right 2, left 1, left 2), and the
+// touchpad's left and right halves (Gestures' and Personal Effects' rows on the touchpad).
+// PlayStation: the game's own key guide pictures (common.tpf.dcx; d-pad left / right: its up turned a quarter);
+// Xbox: the engine's own (Keycap, as the Xbox button prompts), the touchpad's halves the game's (an Xbox controller
+// has none: no Xbox picture of one). The touchpad is always a half (its press is its left or right): never both lit. A button the game has no picture for: the engine's.
+constexpr int kPadIcons = 24, kPadIconSize = 32;
+std::uint16_t PadIconSprite(std::uint16_t& next, std::vector<Tag>& defs, const Bytes& tpf) {
+    using Pixels = std::vector<std::uint8_t>;
+    const auto game = [&](const char* name) {
+        int w = 0, h = 0;
+        Pixels px = SheetPixels(tpf, name, 0, 0, 0, 0, &w, &h);
+        if (w != kPadIconSize || h != kPadIconSize) throw Error(std::string(name) + " is not 32 x 32");
+        return px;
+    };
+    const auto turned = [](const Pixels& in, bool clockwise) {  // a quarter turn
+        Pixels out(in.size());
+        for (int y = 0; y < kPadIconSize; ++y)
+            for (int x = 0; x < kPadIconSize; ++x) {
+                const int sx = clockwise ? y : kPadIconSize - 1 - y, sy = clockwise ? kPadIconSize - 1 - x : x;
+                std::copy_n(&in[std::size_t(sy * kPadIconSize + sx) * 4], 4, &out[std::size_t(y * kPadIconSize + x) * 4]);
+            }
+        return out;
+    };
+    const auto drawn = [](const Keycap::Spec& spec) {
+        Pixels px(std::size_t(kPadIconSize) * kPadIconSize * 4);
+        Keycap::Draw(spec, px.data(), kPadIconSize);
+        return px;
+    };
+    const auto pad = [&](int button) { return drawn(Keycap::Spec{Keycap::Spec::Pad, {}, button}); };
+    using namespace Keycap;
+    const Pixels up = game("KG_L_U");
+    const std::vector<Pixels> icons = {
+        // PlayStation
+        game("KG_Cancel"), game("KG_OK"), game("KG_R_L"), game("KG_R_U"), game("KG_L1"), game("KG_R1"),
+        game("KG_L2"), game("KG_R2"), game("KG_L3"), game("KG_R3"), game("KG_Start"), pad(PadShare),
+        game("KG_TP_L"), up, game("KG_L_D"), turned(up, false), turned(up, true),
+        drawn(Spec{Spec::Key, {"Mic"}}), pad(PadP1), pad(PadP2), pad(PadP3), pad(PadP4), game("KG_TP_L"),
+        game("KG_TP_R"),
+        // Xbox
+        pad(PadA), pad(PadB), pad(PadX), pad(PadY), pad(PadLB), pad(PadRB), pad(PadLT), pad(PadRT), pad(PadLS),
+        pad(PadRS), pad(PadMenu), pad(PadView), game("KG_TP_L"), pad(PadUp), pad(PadDown), pad(PadLeft), pad(PadRight),
+        pad(PadShare), pad(PadP1), pad(PadP2), pad(PadP3), pad(PadP4), game("KG_TP_L"), game("KG_TP_R"),
+    };
+    if (icons.size() != 2 * kPadIcons) throw Error("the controller button icons are not 2 x 24");
+    Sprite sprite{0, std::uint16_t(icons.size()), {}};
+    for (std::size_t i = 0; i < icons.size(); ++i) {
+        const std::uint16_t bitmap = ++next, shape = ++next;
+        defs.push_back(BitmapTag(bitmap, kPadIconSize, kPadIconSize, icons[i].data()));
+        defs.push_back(BitmapRect(shape, bitmap, 0x41, kPadIconSize, kPadIconSize));
+        // centred on the sprite's origin
+        sprite.tags.push_back(i == 0 ? Placement(shape, 1, At(-kPadIconSize / 2.0, -kPadIconSize / 2.0), std::nullopt, true)
+                                     : SwapOnDepth(1, shape));
+        sprite.tags.push_back(Tag{kShowFrame, {}, {}});
+    }
+    sprite.tags.push_back(Tag{kEnd, {}, {}});
+    sprite.id = ++next;
+    defs.push_back(WriteSprite(sprite));
+    return sprite.id;
+}
+
 std::vector<Tag> SettingsRowsSprite(const Movie& m, std::uint16_t& next, std::uint16_t, double bx, double by,
                                     std::int64_t, std::int64_t, std::int64_t, std::uint8_t, std::uint16_t* sprite_id,
-                                    const Movie& option, const Movie& inventory) {
+                                    const Movie& option, const Movie& inventory, const Bytes& tpf) {
     constexpr std::uint16_t kName = 38, kNameLine = 40, kCursor = 43, kCombo = 57, kSlider = 74, kHead = 101,
                             kButton = 100;
     constexpr double kScale = 0.9, kPitch = 49, kRowX = 67;  // the row's origin in the slot (px, before the scale)
@@ -2877,6 +2943,25 @@ std::vector<Tag> SettingsRowsSprite(const Movie& m, std::uint16_t& next, std::ui
         const double y1 = kSliderY + kBarY + kTrackY + double(track.y1) / 20 + 8;
         slot.tags.push_back(AlphaPlacement(hit, 11, WithScale(At(x0, y0), (x1 - x0) / 100, (y1 - y0) / 100),
                                            std::string("BarHit"), 0, true));
+    }
+    {  // PadIcon (hidden): a Controller Buttons row's button, in the middle of the value box's text
+        std::optional<Matrix> item;
+        for (const Tag& t : ReadSprite(option.tags[FindSprite(option, kCombo)]).tags)
+            if (IsPlace(t))
+                if (const Place p = ReadPlace(t); p.name == "Item_0_0") item = p.matrix;
+        Box text{};
+        for (const Tag& t : option.tags)
+            if (t.code == 37 && U16(t.body, 0) == 52) {
+                BitReader r{t.body, 2};
+                const int n = int(r.Unsigned(5));
+                text.x0 = r.Signed(n), text.x1 = r.Signed(n), text.y0 = r.Signed(n), text.y1 = r.Signed(n);
+            }
+        if (!item || item->scaled || item->rotated || text.x1 <= text.x0)
+            throw Error("optionsetting.gfx's list box is not 1.09's");
+        const std::uint16_t icons = PadIconSprite(next, defs, tpf);
+        const double x = widgets_x + 48.5 + double(item->tx) / 20 + 2 + double(text.x0 + text.x1) / 40;
+        const double y = widgets_y + 24.5 + double(item->ty) / 20 + 2 + double(text.y0 + text.y1) / 40;
+        slot.tags.push_back(Placement(icons, 12, at(x, y), std::string("PadIcon"), false));
     }
     slot.tags.push_back(Tag{kShowFrame, {}, {}});
     slot.tags.push_back(Tag{kEnd, {}, {}});

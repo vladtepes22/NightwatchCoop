@@ -515,7 +515,7 @@ extern "C" int bbgpu_pc_input(BbPcPad* d, const bool* keys, int nkeys, int gamep
     // Nightwatch: a button still held when a text box closes (Cross on Done, Enter) is not seen by the game until it
     // is let go: the game would take it as a new press (the Contract screen opening its name box again).
     static std::uint32_t held_from_text = 0;
-    if (!g_focused || g_text_entry || host_bind_capture_blocking()) {
+    if (!g_focused || g_text_entry || host_bind_capture_blocking() || runtime_pad_remap_blocking()) {
         if (g_text_entry) held_from_text = ~0u;
         pad = PadState{};
         g_wants_relative = false;

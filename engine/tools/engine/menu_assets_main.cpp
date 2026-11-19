@@ -54,7 +54,8 @@ int main(int argc, char** argv) {
                                                                     read(args[2].parent_path() / "common.tpf.dcx"))
             // the Settings rows copy the game's options movie's row parts (beside the list movie)
             : args[1] == "glyph-list"  ? menu_assets::GlyphListMovie(source, read(args[2].parent_path() / "optionsetting.gfx"),
-                                                                  read(args[2].parent_path() / "inventory.gfx"))
+                                                                  read(args[2].parent_path() / "inventory.gfx"),
+                                                                  read(args[2].parent_path() / "common.tpf.dcx"))
             : args[1] == "name-entry" ? menu_assets::NameEntryMovie(source)
             // the tab pictures come from the menu sheet beside the movie
             : args[1] == "glyph-tabs" ? menu_assets::GlyphTabsMovie(source, read(args[2].parent_path() / "common.tpf.dcx"))

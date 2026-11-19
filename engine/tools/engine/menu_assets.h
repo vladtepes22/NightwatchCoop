@@ -67,7 +67,8 @@ Bytes OptionMovie(const Bytes& gfx);
 // Settings screen: the game's optionsetting.gfx gives its brightness picture).
 Bytes GlyphPanelMovie(const Bytes& gfx, const Bytes& option_gfx, const Bytes& common_tpf_dcx);
 // itemlist_normalitem.gfx with the Chalice glyph screen's own card list: six rows under a search bar.
-Bytes GlyphListMovie(const Bytes& gfx, const Bytes& option_gfx, const Bytes& inventory_gfx);  // the game's
+Bytes GlyphListMovie(const Bytes& gfx, const Bytes& option_gfx, const Bytes& inventory_gfx,
+                     const Bytes& common_tpf_dcx);  // the game's
 // optionsetting.gfx and inventory.gfx (the Settings rows' parts)
 // inventory.gfx with two more tab-tile frames (61, 62) for the Chalice glyph screen's Testing and Your Dungeons tabs:
 // grey copies of the in-game menu's System and Status icons, made from common.tpf.dcx (the same menu folder).

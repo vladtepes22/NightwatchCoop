@@ -6,13 +6,17 @@
 #include "bbport_menu_widgets.h"
 #include "bbport_settings.h"
 #include "engine/camera.h"
+#include "engine/key_prompts.h"
 #include "engine/option_menu.h"
 #include "input/bindings.h"
+#include "input/ini_bindings.h"
 #include "input/input.h"
 #include "input/menu_pointer.h"
 #include "input/pad.h"
 #include "party/coop_hooks.h"
 #include "party/game_state.h"
+
+#include <SDL3/SDL.h>
 
 #include <algorithm>
 #include <chrono>
@@ -47,7 +51,8 @@ static_assert(std::size(kTabs) >= kBookTabs);
 // the tab is made and saved as it changes; the others are the screen's own until they are wired ----
 // Info: a name and a value that only shows (the party's status, a guest's view of a host rule); a party button is
 // one too, Confirm runs it (asking Yes / No first when it is one that asks).
-// Key: an action's key binding (input/bindings: Confirm or a click captures the next key or mouse button).
+// Key: an action's key binding (input/bindings: Confirm or a click captures the next key or mouse button), or with
+// `pad` a game button's controller button (src/runtime_pad.c: the next controller button pressed, a swap).
 enum class Kind { Head, Toggle, Slider, Pick, Command, Defaults, Info, Key };
 struct Row {
     Kind kind;
@@ -65,6 +70,7 @@ struct Row {
     int party = -1;                             // a party page row: its field (BbGameMenu::Pages)
     bool steps = false;                         // a party Steps row: a Pick whose value is the row's position
     int key = -1;                               // a Key row: its action (BindAction)
+    int pad = -1;                               // a Key row of Controller Buttons: its row (runtime_pad_remap_*)
 };
 Row Pc(std::uint32_t id, Row r) {
     r.pc = id;
@@ -146,11 +152,9 @@ Rows DisplayRows() {
         {Kind::Defaults, u"Defaults", u"Every setting on this tab back to its default."},
     };
 }
-// Key Bindings: the PC Keys page's actions (input/bindings, Lantern's engine/option_keys.cpp page), in its five groups,
-// each a section; the Debug Menu's only while it is on (as the page). Their names and helps from the bindings' table
-// (English).
-constexpr const char16_t* kKeyGroups[kBindPages] = {u"Movement Keys", u"Combat Keys", u"Item & Gesture Keys",
-                                                   u"Camera & Menu Keys", u"Other Keys"};
+// Key Bindings: the PC Keys page's actions (input/bindings, Lantern's engine/option_keys.cpp page) in its order, one
+// section (Keybinds); the Debug Menu's only while it is on (as the page). Their names and helps from the bindings'
+// table (English).
 std::u16string g_key_names[kBindCount], g_key_helps[kBindCount];
 std::u16string Wide(const char* s) {
     std::u16string out;
@@ -160,7 +164,7 @@ std::u16string Wide(const char* s) {
 void KeyRows(Rows& rows) {
     const int listed = debug_menu_active() ? kBindCount : kBindDebugMenu;
     for (int a = 0; a < listed; ++a) {
-        if (a % kBindPerPage == 0) rows.push_back({Kind::Head, kKeyGroups[a / kBindPerPage], nullptr});
+        if (a == 0) rows.push_back({Kind::Head, u"Keybinds", nullptr});  // one section, as Controller Buttons
         const BindingInfo& b = host_binding_info(a);
         g_key_names[a] = Wide(b.label);
         g_key_helps[a] = Wide(b.help) + u" Confirm or click, then press a key or mouse button (Escape keeps it, Delete "
@@ -171,6 +175,57 @@ void KeyRows(Rows& rows) {
     }
     rows.push_back({Kind::Command, u"Restore Default Keys", u"Every action back to its default key and mouse button.", 0,
                     {u"Yes", u"No"}});
+}
+
+// Controller Buttons: a row per game button (runtime_pad_remap_rows' order), its value the controller button(s) that
+// press it. Their helps: what the button does, from the bindings' table (input/bindings.cpp kActions).
+// Their names: what the button does (the Key Bindings' names); the value: the controller's button for it.
+constexpr const char16_t* kPadNames[] = {u"Interact", u"Dodge / Sprint", u"Use Item", u"Blood Vial", u"Transform",
+                                         u"Attack", u"Firearm / Parry", u"Strong Attack", u"Left Stick Press",
+                                         u"Lock On", u"Menu", u"Gestures", u"Personal Effects", u"Add Blood Bullets",
+                                         u"Switch Item", u"Switch Left Weapon", u"Switch Right Weapon", u"Ping",
+                                         u"Gather the Party"};
+constexpr const char16_t* kPadHelps[] = {
+    u"Talk, examine, pick up, open (Cross on a PlayStation controller). A menu button too (OK or Back).",
+    u"Tap to dodge, hold to sprint (Circle on a PlayStation controller). A menu button too (Back or OK).",
+    u"Use the selected quick item (Square on a PlayStation controller).",
+    u"Restore HP (Triangle on a PlayStation controller).",
+    u"Transform the trick weapon (L1 on a PlayStation controller).",
+    u"Attack with the right-hand weapon (R1 on a PlayStation controller).",
+    u"Fire or parry with the left-hand weapon (L2 on a PlayStation controller).",
+    u"A strong attack; hold to charge (R2 on a PlayStation controller).",
+    u"The left stick's press (L3 on a PlayStation controller).",
+    u"Lock on to a target, or reset the camera (R3 on a PlayStation controller).",
+    u"Open the menu (Options on a PlayStation controller).",
+    u"Open the gestures (the touchpad's left side on a PlayStation controller).",
+    u"Open the personal effects (the touchpad's right side on a PlayStation controller).",
+    u"Add Blood Bullets (D-pad Up on a PlayStation controller).",
+    u"Cycle the quick items (D-pad Down on a PlayStation controller).",
+    u"Cycle the left-hand weapons (D-pad Left on a PlayStation controller).",
+    u"Cycle the right-hand weapons (D-pad Right on a PlayStation controller).",
+    u"Co-op: mark the spot you look at for the party (Share on a PlayStation controller).",
+    u"Co-op host: bring every guest to you (each is asked first). No button by default.",
+};
+static_assert(std::size(kPadNames) == std::size(kPadHelps));
+std::u16string g_pad_helps[std::size(kPadNames)];
+void AppendPadLines(BbInputConfig::Items& lines) {
+    for (int r = 0; r < runtime_pad_remap_rows(); ++r) {
+        char key[64], value[128];
+        if (runtime_pad_remap_ini(r, key, sizeof key, value, sizeof value)) lines.emplace_back(key, value);
+    }
+}
+void PadRows(Rows& rows) {
+    rows.push_back({Kind::Head, u"Gamepad", nullptr});
+    const int count = std::min(runtime_pad_remap_rows(), int(std::size(kPadNames)));
+    for (int i = 0; i < count; ++i) {
+        g_pad_helps[i] = std::u16string(kPadHelps[i]) + u" Confirm or click, then press the controller button for it "
+                                                        u"(it swaps with the one that had it; Escape keeps it).";
+        Row r{Kind::Key, kPadNames[i], g_pad_helps[i].c_str()};
+        r.pad = i;
+        rows.push_back(r);
+    }
+    rows.push_back({Kind::Command, u"Restore Default Buttons", u"Every game button back to its own controller button.",
+                    0, {u"Yes", u"No"}});
 }
 
 // Controls: the game's own controls, the PC pages' PC Controls (118000 .., 116002) and, while the PC camera is on
@@ -212,8 +267,9 @@ Rows ControlsRows() {
                                    u"How high above the character the camera looks. 5 is the game's own.", 5}));
     }
     KeyRows(rows);
-    rows.push_back({Kind::Defaults, u"Defaults", u"Every setting on this tab back to its default (the keys: Restore "
-                                                 u"Default Keys)."});
+    PadRows(rows);
+    rows.push_back({Kind::Defaults, u"Defaults", u"Every setting on this tab back to its default, the keys and the "
+                                                 u"controller buttons too.", 0, {u"Yes", u"No"}});
     return rows;
 }
 Rows SoundRows() {
@@ -343,6 +399,7 @@ struct Line {
 };
 struct State {
     int tab = -1;
+    std::uint64_t pad_serial = runtime_pad_remap_serial();  // the controller buttons saved (bbport.ini)
     Rows rows;
     std::vector<Line> lines;
     int cursor = 0;  // a line with a row
@@ -488,12 +545,90 @@ std::u16string Number(int v) {
     for (char c : std::to_string(v)) s += char16_t(c);
     return s;
 }
+// A Controller Buttons row's value: its controller button's icon (the slot's PadIcon, PadIconFrame), drawn in the
+// player's controller's style (the Controller Icons setting, or the controller in use: KeyPrompts::XboxButtons). A
+// button with no icon, or a row with more than one button (bbport.ini's own pad lines): the buttons' names.
+// The icons' order (tools/engine/menu_assets.cpp PadIconSprite: kPadIcons each style, PlayStation then Xbox).
+constexpr int kPadIcons = 24, kTouchLeftIcon = 22, kTouchRightIcon = 23;
+// runtime_pad.c's buttons after SDL's: the triggers, then the touchpad's left and right (its press, by the finger)
+constexpr int kTouchLeft = SDL_GAMEPAD_BUTTON_COUNT + 2, kTouchRight = SDL_GAMEPAD_BUTTON_COUNT + 3;
+int PadIconOf(int button) {
+    static constexpr int kOrder[kPadIcons - 2] = {
+        SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST, SDL_GAMEPAD_BUTTON_WEST, SDL_GAMEPAD_BUTTON_NORTH,
+        SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, SDL_GAMEPAD_BUTTON_COUNT,
+        SDL_GAMEPAD_BUTTON_COUNT + 1, SDL_GAMEPAD_BUTTON_LEFT_STICK, SDL_GAMEPAD_BUTTON_RIGHT_STICK,
+        SDL_GAMEPAD_BUTTON_START, SDL_GAMEPAD_BUTTON_BACK, SDL_GAMEPAD_BUTTON_TOUCHPAD, SDL_GAMEPAD_BUTTON_DPAD_UP,
+        SDL_GAMEPAD_BUTTON_DPAD_DOWN, SDL_GAMEPAD_BUTTON_DPAD_LEFT, SDL_GAMEPAD_BUTTON_DPAD_RIGHT,
+        SDL_GAMEPAD_BUTTON_MISC1, SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1, SDL_GAMEPAD_BUTTON_RIGHT_PADDLE2,
+        SDL_GAMEPAD_BUTTON_LEFT_PADDLE1, SDL_GAMEPAD_BUTTON_LEFT_PADDLE2,
+    };
+    if (button == kTouchLeft || button == SDL_GAMEPAD_BUTTON_TOUCHPAD) return kTouchLeftIcon;
+    if (button == kTouchRight) return kTouchRightIcon;
+    for (int i = 0; i < kPadIcons - 2; ++i)
+        if (kOrder[i] == button) return i;
+    return -1;
+}
+// The row's PadIcon frame (1 ..), or 0: no icon (a capture's "Press a button...", None, names).
+int PadIconFrame(int row) {
+    if (runtime_pad_remap_capturing() == row) return 0;
+    int buttons[2];
+    if (runtime_pad_remap_buttons(row, buttons, 2) != 1) return 0;
+    const int icon = PadIconOf(buttons[0]);
+    return icon < 0 ? 0 : 1 + icon + (KeyPrompts::XboxButtons() ? kPadIcons : 0);
+}
+std::u16string ButtonName(int button, bool xbox) {
+    struct Name {
+        int button;
+        const char16_t *ps, *xbox;
+    };
+    static constexpr Name kNames[] = {
+        {SDL_GAMEPAD_BUTTON_SOUTH, u"Cross", u"A"},
+        {SDL_GAMEPAD_BUTTON_EAST, u"Circle", u"B"},
+        {SDL_GAMEPAD_BUTTON_WEST, u"Square", u"X"},
+        {SDL_GAMEPAD_BUTTON_NORTH, u"Triangle", u"Y"},
+        {SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, u"L1", u"LB"},
+        {SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, u"R1", u"RB"},
+        {SDL_GAMEPAD_BUTTON_COUNT, u"L2", u"LT"},
+        {SDL_GAMEPAD_BUTTON_COUNT + 1, u"R2", u"RT"},
+        {SDL_GAMEPAD_BUTTON_LEFT_STICK, u"L3", u"LS"},
+        {SDL_GAMEPAD_BUTTON_RIGHT_STICK, u"R3", u"RS"},
+        {SDL_GAMEPAD_BUTTON_START, u"Options", u"Menu"},
+        {SDL_GAMEPAD_BUTTON_BACK, u"Share", u"View"},
+        {SDL_GAMEPAD_BUTTON_MISC1, u"Mute", u"Share"},
+        {SDL_GAMEPAD_BUTTON_TOUCHPAD, u"Touchpad", u"Touchpad"},
+        {kTouchLeft, u"Touchpad (left)", u"Touchpad (left)"},
+        {kTouchRight, u"Touchpad (right)", u"Touchpad (right)"},
+        {SDL_GAMEPAD_BUTTON_DPAD_UP, u"D-pad Up", u"D-pad Up"},
+        {SDL_GAMEPAD_BUTTON_DPAD_DOWN, u"D-pad Down", u"D-pad Down"},
+        {SDL_GAMEPAD_BUTTON_DPAD_LEFT, u"D-pad Left", u"D-pad Left"},
+        {SDL_GAMEPAD_BUTTON_DPAD_RIGHT, u"D-pad Right", u"D-pad Right"},
+        {SDL_GAMEPAD_BUTTON_LEFT_PADDLE1, u"Left Paddle 1", u"Left Paddle 1"},
+        {SDL_GAMEPAD_BUTTON_LEFT_PADDLE2, u"Left Paddle 2", u"Left Paddle 2"},
+        {SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1, u"Right Paddle 1", u"Right Paddle 1"},
+        {SDL_GAMEPAD_BUTTON_RIGHT_PADDLE2, u"Right Paddle 2", u"Right Paddle 2"},
+    };
+    for (const Name& n : kNames)
+        if (n.button == button) return xbox ? n.xbox : n.ps;
+    return u"Extra Button";
+}
+std::u16string PadValue(int row) {
+    if (runtime_pad_remap_capturing() == row) return u"Press a button...";
+    if (PadIconFrame(row)) return u"";  // the icon (PadIcon)
+    int buttons[8];
+    const int n = std::min(runtime_pad_remap_buttons(row, buttons, int(std::size(buttons))), int(std::size(buttons)));
+    if (n == 0) return u"None";
+    const bool xbox = KeyPrompts::XboxButtons();
+    std::u16string names;
+    for (int i = 0; i < n; ++i) names += (i ? u", " : u"") + ButtonName(buttons[i], xbox);
+    return Escaped(names.c_str());
+}
 std::u16string ValueText(const Row& r) {
     switch (r.kind) {
     case Kind::Toggle: return r.value ? u"On" : u"Off";
     case Kind::Pick: return r.value >= 0 && r.value < int(r.choices.size()) ? Escaped(r.choices[std::size_t(r.value)]) : u"";
     case Kind::Info: return r.choices.empty() ? u"" : Escaped(r.choices[0]);
     case Kind::Key: {
+        if (r.pad >= 0) return PadValue(r.pad);
         if (host_bind_capturing() == r.key) return u"Press a key...";
         char key[64];
         host_binding_describe(r.key, key, sizeof key);
@@ -510,7 +645,7 @@ void DrawSlot(std::uint64_t root, int slot, const Line* line, const Row* r, bool
     if (line) {
         key = line->head ? std::u16string(line->head) : u"";
         key += r ? std::u16string(1, char16_t('0' + int(r->kind))) + (selected ? u"*" : u"-") + r->name + u"|" +
-                       ValueText(*r) + u"|" + Number(r->value)
+                       ValueText(*r) + u"|" + Number(r->value) + u"|" + Number(r->pad >= 0 ? PadIconFrame(r->pad) : 0)
                  : u"line";
     }
     if (key == s.shown[slot]) return;
@@ -548,6 +683,9 @@ void DrawSlot(std::uint64_t root, int slot, const Line* line, const Row* r, bool
     show("Command", command);
     show("Command/Cursor", selected && command);
     show("HeadLine", line && line->head);
+    const int icon = r && r->kind == Kind::Key && r->pad >= 0 ? PadIconFrame(r->pad) : 0;
+    if (icon) BbMenuWidgets::GotoPartFrame(root, SlotPath(slot, "PadIcon").c_str(), icon);
+    show("PadIcon", icon > 0);
 }
 
 int FirstSelectable(const State& s) {
@@ -596,6 +734,10 @@ Row* CurrentRow(State& s) {
 // ---- the choices pop-up ----
 // A party button asks with the same two lines as a command (its own choices are its value text).
 int PopupCount(const Row& r) { return r.kind == Kind::Info ? 2 : int(r.choices.size()); }
+// A Yes / No question: a command, a party button, a Defaults with choices.
+bool Asks(const Row& r) {
+    return r.kind == Kind::Command || r.kind == Kind::Info || (r.kind == Kind::Defaults && !r.choices.empty());
+}
 int PopupShown(const Row& r) { return std::min(PopupCount(r), kPopupLines); }
 void PopupScroll(State& s, const Row& r) {
     const int shown = PopupShown(r);
@@ -607,7 +749,7 @@ void OpenPopup(State& s) {
     if (!r || PopupCount(*r) == 0) return;
     s.popup = true;
     s.popup_line = s.cursor;
-    s.popup_cursor = r->kind == Kind::Command || r->kind == Kind::Info ? PopupCount(*r) - 1
+    s.popup_cursor = Asks(*r) ? PopupCount(*r) - 1
                                                                       : std::clamp(r->value, 0, int(r->choices.size()) - 1);
     s.popup_top = s.popup_cursor - PopupShown(*r) / 2;
     PopupScroll(s, *r);
@@ -616,9 +758,10 @@ void OpenPopup(State& s) {
     std::printf("Settings screen: the %s pop-up is open\n", "choices");
     std::fflush(stdout);
 }
+void Defaults(State& s);
 void ClosePopup(State& s, bool pick) {
     Row* r = CurrentRow(s);
-    const bool command = r && (r->kind == Kind::Command || r->kind == Kind::Info), yes = command && pick && s.popup_cursor == 0;
+    const bool command = r && Asks(*r), yes = command && pick && s.popup_cursor == 0;
     if (pick && r && !command) {
         r->value = s.popup_cursor;
         BbMenuWidgets::DecideSound();
@@ -633,10 +776,16 @@ void ClosePopup(State& s, bool pick) {
     s.shown[std::size_t(std::clamp(s.popup_line - s.top, 0, kSlots - 1))] = u"\x1";  // its row redrawn
     std::printf("Settings screen: the choices pop-up closed (%s)\n", pick ? "a choice" : "cancelled");
     std::fflush(stdout);
-    if (yes && r->party >= 0) {
+    if (yes && r->kind == Kind::Defaults) {
+        Defaults(s);
+    } else if (yes && r->party >= 0) {
         PressParty(*r, true);
     } else if (yes && r->name == std::u16string(u"Exit Game")) {
         ExitGame();
+    } else if (yes && r->name == std::u16string(u"Restore Default Buttons")) {
+        runtime_pad_remap_defaults();
+        std::printf("Settings screen: the controller buttons back to their defaults\n");
+        std::fflush(stdout);
     } else if (yes && r->name == std::u16string(u"Restore Default Keys")) {
         host_bindings_load_defaults();
         std::printf("Settings screen: the key bindings back to their defaults\n");
@@ -678,7 +827,7 @@ void DrawPopup(std::uint64_t root, State& s) {
         BbMenuWidgets::ShowPart(root, ("ItemList/SettingsRows/Popup/Box/Item_" + std::to_string(k)).c_str(), on);
         if (!on) continue;
         const bool lit = choice == s.popup_cursor;
-        const bool ask = r->kind == Kind::Command || r->kind == Kind::Info;
+        const bool ask = Asks(*r);
         const char16_t* color = lit ? u"#ffffff" : choice == r->value && !ask ? u"#b49762" : u"#cccccc";
         const char16_t* text = ask ? (choice == 0 ? u"Yes" : u"No") : r->choices[std::size_t(choice)];
         BbMenuWidgets::SetFieldText(root, PopupPath(k, "Text/Text_0").c_str(),
@@ -687,12 +836,16 @@ void DrawPopup(std::uint64_t root, State& s) {
     }
 }
 
-// Every row of the tab back to its default.
+// Every row of the tab back to its default; a tab with key or controller button rows: those too.
 void Defaults(State& s) {
+    bool keys = false, pad = false;
     for (Row& r : s.rows) {
         r.value = r.def;
         r.stored = -1;  // every one written (Picture Tuning too, after the picture rows that turn it on)
+        if (r.kind == Kind::Key) (r.pad >= 0 ? pad : keys) = true;
     }
+    if (keys) host_bindings_load_defaults();
+    if (pad) runtime_pad_remap_defaults();
     for (auto& k : s.shown) k = u"\x1";
     BbMenuWidgets::DecideSound();
     std::printf("Settings screen: tab %d back to its defaults\n", s.tab);
@@ -709,11 +862,15 @@ void Activate(State& s) {
         if (r->drop) OpenPopup(s);
         else Change(s, 1);
         break;
-    case Kind::Defaults: Defaults(s); break;
+    case Kind::Defaults:  // one with choices (Yes / No) asks first
+        if (r->choices.empty()) Defaults(s);
+        else OpenPopup(s);
+        break;
     case Kind::Command: OpenPopup(s); break;
     case Kind::Key:
         BbMenuWidgets::EnterSound();
-        host_bind_capture_begin(r->key);
+        if (r->pad >= 0) runtime_pad_remap_capture(r->pad);
+        else host_bind_capture_begin(r->key);
         break;
     case Kind::Info:  // a party button: runs (a confirmed one asks first); a read-only line does nothing
         if (r->party < 0 || !P::Runs(r->party)) break;
@@ -805,8 +962,14 @@ bool Update(std::uint64_t root, int tab, const Pointer& pointer) {
     if (s.tab < 0 && pointer.take_click) pointer.take_click();  // opening: the pause menu's click is not ours
     // a key binding's capture takes the next key or mouse button (the pad and keys reach no one meanwhile): its
     // click is not ours, and nothing else moves until it ends
-    const bool capturing = host_bind_capture_blocking();
+    const bool capturing = host_bind_capture_blocking() || runtime_pad_remap_blocking();
     if (capturing && pointer.take_click) pointer.take_click();
+    // a controller button changed (a capture, Restore Default Buttons): bbport.ini's pad.<button>= lines saved
+    BbInputConfig::append_pad = AppendPadLines;
+    if (const std::uint64_t serial = runtime_pad_remap_serial(); serial != s.pad_serial) {
+        s.pad_serial = serial;
+        BbSettings::Save();
+    }
     if (tab != s.tab) {
         s.tab = tab;
         if (tab == 4) P::Load();  // the party rows' values from the settings (as a party page opening)
@@ -905,7 +1068,7 @@ bool Update(std::uint64_t root, int tab, const Pointer& pointer) {
     } else if (!s.lines.empty()) {
         const int was = s.cursor;
         // Delete on a key row clears its binding (the PC Keys page's way)
-        if (const Row* r = CurrentRow(s); r && r->kind == Kind::Key && host_bind_take_clear_key()) {
+        if (const Row* r = CurrentRow(s); r && r->kind == Kind::Key && r->pad < 0 && host_bind_take_clear_key()) {
             host_binding_clear(r->key);
             BbMenuWidgets::DecideSound();
         }
