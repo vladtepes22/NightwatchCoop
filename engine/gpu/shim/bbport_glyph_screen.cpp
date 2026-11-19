@@ -1575,11 +1575,14 @@ void DropDungeonSearch(u64 list) {
 }
 
 // The altar menu greys "Search by Chalice Glyph" without the network (0x553b120: +8, +0x9f8, +0x9f6, +0xa50 -> a byte
-// at the builder's rbp - 0x1458, stored on the row at 0x1b66823). The glyph screen needs no network: with community
-// glyphs the row stays usable. `list`: the altar's row list (r12, just returned by the glyph row's add).
+// at the builder's rbp - 0x1458, stored on the row at 0x1b66823). In a party the browser's list needs no network:
+// with community glyphs the row stays usable. In single player the game's byte stays: a pick ends in the game's own
+// search, which only shows its offline notice. `list`: the altar's row list (r12, just returned by
+// the glyph row's add).
 BB_COOP_SYSV u64 GlyphRowGrey(u64 frame, u64 list) {
     if (!BrowserOn()) return 0;
     DropDungeonSearch(list);
+    if (!bbnet::settings().party) return 0;
     std::lock_guard<std::mutex> lk(g_mu);
     LoadGlyphs();
     if (g_glyphs && !g_glyphs->empty()) *reinterpret_cast<std::uint8_t*>(frame - 0x1458) = 0;
