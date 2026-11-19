@@ -11372,6 +11372,21 @@ bool DeliverSummon(const dsummon::Room& room, const std::string& host_name) {
             Log("direct summon: chalice wait bit (FrpgNetMan +0xb14 bit 0) was clear: set for the quick join");
         }
     }
+    // The handler joins (entry state 2) only when the game is in its bell wait mode: FrpgNetMan +0xa98 == 2, or 0
+    // with the chalice wait bit (0x14ba62e). The mode comes from the game's own data (the small bell's effect and
+    // its event script, through a table-called setter): a game whose data does not set it took every room as
+    // state 1 and never joined, with nothing in the log saying why (a modified game, 31 tries in one report).
+    // Set for this call, as the chalice bit above.
+    if (net) {
+        const u32 mode = Field<u32>(net, 0xa98, 0xff);
+        const bool chalice_wait = mode == 0 && (Field<u8>(net, 0xb14, 0) & 1);
+        if (mode != 2 && !chalice_wait) {
+            const u32 wait_mode = 2;
+            SafeWrite(net + 0xa98, &wait_mode, 4);
+            Log("direct summon: the game was not in its bell wait mode (FrpgNetMan +0xa98 %u, +0xb14 %#x): set for the join",
+                mode, Field<u8>(net, 0xb14, 0xff));
+        }
+    }
     // The sender as the handler sees it: +0x20 -> the sender's 16-byte online id.
     char ident[17] = {};
     std::snprintf(ident, sizeof ident, "%s", host_name.c_str());
@@ -11383,6 +11398,7 @@ bool DeliverSummon(const dsummon::Room& room, const std::string& host_name) {
     const u32 state = Field<u32>(entry, 0xc8, 0);
     Log("direct summon: the host's room (%zu bytes) handed to the game as a type-1 summon message: entry state %u",
         room.data.size(), state);
+    if (state != 2) Log("direct summon: the game did not take the room for a join (entry state %u, not 2): no join follows", state);
     if (dsummon::ChannelSet(room.channel)) {
         // +0xc0: the channel request by id (get_details_info) that becomes the quick join.
         Log("direct summon: Chalice Dungeon %llu (ChannelId %#llx): channel request %s", ull(room.channel), ull(room.channel),
