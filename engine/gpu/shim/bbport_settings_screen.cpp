@@ -7,6 +7,7 @@
 #include "bbport_settings.h"
 #include "engine/camera.h"
 #include "engine/option_menu.h"
+#include "input/bindings.h"
 #include "input/input.h"
 #include "input/menu_pointer.h"
 #include "input/pad.h"
@@ -22,6 +23,8 @@
 #include <mutex>
 #include <string>
 #include <vector>
+
+extern bool debug_menu_active();  // input/input.cpp
 
 namespace BbSettingsScreen {
 namespace {
@@ -44,7 +47,8 @@ static_assert(std::size(kTabs) >= kBookTabs);
 // the tab is made and saved as it changes; the others are the screen's own until they are wired ----
 // Info: a name and a value that only shows (the party's status, a guest's view of a host rule); a party button is
 // one too, Confirm runs it (asking Yes / No first when it is one that asks).
-enum class Kind { Head, Toggle, Slider, Pick, Command, Defaults, Info };
+// Key: an action's key binding (input/bindings: Confirm or a click captures the next key or mouse button).
+enum class Kind { Head, Toggle, Slider, Pick, Command, Defaults, Info, Key };
 struct Row {
     Kind kind;
     const char16_t* name;
@@ -60,6 +64,7 @@ struct Row {
     int stored = -1;                            // the value the setting has (a change is saved once)
     int party = -1;                             // a party page row: its field (BbGameMenu::Pages)
     bool steps = false;                         // a party Steps row: a Pick whose value is the row's position
+    int key = -1;                               // a Key row: its action (BindAction)
 };
 Row Pc(std::uint32_t id, Row r) {
     r.pc = id;
@@ -141,6 +146,33 @@ Rows DisplayRows() {
         {Kind::Defaults, u"Defaults", u"Every setting on this tab back to its default."},
     };
 }
+// Key Bindings: the PC Keys page's actions (input/bindings, Lantern's engine/option_keys.cpp page), in its five groups,
+// each a section; the Debug Menu's only while it is on (as the page). Their names and helps from the bindings' table
+// (English).
+constexpr const char16_t* kKeyGroups[kBindPages] = {u"Movement Keys", u"Combat Keys", u"Item & Gesture Keys",
+                                                   u"Camera & Menu Keys", u"Other Keys"};
+std::u16string g_key_names[kBindCount], g_key_helps[kBindCount];
+std::u16string Wide(const char* s) {
+    std::u16string out;
+    for (; s && *s; ++s) out += char16_t(static_cast<unsigned char>(*s));
+    return out;
+}
+void KeyRows(Rows& rows) {
+    const int listed = debug_menu_active() ? kBindCount : kBindDebugMenu;
+    for (int a = 0; a < listed; ++a) {
+        if (a % kBindPerPage == 0) rows.push_back({Kind::Head, kKeyGroups[a / kBindPerPage], nullptr});
+        const BindingInfo& b = host_binding_info(a);
+        g_key_names[a] = Wide(b.label);
+        g_key_helps[a] = Wide(b.help) + u" Confirm or click, then press a key or mouse button (Escape keeps it, Delete "
+                                        u"clears it).";
+        Row r{Kind::Key, g_key_names[a].c_str(), g_key_helps[a].c_str()};
+        r.key = a;
+        rows.push_back(r);
+    }
+    rows.push_back({Kind::Command, u"Restore Default Keys", u"Every action back to its default key and mouse button.", 0,
+                    {u"Yes", u"No"}});
+}
+
 // Controls: the game's own controls, the PC pages' PC Controls (118000 .., 116002) and, while the PC camera is on
 // (Enhancements' PC Camera Controls, read live; the camera code in), its Camera rows (118004, 121000, 121001).
 // "Camera Sensitivity" of PC Controls is named Mouse Sensitivity here (the game's own row has that name).
@@ -179,7 +211,9 @@ Rows ControlsRows() {
         rows.push_back(Pc(121001, {Kind::Slider, u"Camera Height",
                                    u"How high above the character the camera looks. 5 is the game's own.", 5}));
     }
-    rows.push_back({Kind::Defaults, u"Defaults", u"Every setting on this tab back to its default."});
+    KeyRows(rows);
+    rows.push_back({Kind::Defaults, u"Defaults", u"Every setting on this tab back to its default (the keys: Restore "
+                                                 u"Default Keys)."});
     return rows;
 }
 Rows SoundRows() {
@@ -459,6 +493,12 @@ std::u16string ValueText(const Row& r) {
     case Kind::Toggle: return r.value ? u"On" : u"Off";
     case Kind::Pick: return r.value >= 0 && r.value < int(r.choices.size()) ? Escaped(r.choices[std::size_t(r.value)]) : u"";
     case Kind::Info: return r.choices.empty() ? u"" : Escaped(r.choices[0]);
+    case Kind::Key: {
+        if (host_bind_capturing() == r.key) return u"Press a key...";
+        char key[64];
+        host_binding_describe(r.key, key, sizeof key);
+        return Escaped(Wide(key).c_str());
+    }
     default: return u"";
     }
 }
@@ -478,7 +518,8 @@ void DrawSlot(std::uint64_t root, int slot, const Line* line, const Row* r, bool
     using BbMenuWidgets::SetFieldText;
     const auto show = [&](const char* part, bool v) { BbMenuWidgets::ShowPart(root, SlotPath(slot, part).c_str(), v); };
     const bool slider = r && r->kind == Kind::Slider,
-               combo = r && (r->kind == Kind::Toggle || r->kind == Kind::Pick || r->kind == Kind::Info);
+               combo = r && (r->kind == Kind::Toggle || r->kind == Kind::Pick || r->kind == Kind::Info ||
+                             r->kind == Kind::Key);
     const bool button = r && r->kind == Kind::Defaults, command = r && r->kind == Kind::Command;
     const bool named = r && !button && !command;  // commands: a button centred on the list
     const char16_t* color = selected ? u"#ffffff" : u"#cccccc";
@@ -592,9 +633,17 @@ void ClosePopup(State& s, bool pick) {
     s.shown[std::size_t(std::clamp(s.popup_line - s.top, 0, kSlots - 1))] = u"\x1";  // its row redrawn
     std::printf("Settings screen: the choices pop-up closed (%s)\n", pick ? "a choice" : "cancelled");
     std::fflush(stdout);
-    if (yes && r->party >= 0) PressParty(*r, true);
-    else if (yes && r->name == std::u16string(u"Exit Game")) ExitGame();
-    else if (yes) QuitToDesktop();
+    if (yes && r->party >= 0) {
+        PressParty(*r, true);
+    } else if (yes && r->name == std::u16string(u"Exit Game")) {
+        ExitGame();
+    } else if (yes && r->name == std::u16string(u"Restore Default Keys")) {
+        host_bindings_load_defaults();
+        std::printf("Settings screen: the key bindings back to their defaults\n");
+        std::fflush(stdout);
+    } else if (yes) {
+        QuitToDesktop();
+    }
 }
 // Under its row when it fits in the list, else over it, else as low as fits.
 int PopupFrame(const State& s, const Row& r) {
@@ -662,6 +711,10 @@ void Activate(State& s) {
         break;
     case Kind::Defaults: Defaults(s); break;
     case Kind::Command: OpenPopup(s); break;
+    case Kind::Key:
+        BbMenuWidgets::EnterSound();
+        host_bind_capture_begin(r->key);
+        break;
     case Kind::Info:  // a party button: runs (a confirmed one asks first); a read-only line does nothing
         if (r->party < 0 || !P::Runs(r->party)) break;
         if (P::Confirmed(r->party)) {
@@ -750,6 +803,10 @@ bool Update(std::uint64_t root, int tab, const Pointer& pointer) {
     s.buttons = pad.buttons;
     bool help_changed = false;
     if (s.tab < 0 && pointer.take_click) pointer.take_click();  // opening: the pause menu's click is not ours
+    // a key binding's capture takes the next key or mouse button (the pad and keys reach no one meanwhile): its
+    // click is not ours, and nothing else moves until it ends
+    const bool capturing = host_bind_capture_blocking();
+    if (capturing && pointer.take_click) pointer.take_click();
     if (tab != s.tab) {
         s.tab = tab;
         if (tab == 4) P::Load();  // the party rows' values from the settings (as a party page opening)
@@ -843,8 +900,15 @@ bool Update(std::uint64_t root, int tab, const Pointer& pointer) {
                 if (s.popup_cursor != was) BbMenuWidgets::CursorMoveSound();
             }
         }
+    } else if (capturing) {
+        // the row shows "Press a key..." (ValueText) until the capture ends
     } else if (!s.lines.empty()) {
         const int was = s.cursor;
+        // Delete on a key row clears its binding (the PC Keys page's way)
+        if (const Row* r = CurrentRow(s); r && r->kind == Kind::Key && host_bind_take_clear_key()) {
+            host_binding_clear(r->key);
+            BbMenuWidgets::DecideSound();
+        }
         // the wheel: the view only, the cursor stays (out of view, the next key or button brings it back)
         if (wheel) {  // the cursor's move sound for each scroll that moved the view, as the game's lists
             const int top = std::clamp(s.top + wheel, 0, std::max(0, int(s.lines.size()) - kSlots));
