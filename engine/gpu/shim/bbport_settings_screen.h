@@ -11,7 +11,7 @@
 
 namespace BbSettingsScreen {
 
-/// Work in progress: the pause menu's System opens the Settings screen only with BB_SETTINGS_SCREEN=1.
+/// The pause menu's System opens the Settings screen (BB_SETTINGS_SCREEN=0: the game's System list instead).
 bool Enabled();
 
 struct Tab {

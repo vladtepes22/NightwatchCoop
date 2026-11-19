@@ -909,7 +909,7 @@ std::uint32_t Pressed(State& s, std::uint32_t now_held) {
 bool Enabled() {
     static const bool on = [] {
         const char* v = std::getenv("BB_SETTINGS_SCREEN");
-        return v && *v == '1';
+        return !(v && *v == '0');  // on unless BB_SETTINGS_SCREEN=0
     }();
     return on;
 }
