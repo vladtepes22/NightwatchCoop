@@ -6,9 +6,6 @@ namespace BbEngine::Loading {
 void Install(std::uint8_t* image);
 void Tick(std::uint64_t pacer);
 bool ScreenUp();
-/// The game shows no 3D world this frame: a loading screen is up, or no world has been shown since the last load
-/// (the title) and no cutscene plays. Its scene target is then an empty grey, or a world still hidden.
-bool WorldHidden();
 /// Fast loading holds this loading screen at 30 FPS (BB_FAST_LOADING=1, no cutscene): the Live FPS
 /// clock (live_clock.cpp), which sets the pacer's frame time every frame, keeps that pace too.
 bool FastPace();

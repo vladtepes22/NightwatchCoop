@@ -9,7 +9,6 @@
 #include "video_core/renderer_vulkan/ui_composition.h"
 #include "video_core/renderer_vulkan/upscaler_skips.h"
 #include "engine/loading.h"
-#include "party/party_seam.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1876,15 +1875,7 @@ void TemporalUpscaler::OnDraw(u64 vs_hash, VideoCore::ImageId color,
         RenderTarget(image.info.size.width, image.info.size.height) &&
         !FrameCapture::IsDisplayBuffer(image.info.guest_address);
     const bool temporal_ready = Active() && !failed;
-    // bbport: on a screen that is not 16:9 (Widescreen, BB_UI_SIZE) the game's menus cover only
-    // its 16:9 stage. While the game shows no world (the title, a loading screen, a loading screen
-    // held over the arrived world), the scene target beside the stage is an empty grey or the
-    // hidden world: the stage alone is copied, black around it. "The UI draws into the scene's
-    // target" is true on those frames too, so it cannot tell them apart; and the upscaler does
-    // not run under such a screen (its output has no black around the stage).
-    const bool stage_only = UiComposition::UiSize() != std::array{1920.0f, 1080.0f} &&
-                            (BbEngine::Loading::WorldHidden() || coop::seam::ScreenHeld());
-    const bool world = ldr_target && ldr_target == color && !stage_only;
+    const bool world = ldr_target && ldr_target == color;
     // bbport (upscaler_skips.h): the UI draw's own RGBA8 UNORM target of the scene's size is the
     // finished frame too (the frame's last colour target was not seen as it); not under native
     // 16-bit HDR, and not an sRGB target (RunScaled only ever had UNORM frames).
@@ -1895,8 +1886,7 @@ void TemporalUpscaler::OnDraw(u64 vs_hash, VideoCore::ImageId color,
                                                 RenderTarget(image.info.size.width, image.info.size.height))
                    : ldr_target == color;
     const auto background =
-        UiComposition::Choose(UiComposed(), ui_draw, camera_motion.Ready() && frame_accepted && !stage_only,
-                              temporal_ready);
+        UiComposition::Choose(UiComposed(), ui_draw, camera_motion.Ready() && frame_accepted, temporal_ready);
     if (background != UiComposition::Background::None) {
         frame_path = UpscalerSkips::Path::Copy;
         frame_reason = background == UiComposition::Background::Temporal
@@ -1916,11 +1906,7 @@ void TemporalUpscaler::OnDraw(u64 vs_hash, VideoCore::ImageId color,
         // A failed FSR dispatch must not force UI text back to the scene resolution.
         [[fallthrough]];
     case UiComposition::Background::Copy:
-        if (static bool said = false; stage_only && !said) {
-            said = true;
-            std::printf("Display: no world shown: black around the menus' 16:9 stage\n");
-        }
-        RunUiOnly(color, depth, world ? UiBackground::World : UiBackground::Stage);
+        RunUiOnly(color, depth, world);
         break;
     }
     if (ui_phase) {
@@ -1951,21 +1937,6 @@ HdrNative::Source TemporalUpscaler::HdrUiImage() {
 }
 
 void TemporalUpscaler::OnDisplayPass(VAddr address, VideoCore::ImageId frame) {
-    // bbport: before the game's first menu draw its frames are the empty scene's plain grey (a
-    // second of it at the start, a flash before the logos): black instead. Only until the first
-    // frame with UI: later frames without UI are the intro movie or the world with the HUD off.
-    if (ui_phase) {
-        ui_seen = true;
-    } else if (!ui_seen && UiComposed() && LdrFrame(frame)) {
-        if (static bool said = false; !said) {
-            said = true;
-            std::printf("Display: black frames until the game's first menu draw\n");
-        }
-        RunUiOnly(frame, camera_motion.Depth(), UiBackground::Black);
-        if (hdr_native.WantsUiStart() && HdrNative::Wanted()) {
-            hdr_native.OnUiStart(HdrUiImage());
-        }
-    }
     // bbport: a frame with no UI draw at all (the HUD hidden in the game's options, #23) reaches
     // its display pass without the upscale its first UI draw would start: run it here, so the
     // display pass reads the upscaled frame instead of the render-size one.
@@ -1976,7 +1947,7 @@ void TemporalUpscaler::OnDisplayPass(VAddr address, VideoCore::ImageId frame) {
         }
     }
     if (HdrChannel::Native16() && !ui_phase && LdrFrame(ldr_target)) {
-        RunUiOnly(ldr_target, camera_motion.Depth(), UiBackground::World); // the scene's own target
+        RunUiOnly(ldr_target, camera_motion.Depth(), true); // the scene's own target: the world
     }
     // The final pass tells the HUD by its luminance against this snapshot; over highlights the
     // HUD blends with the scene, as in RenoDX.
@@ -2170,7 +2141,7 @@ void TemporalUpscaler::PrepareUiDepth(VideoCore::ImageId depth_id) {
 }
 
 void TemporalUpscaler::RunUiOnly(VideoCore::ImageId color_id, VideoCore::ImageId depth_id,
-                                 UiBackground background) {
+                                 bool world) {
     if (auto* profiler = GpuProfiler::Get()) {
         profiler->Mark(0xF5A1'0000ull, [] { return std::string{"upscaler RunUiOnly"}; });
     }
@@ -2211,9 +2182,7 @@ void TemporalUpscaler::RunUiOnly(VideoCore::ImageId color_id, VideoCore::ImageId
     // A frame of the world is copied whole: with no upscaler every frame comes here, and the
     // world's sides were cut to black bars (widescreen worked only with an upscaler on).
     s32 x0 = 0, y0 = 0, x1 = s32(ui_width), y1 = s32(ui_height);
-    const bool black = background == UiBackground::Black;
-    if (const auto ui = UiComposition::UiSize();
-        background == UiBackground::Stage && (ui[0] != 1920.0f || ui[1] != 1080.0f)) {
+    if (const auto ui = UiComposition::UiSize(); !world && (ui[0] != 1920.0f || ui[1] != 1080.0f)) {
         const auto fit = UiComposition::Fit(ui_width, ui_height, ui);
         const float stage = UiComposition::StageScale(ui), w = 1920.0f * stage, h = 1080.0f * stage;
         x0 = std::clamp(s32(std::lround(fit.offset[0] + fit.scale[0] * (ui[0] - w) / 2)), 0, s32(ui_width));
@@ -2221,7 +2190,7 @@ void TemporalUpscaler::RunUiOnly(VideoCore::ImageId color_id, VideoCore::ImageId
         x1 = std::clamp(s32(std::lround(x0 + fit.scale[0] * w)), x0, s32(ui_width));
         y1 = std::clamp(s32(std::lround(y0 + fit.scale[1] * h)), y0, s32(ui_height));
     }
-    const bool bars = black || x0 > 0 || y0 > 0 || x1 < s32(ui_width) || y1 < s32(ui_height);
+    const bool bars = x0 > 0 || y0 > 0 || x1 < s32(ui_width) || y1 < s32(ui_height);
     const auto from = [&](s32 v, u32 dst, u32 src) { return s32(std::lround(double(v) * src / dst)); };
     const vk::ImageBlit region{
         .srcSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
@@ -2230,7 +2199,7 @@ void TemporalUpscaler::RunUiOnly(VideoCore::ImageId color_id, VideoCore::ImageId
         .dstSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
         .dstOffsets = std::array{vk::Offset3D{x0, y0, 0}, vk::Offset3D{x1, y1, 1}},
     };
-    scheduler.Record([source, source_layout, ui = vk::Image(ui_image), bars, black,
+    scheduler.Record([source, source_layout, ui = vk::Image(ui_image), bars,
                       region](vk::CommandBuffer cmd) {
         vk::ImageMemoryBarrier2 barrier{
             .srcStageMask = vk::PipelineStageFlagBits2::eAllCommands,
@@ -2255,10 +2224,8 @@ void TemporalUpscaler::RunUiOnly(VideoCore::ImageId color_id, VideoCore::ImageId
             };
             cmd.pipelineBarrier2({.memoryBarrierCount = 1, .pMemoryBarriers = &cleared});
         }
-        if (!black) {
-            cmd.blitImage(source, source_layout, ui, vk::ImageLayout::eTransferDstOptimal, region,
-                          vk::Filter::eLinear);
-        }
+        cmd.blitImage(source, source_layout, ui, vk::ImageLayout::eTransferDstOptimal, region,
+                      vk::Filter::eLinear);
         barrier.srcStageMask = vk::PipelineStageFlagBits2::eTransfer;
         barrier.srcAccessMask = vk::AccessFlagBits2::eTransferWrite;
         barrier.dstStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;

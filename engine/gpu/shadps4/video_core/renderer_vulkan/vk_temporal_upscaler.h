@@ -186,11 +186,8 @@ private:
 
     void Run();
     void RunScaled();
-    /// What RunUiOnly puts under the UI. World: `color` whole (this frame drew the 3D world into
-    /// it). Stage: only the game's 16:9 stage of it, black around (no world to show). Black:
-    /// nothing of it.
-    enum class UiBackground { World, Stage, Black };
-    void RunUiOnly(VideoCore::ImageId color, VideoCore::ImageId depth, UiBackground background);
+    /// world: this frame drew the 3D world into `color` (its whole image is copied).
+    void RunUiOnly(VideoCore::ImageId color, VideoCore::ImageId depth, bool world);
     void EnsureUiResources(u32 width, u32 height, vk::Format color, vk::Format depth);
     void PrepareUiDepth(VideoCore::ImageId depth);
     /// Render size below the scaled-preset output size (the resolution patch is on).
@@ -303,7 +300,6 @@ private:
     VideoCore::ImageId ldr_target{};
     VideoCore::ImageId ui_color{}, ui_depth{};
     bool ui_phase = false;         ///< from the upscale to the next display pass
-    bool ui_seen = false;          ///< a frame with UI has been shown since the start
     bool display_redirect = false; ///< the display pass of an upscaled frame
     bool ui_read_barrier = false;
     int applied_hdr_path = -1;
