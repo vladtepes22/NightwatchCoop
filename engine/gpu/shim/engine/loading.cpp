@@ -105,7 +105,8 @@ void Tick(std::uint64_t pacer) {
     const bool world = helper && ((Peek(helper + kWorldShownA, &shown_a) && shown_a) ||
                                   (Peek(helper + kWorldShownB, &shown_b) && shown_b));
     const bool loading = asked && !world;
-    g_hidden.store(!world && (asked || !CutscenePlaying()), std::memory_order_relaxed);
+    // The load request stays set until the loading screen is cleared (a co-op hold keeps it up over the arrived world).
+    g_hidden.store(asked || (!world && !CutscenePlaying()), std::memory_order_relaxed);
     // The load request clearing (lamp travel, a death's reload, any area load) cuts the upscaler's
     // history: the first frames after it must not blend with the frames before the load.
     if (BbDlss::LoadArrived(g_asked, asked != 0)) BbSettings::Get().history_cuts.fetch_add(1, std::memory_order_relaxed);
