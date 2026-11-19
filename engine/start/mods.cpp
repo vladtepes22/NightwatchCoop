@@ -312,9 +312,41 @@ fs::path OverlayBase(const fs::path& game, const fs::path& out) {
     return out;
 }
 
+// An overlay belongs to the start that made it for as long as that start runs: it holds "<overlay>.lock"
+// open (delete on close, so a crash leaves none). A second game started from the same folder used to
+// remove the first one's overlay under it, and the first game's next file was "not found"
+// (gxgui.shaderbnd.dcx at boot: a fault at guest+0x21a2da5, reading 0x68).
+fs::path OverlayLock(const fs::path& overlay) {
+    fs::path lock = overlay;
+    lock += L".lock";
+    return lock;
+}
+
+void HoldOverlay(const fs::path& overlay) {
+    // Never closed: the handle lives as long as this process, and Windows deletes the file with it.
+    CreateFileW(OverlayLock(overlay).c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, CREATE_ALWAYS,
+                FILE_ATTRIBUTE_HIDDEN | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
+}
+
+bool OverlayInUse(const fs::path& overlay) {
+    const fs::path lock = OverlayLock(overlay);
+    const HANDLE handle = CreateFileW(lock.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (handle != INVALID_HANDLE_VALUE) {  // nobody holds it: a leftover
+        CloseHandle(handle);
+        DeleteFileW(lock.c_str());
+        return false;
+    }
+    const DWORD error = GetLastError();
+    return error == ERROR_SHARING_VIOLATION || error == ERROR_ACCESS_DENIED;  // access denied: its delete is pending
+}
+
 void RemoveStaleOverlays(const fs::path& out) {
     for (const fs::path& entry : Entries(out)) {
         if (!StartsWith(Utf8(entry.filename()), "mod-game-") || !IsDir(entry) || IsLink(entry)) continue;
+        if (OverlayInUse(entry)) {
+            Log("Mods: %s belongs to another running game; left alone", Utf8(entry.filename()).c_str());
+            continue;
+        }
         try {
             RemoveOverlay(entry);
         } catch (const Error&) {
@@ -329,7 +361,10 @@ fs::path MakeTemporary(const fs::path& out) {
         std::string name = "mod-game-";
         for (int i = 0; i < 8; ++i) name += letters[random() % (sizeof letters - 1)];
         const fs::path path = out / Path(name);
-        if (CreateDirectoryW(path.c_str(), nullptr)) return path;
+        if (CreateDirectoryW(path.c_str(), nullptr)) {
+            HoldOverlay(path);
+            return path;
+        }
     }
     throw Error("cannot create a mod overlay in " + Utf8(out));
 }
