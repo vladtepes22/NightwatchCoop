@@ -15,6 +15,11 @@ namespace BbEngine::Loading {
 namespace {
 constexpr std::size_t kLoadAsked = 0x556286b;
 constexpr std::size_t kNowLoadingHelper = 0x553e8b8;
+// The loading card's own object and its state: 0 before the first load, 1 raising / up, 3 from the drop on
+// (it stays 3 until the next load: nothing says when the card's fade over the world has ended, so the card
+// counts as up for kCardFade after the drop began; measured from dumped frames).
+constexpr std::size_t kNowLoading = 0x5562878, kCardState = 0x804;
+constexpr auto kCardFade = std::chrono::milliseconds(1200);
 constexpr std::size_t kWorldShownA = 0x50, kWorldShownB = 0x51;
 constexpr std::size_t kRemo = 0x5540058, kRemoManager = 8, kRemoPlaying = 0x168;
 constexpr std::size_t kPacerMode = 0xc, kPacerVblanks = 0x10, kPacerTarget = 0x18;
@@ -108,7 +113,17 @@ void Tick(std::uint64_t pacer) {
     const bool world = helper && ((Peek(helper + kWorldShownA, &shown_a) && shown_a) ||
                                   (Peek(helper + kWorldShownB, &shown_b) && shown_b));
     const bool loading = asked && !world;
-    g_requested.store((asked != 0 && !CutscenePlaying()) || coop::seam::ScreenHeld(), std::memory_order_relaxed);
+    std::int32_t card = 0;
+    if (const std::uint64_t screen = Follow(Image() + kNowLoading)) Peek(screen + kCardState, &card);
+    static std::int32_t card_before = 0;
+    static Clock::time_point dropped{};
+    if (card == 3 && card_before != 3) {
+        dropped = Clock::now();
+    }
+    card_before = card;
+    const bool card_up = card == 1 || card == 2 || (card == 3 && Clock::now() - dropped < kCardFade);
+    g_requested.store((asked != 0 && !CutscenePlaying()) || coop::seam::ScreenHeld() || card_up,
+                      std::memory_order_relaxed);
     g_world.store(world, std::memory_order_relaxed);
     // The load request clearing (lamp travel, a death's reload, any area load) cuts the upscaler's
     // history: the first frames after it must not blend with the frames before the load.

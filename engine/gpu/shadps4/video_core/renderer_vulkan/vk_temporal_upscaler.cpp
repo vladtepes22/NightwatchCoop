@@ -2015,8 +2015,9 @@ void TemporalUpscaler::OnDisplayPass(VAddr address, VideoCore::ImageId frame) {
     if (const auto ui = UiComposition::UiSize(); UiComposed() && UiComposition::StageInset(ui) &&
         UiComposition::StageRect(target_width, target_height, ui) !=
             UiComposition::Rect{0, 0, s32(target_width), s32(target_height)}) {
-        if (!ui_phase && !ldr_target && !BbEngine::Loading::WorldShown() && !HdrChannel::Native16() &&
-            LdrFrame(frame)) {
+        // (With no upscaler a loading frame has a scene target too: the loading signal alone decides there.)
+        if (!ui_phase && !HdrChannel::Native16() && LdrFrame(frame) &&
+            (BbEngine::Loading::Requested() || (!ldr_target && !BbEngine::Loading::WorldShown()))) {
             RunUiOnly(frame, {}, false);
         }
         if (ui_phase && BbEngine::Loading::Requested()) BlackBars();
