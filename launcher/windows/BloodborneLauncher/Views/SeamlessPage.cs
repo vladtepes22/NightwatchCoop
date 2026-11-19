@@ -1703,6 +1703,8 @@ public sealed class SeamlessPage : LauncherPage
     {
         var character = await SeamlessSettings.CharacterNameAsync(S, plainOnly: true);
         if (character == null || box.Text != automatic) return;
+        // 2 digits: two players with the same character name must not share a party name (one player per name)
+        character = character[..Math.Min(13, character.Length)] + "-" + Random.Shared.Next(0x100).ToString("x2");
         box.Text = character;
         S.Set("party_name", character);
     }

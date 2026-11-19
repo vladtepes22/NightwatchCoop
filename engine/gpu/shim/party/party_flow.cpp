@@ -261,11 +261,13 @@ std::string DefaultName(const std::string& character, std::uint32_t random) {
         else if (c != '_' && c != '-' && c != ' ') ok = false;
         plain += c == ' ' ? '_' : c;
     }
-    if (ok && letter) return plain;
-    std::string base = "Hunter";
+    // A character name gets 2 digits (two players with the same character must not share a name: the host admits
+    // one player per name), "Hunter" 4.
+    const bool named = ok && letter;
+    std::string base = named ? plain.substr(0, 13) : "Hunter";
     static const char kDigits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
     base += '-';
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < (named ? 2 : 4); ++i) {
         base += kDigits[random % 36];
         random /= 36;
     }

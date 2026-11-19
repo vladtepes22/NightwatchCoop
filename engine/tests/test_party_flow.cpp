@@ -163,7 +163,9 @@ int main() {
     TestPlans();
     TestBat();
     // Automatic party names: a plain character name, else Hunter + '-' + 4 base-36 digits; never the user name.
-    assert(DefaultName("Lady Maria", 0) == "Lady_Maria");
+    assert(DefaultName("Lady Maria", 0) == "Lady_Maria-00");
+    assert(DefaultName("Lady Maria", 1) != DefaultName("Lady Maria", 2));
+    assert(DefaultName("SixteenLetters16", 35) == "SixteenLetter-z0");
     assert(DefaultName("Visa Pimi\xc3\xa4", 0) == "Hunter-0000");
     assert(DefaultName("", 35) == "Hunter-z000");
     assert(DefaultName("_-_", 0) == "Hunter-0000");
