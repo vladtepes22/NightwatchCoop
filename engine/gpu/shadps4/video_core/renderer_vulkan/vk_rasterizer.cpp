@@ -4250,10 +4250,8 @@ bool Rasterizer::LookupMemoized(ImageDescCacheEntry& entry, u64 generation) {
         return false;
     }
     entry.found_generation = generation;
-    // A view memoized behind a depth redirect: that image may have been replaced in its slot.
-    if (entry.view_memo.image_id != entry.found_id) {
-        entry.view_memo = {};
-    }
+    // A view memoized behind a depth redirect whose image was replaced in its slot: FindTexture
+    // checks the image uid (ViewMemo).
     ++texture_lookups_revalidated;
     return true;
 }

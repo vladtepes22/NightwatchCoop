@@ -1442,13 +1442,15 @@ ImageView& TextureCache::FindTexture(ImageId image_id, const ImageDesc& desc, Vi
     ImageViewInfo view_info = desc.view_info;
     AdjustView(image, view_info);
     if (memo && !BbToggle::Disabled(BbToggle::TextureViewMemo)) {
-        if (memo->image_id == image_id && memo->backing == image.backing && memo->view_id) {
+        if (memo->image_id == image_id && memo->image_uid == image.image_uid &&
+            memo->backing == image.backing && memo->view_id) {
             return slot_image_views[memo->view_id];
         }
         ImageView& view = image.FindView(view_info);
         const auto& ids = image.backing->image_view_ids;
         const u32 last = image.backing->last_view;
         memo->image_id = image_id;
+        memo->image_uid = image.image_uid;
         memo->backing = image.backing;
         memo->view_id = last < ids.size() && &slot_image_views[ids[last]] == &view ? ids[last]
                                                                                     : ids.back();

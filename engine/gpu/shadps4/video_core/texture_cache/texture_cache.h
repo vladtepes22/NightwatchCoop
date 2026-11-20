@@ -198,8 +198,11 @@ public:
     [[nodiscard]] ImageId FindImageLayer(VAddr address, size_t size, u32& layer);
 
     /// bbport: a FindView result remembered by the caller for the same image and view info.
+    /// `image_uid`: a freed image's slot (and the address of its backing) is reused by the next
+    /// image; without the uid the memo would hand out the freed image's destroyed view.
     struct ViewMemo {
         ImageId image_id{};
+        u64 image_uid = 0;
         const void* backing = nullptr;
         ImageViewId view_id{};
     };
