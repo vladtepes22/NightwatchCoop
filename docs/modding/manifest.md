@@ -30,7 +30,7 @@ Mods/
 | `id` | yes | a short stable id (non-empty string) |
 | `requires` | yes | the oldest Nightwatch that can run the mod: `X.Y.Z` (or `X.Y`) |
 | `name`, `version`, `author` | no | strings (`version` is shown in the log line below) |
-| `features` | no | the engine features the mod uses (list of non-empty strings). 0.3.0 has: `hit_effects`, `weapon_clip_groups`, `sounds` |
+| `features` | no | the engine features the mod uses (list of non-empty strings). 0.3.0 has: `hit_effects`, `weapon_clip_groups`, `sounds`; 0.3.3 adds `animated_attachments` |
 
 `requires` is digits and dots only (each part up to 99999); a `-suffix` or `+suffix` after it is ignored. The file may
 be at most 1 MiB and may start with a UTF-8 BOM. Other keys are ignored, so later Nightwatch versions can add
@@ -49,7 +49,7 @@ optional ones.
   not a version like 0.3.0: abc`, `nightwatch.json: "features" is not a list`.
 - **Fine:** `Mods: <folder>: manifest gold-bolt-paper 1.0.0, requires 0.3.0, features hit_effects` (`-` stands for a
   missing `version`, `none` for no features).
-- Once per start: `Mods: Nightwatch 0.3.0, features: hit_effects, weapon_clip_groups, sounds`.
+- Once per start: `Mods: Nightwatch 0.3.0, features: hit_effects, weapon_clip_groups, sounds, animated_attachments`.
 - `<folder>` is the mod's folder name. A mod that is not loaded contributes none of its files.
 
 Nightwatch 0.2.9 and older do not read `nightwatch.json`: they load the mod's game files and ignore its tables. A mod
@@ -88,3 +88,5 @@ Every feature is one of two kinds, named on its page:
 - [`weapon_clip_groups`](weapon_clip_groups.md) (gameplay): give a weapon its own attack clip group while it keeps its
   `wepmotionCategory`.
 - [`sounds`](sounds.md) (cosmetic): play a WAV from the mod when the game asks for a sound event.
+- [`animated_attachments`](animated_attachments.md) (cosmetic): load extra animated part files on a player character
+  while it has a SpEffect on.

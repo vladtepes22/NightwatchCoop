@@ -333,6 +333,27 @@ class Tables(unittest.TestCase):
         self.assertEqual(mods.weapon_clip_groups_file_text(merged),
                          '# weapon_clip_groups (bb-start; weapon clip_group), from: A, B\n10000 7\n30000 1\n')
 
+    def test_animated_attachments(self):
+        ok = '{"attachments":[{"speffect":9111,"part":"hd_a_9761"},{"speffect":9111,"part":"hd_a_9762"}]}'
+        self.assertEqual(mods.parse_animated_attachments(ok)[0], [(9111, 'HD_A_9761'), (9111, 'HD_A_9762')])
+        self.assertEqual(mods.parse_animated_attachments('{"version":1,"attachments":[]}')[0], [])
+        for bad in ('{"version":2,"attachments":[]}', '{"rows":[]}',
+                    '{"attachments":[{"speffect":0,"part":"x"}]}',
+                    '{"attachments":[{"speffect":1,"part":"a/b"}]}',
+                    '{"attachments":[{"speffect":1,"part":""}]}',
+                    '{"attachments":[{"speffect":1,"part":"' + 'a' * 33 + '"}]}'):
+            self.assertIsNone(mods.parse_animated_attachments(bad)[0], bad)
+        rows, e = mods.parse_animated_attachments(
+            '{"attachments":[{"speffect":1,"part":"x"},{"speffect":1,"part":"X"}]}')
+        self.assertEqual((rows, e), (None, 'nightwatch/animated_attachments.json: row 2 lists the same speffect and '
+                                           'part a second time'))
+        merged = {'names': [], 'rows': []}
+        mods.merge_animated_attachments(merged, 'A', [(9111, 'HD_A_9761'), (9111, 'HD_A_9762')])
+        mods.merge_animated_attachments(merged, 'B', [(500, 'HD_A_1'), (9111, 'HD_A_9761')])
+        self.assertEqual(mods.animated_attachments_file_text(merged),
+                         '# animated_attachments (bb-start; speffect part), from: A, B\n'
+                         '9111 HD_A_9762\n500 HD_A_1\n9111 HD_A_9761\n')
+
 
 class FeatureFiles(unittest.TestCase):
     def setUp(self):

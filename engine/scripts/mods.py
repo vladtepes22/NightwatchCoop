@@ -452,7 +452,10 @@ SOUNDS = 'sounds'
 SOUNDS_OUT = 'nightwatch_sounds.txt'
 MAX_SOUND_ROWS = 256
 MAX_SOUND_FILE_BYTES = 4 << 20
-KNOWN_FEATURES = (HIT_EFFECTS, WEAPON_CLIP_GROUPS, SOUNDS)
+ANIMATED_ATTACHMENTS = 'animated_attachments'
+ANIMATED_ATTACHMENTS_OUT = 'nightwatch_animated_attachments.txt'
+MAX_ATTACHMENT_ROWS = 64
+KNOWN_FEATURES = (HIT_EFFECTS, WEAPON_CLIP_GROUPS, SOUNDS, ANIMATED_ATTACHMENTS)
 
 
 def _nightwatch_version():
@@ -858,6 +861,81 @@ def write_sounds_file(out, layers, manifests):
     return text
 
 
+def attachment_part_name(p):
+    """A part file name without folder and extension, upper-cased, or None: 1..32 letters, digits, '_'."""
+    if not isinstance(p, str) or not 1 <= len(p) <= 32:
+        return None
+    if not all(c.isascii() and (c.isalnum() or c == '_') for c in p):
+        return None
+    return p.upper()
+
+
+def parse_animated_attachments(data):
+    """(rows, error) of nightwatch/animated_attachments.json: {"attachments": [{"speffect": N, "part": "hd_a_9761"}]}
+    with an optional "version": 1; rows (speffect, PART); the same (speffect, part) twice is a bad row."""
+    file = f'{TABLES_DIR}/{ANIMATED_ATTACHMENTS}.json'
+    if len(data) > MAX_FILE_BYTES:
+        return None, f'{file} is larger than 1 MiB'
+    j = _strict_json(data)
+    if not isinstance(j, dict):
+        return None, f'{file} is not a JSON object'
+    if 'version' in j and (not _is_int(j['version']) or j['version'] != 1):
+        return None, f'{file}: "version" is not 1'
+    rows = j.get('attachments')
+    if not isinstance(rows, list):
+        return None, f'{file}: "attachments" is not a list'
+    if len(rows) > MAX_ATTACHMENT_ROWS:
+        return None, f'{file}: more than {MAX_ATTACHMENT_ROWS} attachments'
+    out = []
+    for number, r in enumerate(rows, 1):
+        sp = _whole(r, 'speffect')
+        part = attachment_part_name(r.get('part')) if isinstance(r, dict) else None
+        ok = sp is not None and part is not None
+        twice = ok and (sp, part) in out
+        if not ok or twice:
+            return None, f'{file}: row {number} ' + (
+                'lists the same speffect and part a second time' if twice
+                else 'needs "speffect" (1..2147483647) and "part" (a parts file name like hd_a_9761: letters, '
+                     'digits, _; at most 32)')
+        out.append((sp, part))
+    return out, ''
+
+
+def merge_animated_attachments(merged, name, own):
+    """merged = {'names': [], 'rows': [(speffect, PART)]}: load order; a repeated row stays once, where the later mod
+    puts it."""
+    if not own:
+        return
+    merged['names'].append(name)
+    for row in own:
+        if row in merged['rows']:
+            merged['rows'].remove(row)
+        merged['rows'].append(row)
+    del merged['rows'][MAX_ATTACHMENT_ROWS:]
+
+
+def animated_attachments_file_text(merged):
+    """out/nightwatch_animated_attachments.txt text, in merge order; '' when there are no rows."""
+    if not merged['rows']:
+        return ''
+    lines = ['# animated_attachments (bb-start; speffect part), from: ' + ', '.join(merged['names'])]
+    lines += [f'{sp} {part}' for sp, part in merged['rows']]
+    return '\n'.join(lines) + '\n'
+
+
+def write_animated_attachments_file(out, layers, manifests):
+    """out/nightwatch_animated_attachments.txt from the layers' nightwatch/animated_attachments.json (only for a
+    manifest listing the feature). Cosmetic: not in the party hash."""
+    merged = {'names': [], 'rows': []}
+    _read_tables(layers, manifests, ANIMATED_ATTACHMENTS, parse_animated_attachments, merge_animated_attachments,
+                 merged)
+    text = animated_attachments_file_text(merged)
+    _write_feature_file(out, ANIMATED_ATTACHMENTS_OUT, text)
+    if text:
+        _log(f'Mods: {ANIMATED_ATTACHMENTS}: {len(merged["rows"])} rows from {len(merged["names"])} mods')
+    return text
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('game', type=Path)
@@ -877,7 +955,7 @@ def main():
             for name in selected(args.mods_dir, args.config):
                 layers.append((name, args.mods_dir / name))
     args.out.mkdir(parents=True, exist_ok=True)
-    for stale in (HIT_EFFECTS_OUT, WEAPON_CLIP_GROUPS_OUT, SOUNDS_OUT):  # a failed start: vanilla look, clips, sounds
+    for stale in (HIT_EFFECTS_OUT, WEAPON_CLIP_GROUPS_OUT, SOUNDS_OUT, ANIMATED_ATTACHMENTS_OUT):  # a failed start: vanilla look, clips, sounds
         (args.out / stale).unlink(missing_ok=True)
     manifests = {}
     layers = check_manifests(layers, manifests)
@@ -886,6 +964,7 @@ def main():
     view = build_overlay(args.game, args.out, layers, update_folder(args.game.resolve()))
     write_hit_effects_file(args.out, layers, manifests)
     write_sounds_file(args.out, layers, manifests)
+    write_animated_attachments_file(args.out, layers, manifests)
     print(view)
 
 

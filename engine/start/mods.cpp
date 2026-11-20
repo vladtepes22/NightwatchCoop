@@ -846,6 +846,45 @@ void WriteSoundsFile(const fs::path& out, const std::vector<std::pair<std::wstri
     Log("Mods: %s: %zu rows from %zu mods", feature.c_str(), merged.rows.size(), merged.names.size());
 }
 
+// out/nightwatch_animated_attachments.txt from the layers' nightwatch/animated_attachments.json (only for a manifest
+// listing the feature). Cosmetic (each client draws the parts on the characters it sees): not in the party hash, like
+// the parts files themselves (kCosmeticFolders).
+void WriteAnimatedAttachmentsFile(const fs::path& out, const std::vector<std::pair<std::wstring, fs::path>>& layers,
+                                  const std::map<std::wstring, nwfeatures::Manifest>& manifests) {
+    const std::string feature = nwfeatures::kAnimatedAttachments;
+    nwfeatures::AttachmentMerged merged;
+    for (const auto& [name, root] : layers) {
+        const fs::path table = root / nwfeatures::kTablesDir / (feature + ".json");
+        if (!IsFile(table)) continue;
+        const auto m = manifests.find(name);
+        if (m == manifests.end() || !m->second.Uses(feature)) {
+            Log("Mods: %s: has nightwatch/%s.json but its nightwatch.json does not list %s: not used", Utf8(name).c_str(),
+                feature.c_str(), feature.c_str());
+            continue;
+        }
+        std::vector<nwfeatures::AttachmentRow> rows;
+        std::string error;
+        try {
+            if (!nwfeatures::ParseAnimatedAttachments(ReadSmall(table), &rows, &error)) {
+                Log("Mods: %s: %s: its %s table is not used", Utf8(name).c_str(), error.c_str(), feature.c_str());
+                continue;
+            }
+        } catch (const std::exception& e) {
+            Log("Mods: %s: %s: its %s table is not used", Utf8(table).c_str(), e.what(), feature.c_str());
+            continue;
+        }
+        nwfeatures::AddAnimatedAttachments(&merged, Utf8(name), rows);
+    }
+    const fs::path path = out / nwfeatures::kAnimatedAttachmentsOut;
+    const std::string text = nwfeatures::AnimatedAttachmentsFileText(merged);
+    if (text.empty()) {
+        RemoveIfThere(path);
+        return;
+    }
+    WriteText(path, text);
+    Log("Mods: %s: %zu rows from %zu mods", feature.c_str(), merged.rows.size(), merged.names.size());
+}
+
 } // namespace
 
 void RemoveOverlay(const fs::path& path) {
@@ -863,6 +902,7 @@ fs::path BuildModsOverlay(const fs::path& game, const fs::path& out, const fs::p
     RemoveIfThere(out / nwfeatures::kHitEffectsOut);  // likewise: a failed start leaves the vanilla look
     RemoveIfThere(out / nwfeatures::kWeaponClipGroupsOut);  // and the vanilla clips
     RemoveIfThere(out / nwfeatures::kSoundsOut);  // and the game's own sounds
+    RemoveIfThere(out / nwfeatures::kAnimatedAttachmentsOut);  // and no attachments
     std::vector<std::pair<std::wstring, fs::path>> layers;
     if (enabled) {
         fs::path legacy = fs::canonical(game);
@@ -890,6 +930,7 @@ fs::path BuildModsOverlay(const fs::path& game, const fs::path& out, const fs::p
     WritePartyHostOnlyFile(out, layers);  // after the view, as scripts/mods.py main
     WriteHitEffectsFile(out, layers, manifests);
     WriteSoundsFile(out, layers, manifests);
+    WriteAnimatedAttachmentsFile(out, layers, manifests);
     return view;
 }
 

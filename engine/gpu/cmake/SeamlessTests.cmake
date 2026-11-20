@@ -541,6 +541,14 @@ target_include_directories(sounds-test PRIVATE ..)
 set_target_properties(sounds-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 add_test(NAME sounds-test COMMAND sounds-test)
 
+# Feature animated_attachments (start/features.h, shim/party/animated_attachments_rules.h).
+# ninja -C out/gpu animated-attachments-test
+add_executable(animated-attachments-test EXCLUDE_FROM_ALL ../tests/test_animated_attachments.cpp)
+target_compile_options(animated-attachments-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(animated-attachments-test PRIVATE ..)
+set_target_properties(animated-attachments-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+add_test(NAME animated-attachments-test COMMAND animated-attachments-test)
+
 # Navmesh test walker (shim/party/nav_walk.h). ninja -C out/gpu nav-walk-test
 add_executable(nav-walk-test EXCLUDE_FROM_ALL ../tests/test_nav_walk.cpp)
 target_compile_options(nav-walk-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
@@ -615,7 +623,7 @@ foreach(target IN LISTS all_targets)
     endif()
 endforeach()
 add_custom_target(seamless-tests DEPENDS ${party_tests} party-soak party-host-harness auto-hud-test gamedata-test)
-add_dependencies(seamless-tests boot-watch-test start-host-only-test hit-effects-test weapon-clip-groups-test sounds-test)
+add_dependencies(seamless-tests boot-watch-test start-host-only-test hit-effects-test weapon-clip-groups-test sounds-test animated-attachments-test)
 
 target_link_libraries(party-soak PRIVATE ws2_32 iphlpapi ole32 oleaut32 crypt32 synchronization winmm)
 target_link_libraries(party-host-harness PRIVATE ws2_32 iphlpapi ole32 oleaut32 crypt32 synchronization winmm)

@@ -28,6 +28,7 @@ Mods/
 | [`hit_effects`](hit_effects.md) | visual | replaces the elemental hit overlay while the attacker has a SpEffect on; draws one for an element the game draws nothing for |
 | [`weapon_clip_groups`](weapon_clip_groups.md) | gameplay | gives a weapon its own attack clip group while it keeps its `wepmotionCategory` |
 | [`sounds`](sounds.md) | cosmetic | plays a mod's WAV when the game asks for a sound event (new or replaced sounds) |
+| [`animated_attachments`](animated_attachments.md) | cosmetic | loads up to two extra animated part files on a player character while a SpEffect is on |
 
 ## Co-op classes
 
@@ -53,7 +54,7 @@ parameters, events, animations and the like do.
 Start the game with the mod enabled, then read `logs\last_session.log` (a crash restart starts a new log; the crash
 is then in `previous_session.log`). Look for:
 
-- `Mods: Nightwatch <version>, features: hit_effects, weapon_clip_groups, sounds`: what this build offers.
+- `Mods: Nightwatch <version>, features: hit_effects, weapon_clip_groups, sounds, animated_attachments`: what this build offers.
 - `Mods: <folder>: manifest <id> <version>, requires <x.y.z>, features <list>`: your manifest was read. Or
   `Mods: <folder>: ...: not loaded` with the reason.
 - `Mods: hit_effects: N rows from M mods` / `Mods: weapon_clip_groups: N rows from M mods`: your table was read. A bad

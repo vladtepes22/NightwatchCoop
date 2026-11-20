@@ -39,10 +39,13 @@ constexpr std::size_t kMaxClipRows = 4096;  // after the merge; weapon_clip_grou
 constexpr const char* kSounds = "sounds";
 constexpr const char* kSoundsOut = "nightwatch_sounds.txt";  // gpu/shim/party/sounds.cpp
 constexpr std::size_t kMaxSoundRows = 256;  // after the merge; sounds_rules.h kMaxRows
+constexpr const char* kAnimatedAttachments = "animated_attachments";
+constexpr const char* kAnimatedAttachmentsOut = "nightwatch_animated_attachments.txt";  // gpu/shim/party/animated_attachments.cpp
+constexpr std::size_t kMaxAttachmentRows = 64;  // after the merge; animated_attachments_rules.h kMaxRows
 
 /// The features this build offers (a manifest naming any other is refused).
 inline const std::vector<std::string>& Known() {
-    static const std::vector<std::string> known = {kHitEffects, kWeaponClipGroups, kSounds};
+    static const std::vector<std::string> known = {kHitEffects, kWeaponClipGroups, kSounds, kAnimatedAttachments};
     return known;
 }
 
@@ -507,6 +510,110 @@ inline std::string SoundsFileText(const SoundMerged& merged) {
         std::snprintf(volume, sizeof volume, "%.3f", row.volume);
         text += row.event + " " + volume + " " + (row.replace ? "1" : "0") + " " + row.file + "\n";
     }
+    return text;
+}
+
+// ---- animated_attachments (docs/modding/animated_attachments.md) ----
+
+struct AttachmentRow {
+    std::uint32_t speffect = 0;
+    std::string part;  // upper case, e.g. "HD_A_9761" (parts/hd_a_9761.partsbnd.dcx)
+    bool operator==(const AttachmentRow& o) const { return speffect == o.speffect && part == o.part; }
+};
+
+/// A part file name without folder and extension: 1..32 characters, letters, digits and '_'. Upper-cased into `out`.
+inline bool AttachmentPartName(std::string_view in, std::string* out) {
+    if (in.empty() || in.size() > 32) return false;
+    std::string s;
+    for (char c : in) {
+        const bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+        if (!ok) return false;
+        s += (c >= 'a' && c <= 'z') ? char(c - 'a' + 'A') : c;
+    }
+    *out = s;
+    return true;
+}
+
+/// nightwatch/animated_attachments.json: {"attachments": [{"speffect": N, "part": "hd_a_9761"}, ...]} with an optional
+/// "version": 1. speffect a whole number 1..2147483647, part as AttachmentPartName (the file
+/// parts/<part>.partsbnd.dcx, which the mod ships). False with `error` naming the first bad row (rows count from 1); the
+/// same (speffect, part) twice in one table is a bad row too.
+inline bool ParseAnimatedAttachments(std::string_view bytes, std::vector<AttachmentRow>* rows, std::string* error) {
+    rows->clear();
+    const std::string file = std::string(kTablesDir) + "/" + kAnimatedAttachments + ".json";
+    if (bytes.size() > kMaxFileBytes) {
+        *error = file + " is larger than 1 MiB";
+        return false;
+    }
+    const nlohmann::json j = nlohmann::json::parse(StripBom(bytes), nullptr, false);
+    if (j.is_discarded() || !j.is_object()) {
+        *error = file + " is not a JSON object";
+        return false;
+    }
+    const auto ver = j.find("version");
+    if (ver != j.end() && (!ver->is_number_integer() || ver->get<long long>() != 1)) {
+        *error = file + ": \"version\" is not 1";
+        return false;
+    }
+    const auto list = j.find("attachments");
+    if (list == j.end() || !list->is_array()) {
+        *error = file + ": \"attachments\" is not a list";
+        return false;
+    }
+    if (list->size() > kMaxAttachmentRows) {
+        *error = file + ": more than " + std::to_string(kMaxAttachmentRows) + " attachments";
+        return false;
+    }
+    std::size_t number = 0;
+    for (const auto& r : *list) {
+        ++number;
+        AttachmentRow row;
+        const auto sp = r.is_object() ? r.find("speffect") : r.end();
+        const auto part = r.is_object() ? r.find("part") : r.end();
+        bool ok = sp != r.end() && sp->is_number_integer() && sp->get<long long>() >= 1 &&
+                  sp->get<long long>() <= 2147483647LL && part != r.end() && part->is_string() &&
+                  AttachmentPartName(part->get<std::string>(), &row.part);
+        if (ok) row.speffect = std::uint32_t(sp->get<long long>());
+        const bool twice = ok && std::find(rows->begin(), rows->end(), row) != rows->end();
+        if (!ok || twice) {
+            *error = file + ": row " + std::to_string(number) +
+                     (twice ? " lists the same speffect and part a second time"
+                            : " needs \"speffect\" (1..2147483647) and \"part\" (a parts file name like hd_a_9761: "
+                              "letters, digits, _; at most 32)");
+            rows->clear();
+            return false;
+        }
+        rows->push_back(std::move(row));
+    }
+    return true;
+}
+
+/// The merge in load order: rows keep the order of the mods and of each table; a row a later mod repeats stays once,
+/// where the later mod puts it. The engine gives each character the first two rows whose SpEffect is on.
+struct AttachmentMerged {
+    std::vector<std::string> names;  // the mods that gave rows, in load order
+    std::vector<AttachmentRow> rows;
+};
+
+inline void AddAnimatedAttachments(AttachmentMerged* merged, std::string_view name, const std::vector<AttachmentRow>& own) {
+    if (own.empty()) return;
+    merged->names.emplace_back(name);
+    for (const AttachmentRow& row : own) {
+        auto& rows = merged->rows;
+        rows.erase(std::remove(rows.begin(), rows.end(), row), rows.end());
+        rows.push_back(row);
+    }
+    if (merged->rows.size() > kMaxAttachmentRows) merged->rows.resize(kMaxAttachmentRows);
+}
+
+/// out/nightwatch_animated_attachments.txt (animated_attachments_rules.h ParseTable): a comment line, then
+/// "<speffect> <PART>" per row, in merge order. "" when there are no rows (no file). Cosmetic: not in the party hash.
+inline std::string AnimatedAttachmentsFileText(const AttachmentMerged& merged) {
+    if (merged.rows.empty()) return "";
+    std::string text = "# animated_attachments (bb-start; speffect part), from: ";
+    for (std::size_t i = 0; i < merged.names.size(); ++i) text += (i ? ", " : "") + merged.names[i];
+    text += "\n";
+    for (const AttachmentRow& row : merged.rows) text += std::to_string(row.speffect) + " " + row.part + "\n";
     return text;
 }
 
