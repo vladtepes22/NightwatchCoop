@@ -40,9 +40,17 @@ bool Exists(const fs::path& p) {
     return GetFileAttributesW(p.c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
+// A symbolic link or junction: a reparse point whose tag names another place. Other reparse points are the file
+// itself: a OneDrive (cloud) placeholder, a deduplicated or compressed file. A mods folder under OneDrive used to
+// count as 5138 links and gave 0 files.
 bool IsLink(const fs::path& p) {
     const DWORD a = GetFileAttributesW(p.c_str());
-    return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_REPARSE_POINT);
+    if (a == INVALID_FILE_ATTRIBUTES || !(a & FILE_ATTRIBUTE_REPARSE_POINT)) return false;
+    WIN32_FIND_DATAW data;
+    const HANDLE find = FindFirstFileW(p.c_str(), &data);
+    if (find == INVALID_HANDLE_VALUE) return true;  // a drive root or an unreadable entry: not followed
+    FindClose(find);
+    return !(data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) || IsReparseTagNameSurrogate(data.dwReserved0);
 }
 
 std::vector<fs::path> Entries(const fs::path& folder) {
@@ -127,12 +135,12 @@ std::vector<std::wstring> Selected(const fs::path& root, const fs::path& config)
 }
 
 void Walk(const fs::path& directory, const fs::path& root, std::vector<std::pair<fs::path, fs::path>>& files,
-          bool skip_links) {
+          std::vector<fs::path>& skipped) {
     std::vector<fs::path> folders, names;
     for (const fs::path& entry : Entries(directory)) {
         if (IsDir(entry)) {
             if (IsLink(entry)) {
-                if (skip_links) Log("Mods: skipped the link %s (links are not followed)", Utf8(entry).c_str());
+                skipped.push_back(entry);
                 continue;
             }
             folders.push_back(entry);
@@ -143,20 +151,30 @@ void Walk(const fs::path& directory, const fs::path& root, std::vector<std::pair
     std::sort(names.begin(), names.end());
     for (const fs::path& source : names) {
         if (IsLink(source)) {
-            if (skip_links) Log("Mods: skipped the link %s (links are not followed)", Utf8(source).c_str());
+            skipped.push_back(source);
             continue;
         }
         files.emplace_back(source.lexically_relative(root), source);
     }
-    for (const fs::path& folder : folders) Walk(folder, root, files, skip_links);
+    for (const fs::path& folder : folders) Walk(folder, root, files, skipped);
 }
 
-std::vector<std::pair<fs::path, fs::path>> ModFiles(const fs::path& folder) {
+// One line for all of them: a folder of links used to write a line per file (5138 lines in one player's log).
+void LogSkipped(const char* what, const fs::path& folder, const std::vector<fs::path>& skipped) {
+    if (skipped.empty()) return;
+    Log("%s: %s: skipped %zu links (links are not followed), the first is %s", what, Utf8(folder.filename()).c_str(),
+        skipped.size(), Utf8(skipped.front()).c_str());
+}
+
+// log_skipped: the overlay build reports the links; the party file list reads the same folders and stays quiet.
+std::vector<std::pair<fs::path, fs::path>> ModFiles(const fs::path& folder, bool log_skipped = false) {
     const auto layout = ContentRoot(folder);
     if (!layout) throw Error(Utf8(folder) + ": expected dvdroot_ps4 (or chr/, parts/, ...) inside the mod folder");
     const fs::path root = fs::canonical(layout->first);
     std::vector<std::pair<fs::path, fs::path>> found, out;
-    Walk(root, root, found, true);
+    std::vector<fs::path> skipped;
+    Walk(root, root, found, skipped);
+    if (log_skipped) LogSkipped("Mods", folder, skipped);
     for (auto& [relative, source] : found) {
         const fs::path game_path = layout->second.empty() ? relative : layout->second / relative;
         const std::wstring first = Fold(game_path.begin()->native());
@@ -261,7 +279,14 @@ void Link(const fs::path& path, const fs::path& target) {
     if (IsDir(target)) {
         CreateJunction(target, path);
     } else if (!CreateHardLinkW(path.c_str(), target.c_str(), nullptr)) {
-        if (!CopyFileW(target.c_str(), path.c_str(), TRUE)) throw Error("cannot link " + Utf8(path));
+        const DWORD link_error = GetLastError();
+        if (!CopyFileW(target.c_str(), path.c_str(), TRUE)) {
+            const DWORD copy_error = GetLastError();
+            throw Error("cannot link " + Utf8(path) + " to " + Utf8(target) + " (Windows error " +
+                        std::to_string(link_error) + ", and " + std::to_string(copy_error) + " for the copy" +
+                        (copy_error == ERROR_DISK_FULL || copy_error == ERROR_HANDLE_DISK_FULL ? ": the drive is full" : "") +
+                        ")");
+        }
     }
 }
 
@@ -419,7 +444,9 @@ fs::path BuildOverlay(fs::path game, const fs::path& out_base, const std::vector
     if (update) {
         std::vector<std::pair<fs::path, fs::path>> files;
         const fs::path root = fs::canonical(*update);
-        Walk(root, root, files, false);
+        std::vector<fs::path> skipped;
+        Walk(root, root, files, skipped);
+        LogSkipped("Game update", *update, skipped);
         for (const auto& [relative, source] : files) {
             owners[Fold(relative.generic_wstring())] = update->filename().native();
             replacements.emplace_back(relative, source);
@@ -435,7 +462,7 @@ fs::path BuildOverlay(fs::path game, const fs::path& out_base, const std::vector
     for (const auto& [name, root] : mods) {
         if (NoteRandomizerWorld(name, root)) SetEnv("BB_RANDO", "1");
         std::size_t count = 0;
-        for (const auto& [relative, source] : ModFiles(root)) {
+        for (const auto& [relative, source] : ModFiles(root, true)) {
             const std::wstring key = Fold(relative.generic_wstring());
             gameplay += ChangesGameplay(key);
             models += ChangesModels(key);
