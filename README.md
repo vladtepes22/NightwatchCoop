@@ -248,6 +248,7 @@ clipboard (addresses, user folder, player name and passwords hidden); paste them
 | Online backend (in the engine, not used: this build plays offline) | [droogie/bbhost](https://github.com/droogie/bbhost) |
 | VPN tunnel for online play (the official installer, unmodified) | [OpenVPN](https://github.com/OpenVPN/openvpn), GPL-2.0 |
 | Upscalers | FSR on Vulkan: [FireBurn/FSR-Vulkan](https://github.com/FireBurn/FSR-Vulkan) and AMD's signed FidelityFX SDK 2.4 for Vulkan (FSR 4.1.2 on Radeon, 3.1.6 elsewhere); FSR 4.1.1 on NVIDIA and Intel: [fsr4vk](https://github.com/dvj5411/fsr4vk); DLSS: NVIDIA DLSS SDK |
+| In-game Settings screen (the tabbed Settings book from the pause menu: Display, Sound, Enhancements, Controls with key and gamepad remapping, Party, System) | [zarok-lazarus](https://github.com/zarok-lazarus) |
 | Libraries | [LibAtrac9](https://github.com/Thealexbarney/LibAtrac9) (sound), [Dear ImGui](https://github.com/ocornut/imgui) (in-game menu), [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB) (controller mappings), [WPF-UI](https://github.com/lepoco/wpfui) (launcher UI) |
 | Playtesting | yorochi, Mal1216, Zarok, Banana U Pidžami and visy: thank you! |
 | Video | Zarok, for helping make the [YouTube video](https://www.youtube.com/watch?v=bYavrI0ca94) |
