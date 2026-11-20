@@ -8,6 +8,7 @@
 #pragma once
 
 #include "common/types.h"
+#include <string_view>
 #include "video_core/renderer_vulkan/vk_common.h"
 
 namespace Vulkan {
@@ -26,6 +27,12 @@ struct Crumb {
     u64 address = 0;            ///< indirect arguments
     u32 count[3]{};             ///< indices or vertices and instances, or groups
     u32 args_slot = ~0u;        ///< indirect dispatches: where the GPU copies its arguments
+    /// bbport: draws: the image views they sample, then their color and depth targets (0: none),
+    /// named in a report by NameObject; and the render area.
+    static constexpr u32 MaxViews = 10;
+    u64 views[MaxViews]{};
+    u8 num_sampled = 0;
+    u16 area[2]{};
 };
 
 /// A stream for a new scheduler (`name` a string literal); the first call creates the buffer.
@@ -43,6 +50,9 @@ void CopyArgs(vk::CommandBuffer cmdbuf, vk::Buffer args, u64 offset, u32 slot);
 void ReportDeviceLost(const char* where);
 void ReportDeviceFault();
 vk::UniqueDebugUtilsMessengerEXT CreateAddressReport(vk::Instance instance);
+/// bbport: an image's or view's debug name (SetObjectName), for the device-lost report: images
+/// are named after their memory is bound, so the bind report alone has no name.
+void NameObject(VkObjectType type, u64 handle, std::string_view name);
 /// The same report, once, while the GPU has not finished submitted work for a long time (no
 /// device lost yet: a reset may never come, or the waiting thread would not see it).
 void ReportStuck(const char* where);

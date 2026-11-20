@@ -13,6 +13,7 @@
 #include <mutex>
 #include <sys/stat.h>
 #include <thread>
+#include <unordered_map>
 #include <unistd.h>
 #include "bbport_toggles.h"
 #include "video_core/renderer_vulkan/vk_breadcrumbs.h"
@@ -85,6 +86,9 @@ std::mutex address_mutex;
 std::map<u64, AddressBinding> address_bound;
 FreedRing freed_images{.capacity = 32768};
 FreedRing freed_others{.capacity = 65536};
+/// Image view names (under address_mutex; NameObject); emptied when it reaches ViewNamesMax.
+constexpr size_t ViewNamesMax = 1u << 16;
+std::unordered_map<u64, std::string> view_names;
 
 const char* ObjectTypeName(VkObjectType type) {
     switch (type) {
@@ -345,6 +349,20 @@ void PrintEntry(const Stream& stream, u64 id, const char* label) {
         }
     }
     std::printf("\n");
+    // bbport: what the draw read and drew into (a fault address next to one of those images).
+    if (c.area[0] || c.area[1]) {
+        std::printf("      render area %ux%u\n", c.area[0], c.area[1]);
+    }
+    std::scoped_lock lock{address_mutex};
+    for (u32 i = 0; i < Crumb::MaxViews; ++i) {
+        if (!c.views[i]) {
+            continue;
+        }
+        const auto name = view_names.find(c.views[i]);
+        std::printf("      %s view %#llx: %s\n", i < c.num_sampled ? "samples" : "target",
+                    (unsigned long long)c.views[i],
+                    name != view_names.end() ? name->second.c_str() : "(no name)");
+    }
 }
 
 /// The guest code of the shaders of the stuck command, for disassembly (up to 64 KiB each:
@@ -504,6 +522,29 @@ vk::UniqueDebugUtilsMessengerEXT CreateAddressReport(vk::Instance instance) {
     }
     std::printf("GPU fault reports: memory binds are tracked (VK_EXT_device_address_binding_report)\n");
     return std::move(messenger);
+}
+
+void NameObject(VkObjectType type, u64 handle, std::string_view name) {
+    if (type == VK_OBJECT_TYPE_IMAGE_VIEW) {
+        if (!enabled) {
+            return;
+        }
+        std::scoped_lock lock{address_mutex};
+        if (view_names.size() >= ViewNamesMax) {
+            view_names.clear();
+        }
+        view_names[handle] = name;
+        return;
+    }
+    if (type != VK_OBJECT_TYPE_IMAGE) {
+        return;
+    }
+    std::scoped_lock lock{address_mutex};
+    for (auto& [base, entry] : address_bound) {
+        if (entry.handle == handle) {
+            std::snprintf(entry.name, sizeof(entry.name), "%.*s", int(name.size()), name.data());
+        }
+    }
 }
 
 void ReportDeviceFault() {

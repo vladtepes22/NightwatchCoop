@@ -725,6 +725,33 @@ void Rasterizer::NotifyUiDraw(const GraphicsPipeline* pipeline) {
                      UiComposition::WidenedUiViewport(viewport.xscale * 2, viewport.yscale * 2));
 }
 
+/// bbport: a draw's breadcrumb names the views it samples and its targets (device-lost reports).
+static void NoteCrumbViews(Breadcrumbs::Crumb& crumb,
+                           std::span<const vk::DescriptorImageInfo> image_infos,
+                           const RenderState& state) {
+    if (!Breadcrumbs::Enabled()) {
+        return;
+    }
+    u32 n = 0;
+    for (const auto& info : image_infos) {
+        if (info.imageView && n < Breadcrumbs::Crumb::MaxViews) {
+            crumb.views[n++] = u64(VkImageView(info.imageView));
+        }
+    }
+    crumb.num_sampled = u8(n);
+    for (u32 i = 0; i < state.num_color_attachments && n < Breadcrumbs::Crumb::MaxViews; ++i) {
+        if (const auto view = state.color_attachments[i].image_view) {
+            crumb.views[n++] = u64(VkImageView(view));
+        }
+    }
+    if (const auto view = state.depth_stencil_attachment.image_view;
+        view && n < Breadcrumbs::Crumb::MaxViews) {
+        crumb.views[n++] = u64(VkImageView(view));
+    }
+    crumb.area[0] = state.width;
+    crumb.area[1] = state.height;
+}
+
 static std::pair<u32, u32> GetDrawOffsets(
     const AmdGpu::Regs& regs, const Shader::Info& info,
     const std::optional<Shader::Gcn::FetchShaderData>& fetch_shader) {
@@ -2283,12 +2310,13 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     const u32 first_vertex = vertex_offset;
     const u32 first_instance = instance_offset;
     const auto* ps_info = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
-    const Breadcrumbs::Crumb crumb{
+    Breadcrumbs::Crumb crumb{
         .kind = is_indexed ? Breadcrumbs::Kind::DrawIndexed : Breadcrumbs::Kind::Draw,
         .hash = {vs_info.pgm_hash, ps_info ? ps_info->pgm_hash : 0},
         .program = {vs_info.ProgramBase(), ps_info ? ps_info->ProgramBase() : 0},
         .count = {num_indices, num_instances, 0},
     };
+    NoteCrumbViews(crumb, {image_infos.data(), image_infos.size()}, state);
     // bbport: after a ZPASS dump the draw is measured by an occlusion query around just this
     // vkCmdDraw (inside the open render pass; vk_occlusion.h).
     const auto query = occlusion ? occlusion->BeginDraw(push_data.scene_size)
@@ -2549,7 +2577,7 @@ void Rasterizer::DrawIndirectRecord(const GraphicsPipeline* pipeline, bool is_in
     const u64 counts_offset = count_address != 0 ? count_offset : 0;
     const auto* vs_crumb = pipeline->GetStages()[u32(Shader::SwStage::Vertex)];
     const auto* ps_crumb = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
-    const Breadcrumbs::Crumb crumb{
+    Breadcrumbs::Crumb crumb{
         .kind = Breadcrumbs::Kind::DrawIndirect,
         .hash = {vs_crumb ? vs_crumb->pgm_hash : 0, ps_crumb ? ps_crumb->pgm_hash : 0},
         .program = {vs_crumb ? vs_crumb->ProgramBase() : 0,
@@ -2557,6 +2585,7 @@ void Rasterizer::DrawIndirectRecord(const GraphicsPipeline* pipeline, bool is_in
         .address = indirect.args,
         .count = {max_count, stride, 0},
     };
+    NoteCrumbViews(crumb, {image_infos.data(), image_infos.size()}, state);
     const auto query = occlusion ? occlusion->BeginDraw(push_data.scene_size)
                                  : Occlusion::DrawQuery{};
     scheduler.RecordCrumb(crumb, [=](vk::CommandBuffer cmdbuf) {

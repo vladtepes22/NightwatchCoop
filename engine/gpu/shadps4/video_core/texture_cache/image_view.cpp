@@ -8,6 +8,9 @@
 #include "video_core/texture_cache/image.h"
 #include "video_core/texture_cache/image_view.h"
 
+#include <algorithm>
+#include <atomic>
+#include <cstdio>
 #include <magic_enum/magic_enum.hpp>
 
 namespace VideoCore {
@@ -96,13 +99,6 @@ ImageView::ImageView(const Vulkan::Instance& instance, const ImageViewInfo& info
     if (!info.is_storage) {
         usage_ci.usage &= ~vk::ImageUsageFlagBits::eStorage;
     }
-    vk::ImageViewMinLodCreateInfoEXT min_lod_ci{};
-    if (info.min_lod != 0 && instance.IsImageViewMinLodSupported()) {
-        const float last_level =
-            static_cast<float>(info.range.base.level + info.range.extent.levels - 1);
-        min_lod_ci.minLod = std::min(static_cast<float>(info.min_lod) / 256.f, last_level);
-        usage_ci.pNext = &min_lod_ci;
-    }
     // When sampling D32/D16 texture from shader, the T# specifies R32/R16 format so adjust it.
     vk::Format format = info.format;
     vk::ImageAspectFlags aspect = image.aspect_mask;
@@ -117,6 +113,42 @@ ImageView::ImageView(const Vulkan::Instance& instance, const ImageViewInfo& info
         aspect = vk::ImageAspectFlagBits::eStencil;
     }
 
+    // bbport: a view lies inside its image. A texture resolved as a mip or slice of a cached image
+    // (texture_cache.cpp, view_mip / view_slice) could ask for levels or layers past the image's
+    // last, and the GPU then reads past the image's memory: a device lost (suspected for the
+    // full-screen pass ps 290a042b in loads, 19-20 Nov, each read just past one image's end).
+    // Clamped into the image (info, the view's cache key, is kept); said for the first ones.
+    SubresourceRange range = info.range;
+    const u32 image_levels = std::max(image.info.resources.levels, 1u);
+    const u32 image_layers = std::max(image.info.resources.layers, 1u);
+    if (range.base.level + range.extent.levels > image_levels ||
+        range.base.layer + range.extent.layers > image_layers) {
+        static std::atomic<u32> said{0};
+        if (said.fetch_add(1, std::memory_order_relaxed) < 20) {
+            std::printf("Texture view past its image: levels %u+%u, layers %u+%u of an image "
+                        "%ux%u %s at %#llx (%#llx bytes) with %u levels, %u layers; clamped\n",
+                        range.base.level, range.extent.levels, range.base.layer,
+                        range.extent.layers, image.info.size.width, image.info.size.height,
+                        vk::to_string(image.info.pixel_format).c_str(),
+                        static_cast<unsigned long long>(image.info.guest_address),
+                        static_cast<unsigned long long>(image.info.guest_size), image_levels,
+                        image_layers);
+            std::fflush(stdout);
+        }
+        range.base.level = std::min(range.base.level, image_levels - 1);
+        range.extent.levels =
+            std::clamp(range.extent.levels, 1u, image_levels - range.base.level);
+        range.base.layer = std::min(range.base.layer, image_layers - 1);
+        range.extent.layers =
+            std::clamp(range.extent.layers, 1u, image_layers - range.base.layer);
+    }
+    vk::ImageViewMinLodCreateInfoEXT min_lod_ci{};
+    if (info.min_lod != 0 && instance.IsImageViewMinLodSupported()) {
+        const float last_level = static_cast<float>(range.base.level + range.extent.levels - 1);
+        min_lod_ci.minLod = std::min(static_cast<float>(info.min_lod) / 256.f, last_level);
+        usage_ci.pNext = &min_lod_ci;
+    }
+
     const vk::ImageViewCreateInfo image_view_ci = {
         .pNext = &usage_ci,
         .image = image.GetImage(),
@@ -125,10 +157,10 @@ ImageView::ImageView(const Vulkan::Instance& instance, const ImageViewInfo& info
         .components = info.mapping,
         .subresourceRange{
             .aspectMask = aspect,
-            .baseMipLevel = info.range.base.level,
-            .levelCount = info.range.extent.levels,
-            .baseArrayLayer = info.range.base.layer,
-            .layerCount = info.range.extent.layers,
+            .baseMipLevel = range.base.level,
+            .levelCount = range.extent.levels,
+            .baseArrayLayer = range.base.layer,
+            .layerCount = range.extent.layers,
         },
     };
     if (!IsViewTypeCompatible(info.type, image.info.type)) {
@@ -145,11 +177,12 @@ ImageView::ImageView(const Vulkan::Instance& instance, const ImageViewInfo& info
                              : aspect & vk::ImageAspectFlagBits::eStencil ? "Stencil"
                                                                           : "Color";
     Vulkan::SetObjectName(
-        instance.GetDevice(), *image_view, "ImageView {}x{}x{} {:#x}:{:#x} {}:{} {}:{} ({})",
+        instance.GetDevice(), *image_view, "ImageView {}x{}x{} {:#x}:{:#x} {}:{} {}:{} ({}) {}",
         image.info.size.width, image.info.size.height, image.info.size.depth,
         image.info.guest_address, image.info.guest_size, info.range.base.level,
         info.range.base.level + info.range.extent.levels - 1, info.range.base.layer,
-        info.range.base.layer + info.range.extent.layers - 1, view_aspect);
+        info.range.base.layer + info.range.extent.layers - 1, view_aspect,
+        vk::to_string(image_view_ci.format)); // bbport: the view's format (device-lost reports)
 }
 
 ImageView::~ImageView() = default;

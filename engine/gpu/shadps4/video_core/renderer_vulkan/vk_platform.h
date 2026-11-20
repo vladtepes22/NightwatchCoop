@@ -63,6 +63,9 @@ void SetObjectName(vk::Device device, const HandleType& handle, std::string_view
     if (result != vk::Result::eSuccess) {
         LOG_DEBUG(Render_Vulkan, "Could not set object debug name: {}", vk::to_string(result));
     }
+    // bbport: images and views named in device-lost reports (vk_breadcrumbs.h).
+    Breadcrumbs::NameObject(static_cast<VkObjectType>(name_info.objectType),
+                            name_info.objectHandle, debug_name);
 }
 
 template <VulkanHandleType HandleType, typename... Args>
