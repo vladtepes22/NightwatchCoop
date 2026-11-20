@@ -480,6 +480,44 @@ static void StickAsDpad(PadState& pad, bool sideways) {
     if (sideways) pad.lx = kStickRest;
 }
 
+// The pad as our screens read it (LastPad), then as the game gets it while one of them is open
+// (BbInput::HoldScreenInput): L1 / R1 switch the book's tabs, the rows' Left / Right and a pop-up's buttons are ours.
+static void ScreenPad(PadState& pad) {
+    const bool screen = ScreenOn(), own_rows = screen && g_screen_own_rows.load(std::memory_order_relaxed);
+    if (screen) StickAsDpad(pad, own_rows);
+    {
+        std::scoped_lock lock(g_pad_lock);
+        g_last_pad = pad;
+    }
+    if (!screen) return;
+    using namespace PadBits;
+    const bool l1 = pad.buttons & kL1, r1 = pad.buttons & kR1;
+    pad.buttons &= ~(kL1 | kR1);
+    if (own_rows) pad.buttons &= ~(kLeft | kRight);
+    if (l1) pad.buttons |= kLeft;
+    if (r1) pad.buttons |= kRight;
+    if (g_screen_all.load(std::memory_order_relaxed)) {
+        pad.buttons = 0;
+        pad.lx = pad.ly = pad.rx = pad.ry = kStickRest;
+    }
+}
+
+// Without the PC controls (pc_controls=0: bbgpu_pc_input does nothing) our screens still read the pad here. The
+// Settings screen got no button then: the game took Left / Right and Back itself, and no row moved.
+extern "C" void bbgpu_screen_input(BbPcPad* d) {
+    if (BbInput::Enabled()) return;  // bbgpu_pc_input did it
+    PadState pad;
+    if (!runtime_pad_remap_blocking()) {  // a controller button's capture: the press is the capture's
+        pad.buttons = d->buttons;
+        pad.lx = d->lx, pad.ly = d->ly, pad.rx = d->rx, pad.ry = d->ry;
+        pad.l2 = d->l2, pad.r2 = d->r2;
+    }
+    ScreenPad(pad);
+    d->buttons = pad.buttons;
+    d->lx = pad.lx, d->ly = pad.ly, d->rx = pad.rx, d->ry = pad.ry;
+    d->l2 = pad.l2, d->r2 = pad.r2;
+}
+
 extern "C" int bbgpu_pc_input(BbPcPad* d, const bool* keys, int nkeys, int gamepad_present) {
     const auto& s = BbSettings::Get();
     if (!g_active.load(std::memory_order_relaxed) || !s.pc_controls) {
@@ -524,24 +562,7 @@ extern "C" int bbgpu_pc_input(BbPcPad* d, const bool* keys, int nkeys, int gamep
         held_from_text &= pad.buttons;
         pad.buttons &= ~held_from_text;
     }
-    const bool screen = ScreenOn(), own_rows = screen && g_screen_own_rows.load(std::memory_order_relaxed);
-    if (screen) StickAsDpad(pad, own_rows);
-    {
-        std::scoped_lock lock(g_pad_lock);
-        g_last_pad = pad;
-    }
-    if (screen) {  // our screens (BbInput::HoldScreenInput): L1 / R1 switch the book's tabs
-        using namespace PadBits;
-        const bool l1 = pad.buttons & kL1, r1 = pad.buttons & kR1;
-        pad.buttons &= ~(kL1 | kR1);
-        if (own_rows) pad.buttons &= ~(kLeft | kRight);
-        if (l1) pad.buttons |= kLeft;
-        if (r1) pad.buttons |= kRight;
-        if (g_screen_all.load(std::memory_order_relaxed)) {
-            pad.buttons = 0;
-            pad.lx = pad.ly = pad.rx = pad.ry = kStickRest;
-        }
-    }
+    ScreenPad(pad);
     d->buttons = pad.buttons;
     d->lx = pad.lx;
     d->ly = pad.ly;

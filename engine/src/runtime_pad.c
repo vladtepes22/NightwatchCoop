@@ -656,7 +656,8 @@ static void sample_host(PadData *d) {
         d->buttons=pc.buttons;d->left_x=pc.lx;d->left_y=pc.ly;d->right_x=pc.rx;d->right_y=pc.ry;
         d->l2=pc.l2;d->r2=pc.r2;d->touch_count=pc.touch_count;
         for(int i=0;i<pc.touch_count && i<2;i++)d->touches[i]=(PadTouch){.x=pc.touch[i].x,.y=pc.touch[i].y,.id=pc.touch[i].id};
-    } else if (k) {
+    } else {
+      if (k) {
         apply_keyboard(d,k);
         /* Without the PC controls the keyboard has no bindable Ping: V pings. With them, the Ping
          * key the launcher shows (bind.ping, input.cpp) does, and V is free for other bindings. */
@@ -664,6 +665,11 @@ static void sample_host(PadData *d) {
         const int ping_key = k[SDL_SCANCODE_V];
         if (ping_key && !ping_key_down && bbgpu_ping_combo_enabled()) bbgpu_ping_request();
         ping_key_down = ping_key;
+      }
+      /* our screens (Settings) read the pad there and take their buttons from the game */
+      pc.buttons=d->buttons;pc.lx=d->left_x;pc.ly=d->left_y;pc.rx=d->right_x;pc.ry=d->right_y;pc.l2=d->l2;pc.r2=d->r2;
+      bbgpu_screen_input(&pc);
+      d->buttons=pc.buttons;d->left_x=pc.lx;d->left_y=pc.ly;d->right_x=pc.rx;d->right_y=pc.ry;d->l2=pc.l2;d->r2=pc.r2;
     }
 }
 

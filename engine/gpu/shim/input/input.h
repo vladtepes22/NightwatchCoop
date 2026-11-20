@@ -62,6 +62,8 @@ typedef struct {
 } BbPcPad;
 
 int bbgpu_pc_input(BbPcPad* pad, const bool* keys, int nkeys, int gamepad_present);
+/* After it returned 0 (the PC controls are off): our screens' share of the pad (LastPad, HoldScreenInput). */
+void bbgpu_screen_input(BbPcPad* pad);
 
 int bbgpu_menu_buttons(uint32_t* confirm, uint32_t* back);
 

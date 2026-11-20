@@ -39,6 +39,7 @@ void bbgpu_map_toggle(void) { ++map_toggles; }
 int bbgpu_pc_input(BbPcPad* p,const bool* keys,int n,int gamepad) {
     (void)p;(void)keys;(void)n;(void)gamepad;return 0;
 }
+void bbgpu_screen_input(BbPcPad* p) { (void)p; }
 int bbgpu_menu_buttons(uint32_t* confirm,uint32_t* back) { *confirm=BTN_CROSS; *back=BTN_CIRCLE; return menu; }
 // Co-op ping / gather (the party's, bbgpu): no party in this test.
 int bbgpu_ping_combo_enabled(void) { return 0; }
