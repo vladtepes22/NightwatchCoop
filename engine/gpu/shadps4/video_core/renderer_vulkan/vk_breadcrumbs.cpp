@@ -206,12 +206,14 @@ void DescribeFaultAddress(u64 address) {
     DescribeRing("other objects", freed_others, now);
     if (it != address_bound.begin()) {
         const auto& below = std::prev(it)->second;
-        std::printf("    nearest below: %s [%#llx, +%#llx) %s\n", ObjectTypeName(below.type),
+        std::printf("    nearest below: %s %#llx [%#llx, +%#llx) %s\n", ObjectTypeName(below.type),
+                    static_cast<unsigned long long>(below.handle),
                     static_cast<unsigned long long>(below.base),
                     static_cast<unsigned long long>(below.size), below.name);
     }
     if (it != address_bound.end()) {
-        std::printf("    nearest above: %s [%#llx, +%#llx) %s\n", ObjectTypeName(it->second.type),
+        std::printf("    nearest above: %s %#llx [%#llx, +%#llx) %s\n", ObjectTypeName(it->second.type),
+                    static_cast<unsigned long long>(it->second.handle),
                     static_cast<unsigned long long>(it->second.base),
                     static_cast<unsigned long long>(it->second.size), it->second.name);
     }

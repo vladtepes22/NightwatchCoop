@@ -576,6 +576,10 @@ SceneTargets::Entry& SceneTargets::Get(VideoCore::ImageId id, u32 level) {
         ci.extent = vk::Extent3D{proxy.width, proxy.height, 1};
         ci.mipLevels = 1;
         entry->image.Create(ci);
+        // bbport: named in device-lost reports (vk_breadcrumbs.h), as the texture cache's images.
+        Vulkan::SetObjectName(instance.GetDevice(), vk::Image(entry->image),
+                              "Scene proxy {}x{} {} of {:#x} level {}", proxy.width, proxy.height,
+                              vk::to_string(ci.format), original.info.guest_address, level);
         tracked.insert(original.image_uid);
     }
     recent[recent_next++ % recent.size()] = {key, entry.get()};
@@ -598,6 +602,9 @@ vk::ImageView SceneTargets::View(Entry& e, const VideoCore::Image& original,
         .subresourceRange = {aspect,0,1,0,1},
     }));
     const auto result = *view;
+    Vulkan::SetObjectName(instance.GetDevice(), result, "Scene proxy view {}x{} of {:#x} ({})",
+                          e.image.image_ci.extent.width, e.image.image_ci.extent.height,
+                          original.info.guest_address, vk::to_string(format));
     e.views.emplace_back(info, std::move(view));
     return result;
 }
