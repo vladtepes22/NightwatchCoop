@@ -561,6 +561,10 @@ BB_COOP_SYSV void ScreenDestroyed(u64 screen, u64, u64, u64, u64, u64) {
     }
     if (g_panel_screen.load(std::memory_order_acquire) == screen) g_panel_screen.store(0, std::memory_order_release);
     if (g_list_screen == screen) g_list_screen = 0;
+    // Its list widget goes with it. Kept, a later item screen made at the same address (before its own list is
+    // made) had ListRoot resolve the freed widget's root handle: 0x1adb030 called through freed memory and jumped
+    // into the middle of a mutex unlock (a Dantelion2 panic, PthreadMutex.cpp(197), 20 Nov).
+    g_list_widgets.erase(screen);
 }
 
 // An item screen's setup: the first after the glyph item is the glyph screen's; a later setup of the same object is
