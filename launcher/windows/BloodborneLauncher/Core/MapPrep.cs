@@ -115,7 +115,8 @@ namespace BloodborneLauncher.Core
                     if (Directory.Exists(atlas)) Directory.Delete(atlas, recursive: true);
                     File.Delete(stamp + ".generated");
                     var generator = new ProcessStartInfo(Generator) { WorkingDirectory = GeneratorDir };
-                    var input = PrepareInput(game, root);
+                    var input = PrepareInput(game, root, out var unlinked);
+                    if (unlinked) ws.Log(L.T(UnlinkedText), LogLevel.Warn);
                     generator.ArgumentList.Add("--game-dir");
                     generator.ArgumentList.Add(input);
                     generator.ArgumentList.Add("--output-dir");
@@ -184,10 +185,14 @@ namespace BloodborneLauncher.Core
         /// them: the update's eboot.bin and sce_sys, and its dvdroot_ps4 files over the game's. The update
         /// brings maps the game folder lacks (on base dumps such as CUSA00900, The Old Hunters' three
         /// areas), so the game's dvdroot_ps4 alone is not enough. Folders only one side has are linked
-        /// (junctions); files in folders both have are hard links (copies across drives). The game and
-        /// update folders are never written. Without an update it is the game folder.</summary>
-        public static string PrepareInput(string game, string root)
+        /// (junctions); files in folders both have are hard links. When they cannot be (the game on another
+        /// drive, or a drive without hard links), copying them would take about 26 GB: the view is then the
+        /// game's dvdroot_ps4 alone, as before (no Old Hunters areas on such dumps) and
+        /// <paramref name="unlinked"/> says so. The game and update folders are never written. Without an
+        /// update it is the game folder.</summary>
+        public static string PrepareInput(string game, string root, out bool unlinked)
         {
+            unlinked = false;
             var update = GameCheck.UpdateFolder(game);
             if (update == null) return game;
             var input = Path.Combine(root, "input");
@@ -195,10 +200,22 @@ namespace BloodborneLauncher.Core
             Directory.CreateDirectory(Path.Combine(input, "sce_sys"));
             File.WriteAllText(Path.Combine(input, InputMarker), "");
             var updateData = Path.Combine(update, "dvdroot_ps4");
+            var data = Path.Combine(input, "dvdroot_ps4");
             if (Directory.Exists(updateData))
-                Overlay(Path.Combine(game, "dvdroot_ps4"), updateData, Path.Combine(input, "dvdroot_ps4"));
+            {
+                try
+                {
+                    Overlay(Path.Combine(game, "dvdroot_ps4"), updateData, data);
+                }
+                catch (NotLinkable)
+                {
+                    unlinked = true;
+                    RemoveView(new DirectoryInfo(data));
+                    LinkFolder(Path.Combine(game, "dvdroot_ps4"), data);
+                }
+            }
             else
-                LinkFolder(Path.Combine(game, "dvdroot_ps4"), Path.Combine(input, "dvdroot_ps4"));
+                LinkFolder(Path.Combine(game, "dvdroot_ps4"), data);
             File.Copy(Path.Combine(update, "eboot.bin"), Path.Combine(input, "eboot.bin"), overwrite: true);
             var sfo = File.Exists(Path.Combine(update, "sce_sys", "param.sfo"))
                 ? Path.Combine(update, "sce_sys", "param.sfo")
@@ -206,6 +223,12 @@ namespace BloodborneLauncher.Core
             File.Copy(sfo, Path.Combine(input, "sce_sys", "param.sfo"), overwrite: true);
             return input;
         }
+
+        /// <summary>The map is made without the update's files (PrepareInput: unlinked).</summary>
+        public const string UnlinkedText = "Map: the game's 1.09 update folder could not be linked (it is on another drive than Nightwatch, or the drive has no hard links), so the map leaves out The Old Hunters' areas. To get them, copy the update into the game folder: Setup guide, \"Choose update folder…\".";
+
+        /// <summary>A file of the view could not be hard-linked (PrepareInput falls back).</summary>
+        private sealed class NotLinkable : Exception { }
 
         /// <summary>Marks a folder PrepareInput made, so RemoveInput never deletes anything else.</summary>
         private const string InputMarker = "nightwatch-map-input.txt";
@@ -226,7 +249,7 @@ namespace BloodborneLauncher.Core
             foreach (var (name, file) in files)
             {
                 var link = Path.Combine(view, name);
-                if (!CreateHardLinkW(link, file, IntPtr.Zero)) File.Copy(file, link);
+                if (!CreateHardLinkW(link, file, IntPtr.Zero)) throw new NotLinkable();
             }
         }
 

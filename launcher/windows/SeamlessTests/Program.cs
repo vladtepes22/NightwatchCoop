@@ -424,7 +424,7 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
     System.IO.File.WriteAllText(System.IO.Path.Combine(game, "dvdroot_ps4", "event", "m.dcx"), "map");
     System.IO.File.WriteAllText(System.IO.Path.Combine(upd, "eboot.bin"), "1.09");
     System.IO.File.WriteAllText(System.IO.Path.Combine(upd, "sce_sys", "param.sfo"), "1.09");
-    var input = MapPrep.PrepareInput(game, root);
+    var input = MapPrep.PrepareInput(game, root, out _);
     Check(input != game, "Map did not use the update beside the 1.0 game");
     Check(System.IO.File.ReadAllText(System.IO.Path.Combine(input, "eboot.bin")) == "1.09", "Map input has the 1.0 eboot");
     Check(System.IO.File.ReadAllText(System.IO.Path.Combine(input, "sce_sys", "param.sfo")) == "1.09", "Map input has the 1.0 param.sfo");
@@ -438,7 +438,7 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
     System.IO.Directory.Delete(maps, true);
     var plain = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "seamless map plain " + Guid.NewGuid());
     System.IO.Directory.CreateDirectory(plain);
-    Check(MapPrep.PrepareInput(plain, root) == plain, "Without an update the map reads the game folder itself");
+    Check(MapPrep.PrepareInput(plain, root, out _) == plain, "Without an update the map reads the game folder itself");
     System.IO.Directory.Delete(plain, true);
 }
 

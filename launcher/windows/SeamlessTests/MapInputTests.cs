@@ -42,8 +42,9 @@ internal static class MapInputTests
                                    Path.Combine(update, "dvdroot_ps4", "map", "mapstudio", "m24_00_00_00.msb.dcx") };
             foreach (var file in readOnly) File.SetAttributes(file, FileAttributes.ReadOnly);
 
-            var input = MapPrep.PrepareInput(game, root);
+            var input = MapPrep.PrepareInput(game, root, out var unlinked);
             Check(input != game, "a separate update folder was not used");
+            Check(!unlinked, "the view on one drive was not linked");
             string Read(params string[] parts) => File.ReadAllText(Path.Combine(new[] { input }.Concat(parts).ToArray()));
             var studio = new[] { "dvdroot_ps4", "map", "mapstudio" };
             Check(Read(studio.Append("m21_00_00_00.msb.dcx").ToArray()) == "base m21", "a game-only map is missing");
