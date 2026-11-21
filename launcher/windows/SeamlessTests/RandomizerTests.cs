@@ -230,7 +230,7 @@ internal static class RandomizerTests
         Check(Randomizer.ParseProgress("progress write 1 1") is { Fraction: 1.0 }, "the last step ends the bar");
         Check(Randomizer.ParseProgress(@"wrote C:\x") == null && Randomizer.ParseProgress("progress nope 1 2") == null &&
               Randomizer.ParseProgress("progress maps 1 0") == null, "other lines are no progress");
-        Check(Randomizer.ExitText(3) != null && Randomizer.ExitText(4) != null && Randomizer.ExitText(1) == null, "the generator's exit codes have words");
+        Check(Randomizer.ExitText(3) != null && Randomizer.ExitText(4) != null && Randomizer.ExitText(7) is { } old && old.Contains("Choose update folder") && Randomizer.ExitText(1) == null, "the generator's exit codes have words");
 
         var spoiler = WorldSpoiler.Parse(JsonNode.Parse("""
             {"readable": {"areas": {"m24_01": "Central Yharnam"}, "models": {"c2090": "Blood-starved Beast"},

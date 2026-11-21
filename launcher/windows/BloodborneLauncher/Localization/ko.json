@@ -3007,5 +3007,7 @@
   "The world could not be deleted completely: {0}": "세계를 완전히 삭제하지 못했습니다: {0}",
   "Make {0} again on the mods ticked under Create world? It becomes a new world with its own characters; the old one stays until you delete it.": "세계 만들기에서 선택한 모드로 {0}을(를) 다시 만들까요? 자체 캐릭터가 있는 새 세계가 됩니다. 기존 세계는 삭제할 때까지 남아 있습니다.",
   "1 randomized world is on the Randomizer tab.": "무작위 월드 1개가 무작위화 탭에 있습니다.",
-  "{0} randomized worlds are on the Randomizer tab.": "무작위 월드 {0}개가 무작위화 탭에 있습니다."
+  "{0} randomized worlds are on the Randomizer tab.": "무작위 월드 {0}개가 무작위화 탭에 있습니다.",
+  "Code copied": "코드를 복사했습니다",
+  "Your game is missing files of the 1.09 update, which the randomizer needs. Open the {0} and press \"{1}\" to copy the whole update into the game folder, then generate again.": "게임에 랜더마이저가 필요로 하는 1.09 업데이트 파일이 없습니다. {0}를 열고 \"{1}\"을 눌러 업데이트 전체를 게임 폴더에 복사한 다음 다시 생성하세요."
 }

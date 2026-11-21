@@ -443,6 +443,9 @@ namespace BloodborneLauncher.Core
             3 => L.T("This code comes from a newer randomizer. Update the launcher to use it."),
             4 => L.T("That is not a valid world code. Check it for typing mistakes."),
             5 => L.T("That world's folder is in use. Close the game and try again."),
+            // the generator's own line (English) names the folder; the player gets the launcher's way to fix it
+            7 => string.Format(L.T("Your game is missing files of the 1.09 update, which the randomizer needs. Open the {0} and press \"{1}\" to copy the whole update into the game folder, then generate again."),
+                L.T("Setup guide"), L.T("Choose update folder…")),
             _ => null,
         };
 

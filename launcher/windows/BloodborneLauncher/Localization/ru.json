@@ -3007,5 +3007,7 @@
   "The world could not be deleted completely: {0}": "Не удалось полностью удалить мир: {0}",
   "Make {0} again on the mods ticked under Create world? It becomes a new world with its own characters; the old one stays until you delete it.": "Создать {0} заново на модах, отмеченных на вкладке «Создать мир»? Это будет новый мир со своими персонажами; старый останется, пока вы его не удалите.",
   "1 randomized world is on the Randomizer tab.": "1 случайный мир находится на вкладке «Рандомизатор».",
-  "{0} randomized worlds are on the Randomizer tab.": "Случайных миров на вкладке «Рандомизатор»: {0}."
+  "{0} randomized worlds are on the Randomizer tab.": "Случайных миров на вкладке «Рандомизатор»: {0}.",
+  "Code copied": "Код скопирован",
+  "Your game is missing files of the 1.09 update, which the randomizer needs. Open the {0} and press \"{1}\" to copy the whole update into the game folder, then generate again.": "В игре не хватает файлов обновления 1.09, которые нужны рандомайзеру. Откройте {0} и нажмите «{1}», чтобы скопировать всё обновление в папку игры, затем создайте мир снова."
 }

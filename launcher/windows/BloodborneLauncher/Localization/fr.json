@@ -3007,5 +3007,7 @@
   "The world could not be deleted completely: {0}": "Le monde n'a pas pu être entièrement supprimé : {0}",
   "Make {0} again on the mods ticked under Create world? It becomes a new world with its own characters; the old one stays until you delete it.": "Recréer {0} avec les mods cochés dans Créer un monde ? Cela donne un nouveau monde avec ses propres personnages ; l'ancien reste jusqu'à ce que vous le supprimiez.",
   "1 randomized world is on the Randomizer tab.": "1 monde aléatoire se trouve dans l'onglet Randomiseur.",
-  "{0} randomized worlds are on the Randomizer tab.": "{0} mondes aléatoires se trouvent dans l'onglet Randomiseur."
+  "{0} randomized worlds are on the Randomizer tab.": "{0} mondes aléatoires se trouvent dans l'onglet Randomiseur.",
+  "Code copied": "Code copié",
+  "Your game is missing files of the 1.09 update, which the randomizer needs. Open the {0} and press \"{1}\" to copy the whole update into the game folder, then generate again.": "Il manque à ton jeu des fichiers de la mise à jour 1.09, dont le randomiseur a besoin. Ouvre le {0} et appuie sur « {1} » pour copier toute la mise à jour dans le dossier du jeu, puis génère à nouveau."
 }

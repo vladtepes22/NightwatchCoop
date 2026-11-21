@@ -1680,12 +1680,12 @@
   "Two ways to add the update:": "Zwei Möglichkeiten für das Update:",
   "•  Copy it into the game folder: press \"Choose update folder\" and the launcher does it. Its files replace the older ones, as installing it on a PS4 does.": "•  In den Spielordner kopieren: „Update-Ordner wählen“. Ältere Dateien werden wie auf der PS4 ersetzt.",
   "•  Or put the update folder next to the game folder, named like it with -UPDATE at the end ({0}-UPDATE). The engine lays it over the game at every start and the game folder stays as it is.": "•  Getrennt lassen: direkt neben den Spielordner legen und <Spielordner>-UPDATE nennen (z. B. {0}-UPDATE). Die Engine bindet es automatisch ein.",
-  "Choose update folder…": "Spiel und Update müssen dieselbe Edition haben. Hauptspiel und Update 1.09 von derselben PS4 dumpen.",
-  "3. Files check": "Update-Ordner wählen…",
-  "A copy can stop half way, an antivirus can take eboot.bin away, and OneDrive can keep files online only. This step looks for the files the engine reads before the game starts.": "3. Dateiprüfung",
-  "When you press Play, the engine also checks that eboot.bin is exactly the 1.09 one, and if it is not, the Game output page says what to do.": "Prüft nötige Ordner und die Größe von eboot.bin, ohne persönliche Daten zu lesen oder Dateien zu ändern. Bei Fehlern erneut aus dem Dump kopieren.",
-  "Check again": "4. The Old Hunters (optional)",
-  "4. The Old Hunters": "Keiner / automatisch",
+  "Choose update folder…": "Update-Ordner wählen…",
+  "3. Files check": "3. Dateiprüfung",
+  "A copy can stop half way, an antivirus can take eboot.bin away, and OneDrive can keep files online only. This step looks for the files the engine reads before the game starts.": "Eine Kopie kann mittendrin abbrechen, ein Virenscanner kann eboot.bin entfernen und OneDrive kann Dateien nur online behalten. Dieser Schritt sucht nach den Dateien, die die Engine vor dem Spielstart liest.",
+  "When you press Play, the engine also checks that eboot.bin is exactly the 1.09 one, and if it is not, the Game output page says what to do.": "Wenn du auf Spielen drückst, prüft die Engine außerdem, ob eboot.bin genau die von 1.09 ist; wenn nicht, sagt die Seite Spielausgabe, was zu tun ist.",
+  "Check again": "Erneut prüfen",
+  "4. The Old Hunters": "4. The Old Hunters",
   "The Old Hunters is Bloodborne's expansion. The Game of the Year edition (CUSA03173) has it built in. Other editions need the add-on dumped from the PS4 as well: a folder with its own sce_sys, named like SPEXPANSIONDLC03. This step is optional: the game plays without it.": "The Old Hunters erweitert Bloodborne. In Game of the Year (CUSA03173) enthalten; andere Editionen benötigen einen PS4-Dump mit eigenem sce_sys (z. B. SPEXPANSIONDLC03). Optional; das Spiel läuft auch ohne.",
   "Choose add-ons folder…": "Zusatzinhalte-Ordner wählen…",
   "Ready to play": "Spielbereit",
@@ -3007,5 +3007,7 @@
   "The world could not be deleted completely: {0}": "Die Welt konnte nicht vollständig gelöscht werden: {0}",
   "Make {0} again on the mods ticked under Create world? It becomes a new world with its own characters; the old one stays until you delete it.": "{0} mit den unter Welt erstellen angehakten Mods neu erstellen? Sie wird zu einer neuen Welt mit eigenen Charakteren; die alte bleibt, bis du sie löschst.",
   "1 randomized world is on the Randomizer tab.": "1 randomisierte Welt ist im Randomizer-Tab.",
-  "{0} randomized worlds are on the Randomizer tab.": "{0} randomisierte Welten sind im Randomizer-Tab."
+  "{0} randomized worlds are on the Randomizer tab.": "{0} randomisierte Welten sind im Randomizer-Tab.",
+  "Code copied": "Code kopiert",
+  "Your game is missing files of the 1.09 update, which the randomizer needs. Open the {0} and press \"{1}\" to copy the whole update into the game folder, then generate again.": "Deinem Spiel fehlen Dateien des Updates 1.09, die der Randomizer braucht. Öffne den {0} und drücke „{1}“, um das ganze Update in den Spielordner zu kopieren, und erzeuge dann erneut."
 }

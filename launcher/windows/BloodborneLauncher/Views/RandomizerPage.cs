@@ -476,7 +476,7 @@ namespace BloodborneLauncher.Views
             var buttons = Row(
                 inUse ? SmallButton(L.T("Stop using"), SymbolRegular.Power24, (_, _) => StopUsing())
                       : SmallButton(L.T("Load"), SymbolRegular.Play24, (_, _) => Load(name)),
-                SmallButton(L.T("Copy code"), SymbolRegular.Copy24, (_, _) => ClipboardText.Set(world.Code)),
+                CopyButton(world.Code),
                 SpoilerButton(world, folder));
             if (stale)
                 buttons.Children.Add(SmallButton(L.T("Make again"), SymbolRegular.ArrowClockwise24, async (_, _) => await Regenerate(world)));
@@ -489,6 +489,26 @@ namespace BloodborneLauncher.Views
             var card = Card(SymbolRegular.Globe24, saves?.Name ?? world.Code, null, buttons, out var line, wide: true);
             SetHint(line, note);
             return card;
+        }
+
+        /// <summary>Copies the code and says so on the button for a moment; a clipboard another program holds is said above the list.</summary>
+        private Button CopyButton(string code)
+        {
+            Button button = null!;
+            var reset = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            reset.Tick += (_, _) => { reset.Stop(); button.Content = L.T("Copy code"); };
+            button = SmallButton(L.T("Copy code"), SymbolRegular.Copy24, (_, _) =>
+            {
+                if (!ClipboardText.Set(code))
+                {
+                    SetHint(_playStatus, L.T("Could not copy: another program is using the clipboard. Try again."));
+                    return;
+                }
+                button.Content = L.T("Code copied");
+                reset.Stop();
+                reset.Start();
+            });
+            return button;
         }
 
         /// <summary>The spoiler shows only on a second press within a few seconds, so a stray click spoils nothing.</summary>
