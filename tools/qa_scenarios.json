@@ -21,12 +21,13 @@
     ]
   },
   "bossregion": {
-    "about": "NW-dc104e5: a guest whose own world has the area boss of its play region killed (flag 2415, Cathedral Ward, where the test save stands) is still joined by the direct summon: the game's summon pickup no longer drops it.",
+    "about": "NW-dc104e5: a guest whose own world has the area boss of its play region killed (flag 2415, Cathedral Ward, where the test save stands) is still joined by the direct summon: the game's summon pickup no longer drops it. The guest's title join is off (it would join from the title, skipping its own world and the bell).",
     "seconds": 180,
     "host": "",
     "guest": "",
     "guest_env": {
-      "BB_PARTY_TEST_OWN_FLAGS": "2415"
+      "BB_PARTY_TEST_OWN_FLAGS": "2415",
+      "BB_PARTY_TITLE_JOIN": "0"
     },
     "expect": [
       [
