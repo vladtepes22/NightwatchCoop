@@ -30,13 +30,14 @@ internal static class WorldSavesTests
             NamingOldFolder(Path.Combine(root, "naming-old"));
             GuestNames(Path.Combine(root, "guest"));
             EditorList(Path.Combine(root, "editor"));
+            Deleting(Path.Combine(root, "delete"));
         }
         finally
         {
             WorldSaves.AfterCopy = null;
             try { Directory.Delete(root, true); } catch (IOException) { }
         }
-        Console.WriteLine("PASS: world saves (worlds\\ folders, names, copy of old folders and its check, guest names, save editor list)");
+        Console.WriteLine("PASS: world saves (worlds\\ folders, names, copy of old folders and its check, guest names, save editor list, delete)");
     }
 
     private static Randomizer.World World(string code, string check) => new(Randomizer.FolderName(code, check), code, check);
@@ -174,6 +175,24 @@ internal static class WorldSavesTests
         File.WriteAllText(Path.Combine(stale, "half"), "x");
         var again = WorldSaves.MigrateWorld(profile, world);
         Check(again.To != null && !Directory.Exists(stale) && Print(old) == before, "a stopped copy is redone: " + again.Error);
+    }
+
+    private static void Deleting(string dir)
+    {
+        var world = World(CodeA, CheckA);
+        var other = World(CodeB, CheckB);
+        var s = Playing(dir, world);
+        var profile = PlayerProfiles.Folder(s, PlayerProfiles.Current(s));
+        var made = WorldSaves.SetName(profile, world, "Doomed");
+        File.WriteAllText(Path.Combine(made.Folder, "userdata0000"), "save");
+        var kept = WorldSaves.SetName(profile, other, "Kept");
+        var legacy = WorldSaves.LegacyFolder(profile, world);
+        Directory.CreateDirectory(legacy);
+        File.WriteAllText(Path.Combine(legacy, "userdata0000"), "old save");
+        Check(WorldSaves.Delete(profile, world), "a world with saves reports them deleted");
+        Check(!Directory.Exists(made.Folder) && !Directory.Exists(legacy), "its worlds\\ folder and its old folder are gone");
+        Check(WorldSaves.Find(profile, CodeA, CheckA) == null && WorldSaves.List(profile).Single().Folder == kept.Folder, "only the other world is left");
+        Check(!WorldSaves.Delete(profile, world), "nothing left to delete");
     }
 
     private static void NameRoundTrip(string dir)

@@ -240,6 +240,25 @@ namespace BloodborneLauncher.Core
             }
         }
 
+        /// <summary>Deletes this world's saves in this profile for good: its folder under worlds\ and an earlier launcher's
+        /// folder of it. True when there were any. Throws IOException / UnauthorizedAccessException when a folder can't go
+        /// (the game has it open).</summary>
+        public static bool Delete(string profileFolder, Randomizer.World world)
+        {
+            var deleted = false;
+            lock (MigrationLock)
+            {
+                foreach (var folder in new[] { Find(profileFolder, world.Code, world.Hash)?.Folder, LegacyFolder(profileFolder, world) })
+                    if (folder != null && Directory.Exists(folder))
+                    {
+                        Directory.Delete(folder, recursive: true);
+                        deleted = true;
+                    }
+                lock (Lock) Found.Remove(Key(profileFolder, world.Code, world.Hash));
+            }
+            return deleted;
+        }
+
         /// <summary>True when this world has no old folder left to copy: copied now when <paramref name="mayCopy"/> (no game
         /// runs), else false. A name never goes into a new folder while the old one still holds the saves: the new folder would
         /// be found first and the old saves would stop being played.</summary>

@@ -283,8 +283,10 @@ internal static class RandomizerTests
             var name = Randomizer.Generate(settings, code, Array.Empty<string>()).GetAwaiter().GetResult();
             var world = Randomizer.Load(GameEnvironment.ModsDir(settings), name);
             Check(world != null && world.Code == code && name == Randomizer.FolderName(code, world.Hash), "the new folder reads as this world: " + name);
+            Randomizer.Use(settings, name);
+            CuratedMods.Apply(settings, GameEnvironment.ModsDir(settings));
             Check(Mods.Load(GameEnvironment.ModsDir(settings)).Last() == new Mods.Entry(name, true), "the world loads last and on");
-            Check(Randomizer.Active(settings) == world, "the world is the active one");
+            Check(Randomizer.Active(settings) == world, "the world it plays is the active one");
             var built = Randomizer.BuiltOn(Path.Combine(GameEnvironment.ModsDir(settings), name));
             Check(built is { Count: 0 }, "the manifest reads back: built on no mods");
             var failed = false;

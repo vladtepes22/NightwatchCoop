@@ -240,10 +240,17 @@ internal static class WorldJoinTests
             CuratedMods.Apply(s, mods);
             Check(CuratedMods.HostLabel(s, mods) == null, "a world built before base mods by content (no base label) announces no world label");
 
+            // A world made while another plays is new to My mods' saved list: it comes back off all the same.
+            var madeMeanwhile = World(sample, "dddddddd" + new string('0', 56), Array.Empty<string>(), null);
             Randomizer.StopUsing(s);
             CuratedMods.Apply(s, mods);
             var back = Mods.Load(mods).ToDictionary(m => m.Name, m => m.Enabled);
             Check(CuratedMods.Mode(s) == "my" && back["ModA"] && !back["Nocturne v1.0"] && !back[onNocturne], "leaving world mode brings My mods back");
+            Check(!back[madeMeanwhile] && Randomizer.Active(s) == null, "My mods never loads a world, even one new to its list");
+            Mods.Save(Mods.Load(mods).Select(m => m.Name == onModA ? m with { Enabled = true } : m));
+            CuratedMods.Apply(s, mods);
+            Check(!Mods.Load(mods).Single(m => m.Name == onModA).Enabled && Mods.Load(mods).Single(m => m.Name == "ModA").Enabled,
+                "a world turned on in My mods is turned off; the other mods keep their state");
 
             // A changed Nocturne, a hand-edited manifest or a missing world: no world label, and a missing world leaves the mode.
             Randomizer.Use(s, onNocturne);

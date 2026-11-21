@@ -11,7 +11,8 @@ using TextBlock = System.Windows.Controls.TextBlock;
 namespace BloodborneLauncher.Views
 {
     /// <summary>
-    /// Makes a randomized world from a code or new options, and lists the worlds on this PC. The code alone decides a world,
+    /// Two tabs: Play lists the worlds on this PC (load, share, rename, delete); Create world makes one from a code or new
+    /// options. The page opens on Play when there are worlds, else on Create world. The code alone decides a world,
     /// so the page has one set of options and the code box always shows the code they make: a row changes it, a pasted code
     /// fills the rows. The seed has no row: a new one each time the page opens (unless it holds a pasted code), since the
     /// code is what players share. A pasted code's settings without a row carry over, and a note says when the rows no
@@ -21,7 +22,12 @@ namespace BloodborneLauncher.Views
     {
         private readonly StackPanel _modChoices = new(), _worlds = new();
         private readonly Dictionary<string, bool> _ticks = new(); // the mod list's ticks the player changed (Randomizer.Picked)
-        private readonly TextBlock _status, _codeNote;
+        private readonly Segmented _tabs;
+        private readonly PageTab _play, _create;
+        private readonly SettingRow _generateRow;
+        private readonly TextBlock _status, _playStatus, _codeNote;
+        private int _worldCount;
+        private string? _made; // a world just made: its card flashes once the Play tab shows it
         private readonly Wpf.Ui.Controls.TextBox _codeBox, _nameBox;
         private readonly Button _generate, _cancel, _backToPasted;
         private readonly System.Windows.Controls.ProgressBar _bar = new() { Height = 4, Minimum = 0, Maximum = 1, Visibility = Visibility.Collapsed, Margin = new Thickness(14, 0, 14, 12) };
@@ -39,17 +45,40 @@ namespace BloodborneLauncher.Views
         public RandomizerPage() : base(L.T("Randomizer"),
             L.T("Each code is one world. Everyone in a party needs the same code and the same mods."))
         {
-            Group(L.T("Your world"));
+            _tabs = new Segmented(new[] { new Choice(L.T("Play"), "play"), new Choice(L.T("Create world"), "create") })
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Width = 2 * 120,
+                Margin = new Thickness(0, 4, 0, 6),
+            };
+            _tabs.Changed += index => ShowTab(play: index == 0);
+            _play = new PageTab { Open = () => ShowTab(play: true) };
+            _create = new PageTab { Open = () => ShowTab(play: false) };
+            Body.Children.Add(_tabs);
+            Body.Children.Add(_play);
+            Body.Children.Add(_create);
+
+            Group(L.T("Your worlds"), _play);
+            var guests = Text(L.T("Friends don't need to make your world. Their launcher builds it when they join you, as long as they have the same Nightwatch version and the mods the world was built on."), "CaptionTextBlockStyle");
+            guests.TextWrapping = TextWrapping.Wrap;
+            _play.Children.Add(guests);
+            _playStatus = Text("", "CaptionTextBlockStyle");
+            _playStatus.TextWrapping = TextWrapping.Wrap;
+            SetHint(_playStatus, null);
+            _play.Children.Add(_playStatus);
+            _play.Children.Add(_worlds);
+
+            Group(L.T("New world"), _create);
             _codeBox = Box("R2-...", 300, CodeTyped);
             _backToPasted = SmallButton(L.T("Back to it"), SymbolRegular.ArrowUndo24, (_, _) => _codeBox.Text = _pasted?.Canonical ?? "");
             Add(Card(SymbolRegular.Key24, L.T("Code"), L.T("This is the world the options below make, and it changes when you change them. You get a fresh one every time you open this page. To play a friend's world, paste their code here and the options fill in by themselves."),
-                Row(_codeBox, _backToPasted), out _codeNote));
+                Row(_codeBox, _backToPasted), out _codeNote), _create);
             _nameBox = Box(L.T("World 1"), 240, _ => { });
             _nameBox.MaxLength = WorldSaves.MaxName;
             Add(Card(SymbolRegular.Rename24, L.T("World name"), L.T("Names this world's saves on this PC. It is never shared: friends who join name their own copy."),
-                _nameBox, out _));
+                _nameBox, out _), _create);
 
-            Group(L.T("Options"));
+            Group(L.T("Options"), _create);
             var enemies = Section(L.T("Enemies"), open: true);
             Bind(ComboRow(SymbolRegular.ArrowShuffle24, L.T("Enemies that change"), L.T("How many enemies get replaced. The rest stay as they are."),
                 new[] { new Choice("100 %", "100"), new Choice("75 %", "75"), new Choice("50 %", "50"), new Choice("25 %", "25") },
@@ -160,14 +189,14 @@ namespace BloodborneLauncher.Views
             Bool(bosses, SymbolRegular.Dumbbell24, L.T("Amygdala"), strengthHint, o => o.HardAmygdala, (o, b) => o with { HardAmygdala = b }, strengthChoices);
             Bool(bosses, SymbolRegular.Dumbbell24, L.T("Ebrietas"), strengthHint, o => o.HardEbrietas, (o, b) => o with { HardEbrietas = b }, strengthChoices);
 
-            Group(L.T("Included mods"));
-            Body.Children.Add(Text(L.T("Ticked mods are built into the world and stay on. A world can't keep up with a later change to this list."), "CaptionTextBlockStyle"));
-            Body.Children.Add(_modChoices);
+            Group(L.T("Included mods"), _create);
+            _create.Children.Add(Text(L.T("Ticked mods are built into the world and stay on. A world can't keep up with a later change to this list."), "CaptionTextBlockStyle"));
+            _create.Children.Add(_modChoices);
 
             _generate = SmallButton(L.T("Generate"), SymbolRegular.Play24, async (_, _) => await GenerateNow(), ControlAppearance.Primary);
             _cancel = SmallButton(L.T("Stop"), SymbolRegular.Stop24, (_, _) => _stop?.Cancel());
             _cancel.Visibility = Visibility.Collapsed;
-            Add(Card(SymbolRegular.Save24, L.T("Generate"), L.T("Each code has its own characters. Your other saves are safe. Takes a minute or two."), Row(_cancel, _generate), out _status));
+            _generateRow = Add(Card(SymbolRegular.Save24, L.T("Generate"), L.T("Each code has its own characters. Your other saves are safe. Takes a minute or two."), Row(_cancel, _generate), out _status), _create);
             _bar.Template = (ControlTemplate)System.Windows.Markup.XamlReader.Parse("""
                 <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="ProgressBar">
                     <Grid SnapsToDevicePixels="True">
@@ -176,14 +205,13 @@ namespace BloodborneLauncher.Views
                     </Grid>
                 </ControlTemplate>
                 """);
-            Body.Children.Add(new Grid { Height = 16, Children = { _bar } });
-
-            Group(L.T("Worlds on this PC"));
-            Body.Children.Add(_worlds);
+            _create.Children.Add(new Grid { Height = 16, Children = { _bar } });
+            ShowTab(play: true);
             Loaded += (_, _) => Sync();
         }
 
-        /// <summary>A new seed on each visit, unless the page holds a pasted code (the code is what players share).</summary>
+        /// <summary>A new seed on each visit, unless the page holds a pasted code (the code is what players share); Play when
+        /// there are worlds, else Create world (a world being made keeps Create world).</summary>
         public override void OnShown()
         {
             base.OnShown();
@@ -193,13 +221,24 @@ namespace BloodborneLauncher.Views
                 if (IsLoaded) Sync();
             }
             Refresh();
+            if (_busy) return;
+            SetHint(_playStatus, null);
+            ShowTab(play: _worldCount > 0);
+        }
+
+        private void ShowTab(bool play)
+        {
+            _tabs.Select(play ? 0 : 1, notify: false);
+            _play.Visibility = play ? Visibility.Visible : Visibility.Collapsed;
+            _create.Visibility = play ? Visibility.Collapsed : Visibility.Visible;
+            Scroller.ScrollToTop();
         }
 
         // ---------------------------------------------------------------- options
 
         private Panel Section(string title, bool open)
         {
-            var rows = Advanced(title);
+            var rows = Advanced(title, _create);
             if (open && rows.Parent is AdvancedSection section) section.IsOpen = true;
             return rows;
         }
@@ -366,14 +405,22 @@ namespace BloodborneLauncher.Views
             CheckNocturne();
 
             _worlds.Children.Clear();
+            _worldCount = 0;
             var active = Randomizer.Active(S);
             foreach (var mod in mods)
             {
                 if (Randomizer.Load(GameEnvironment.ModsDir(S), mod.Name) is not { } world) continue;
-                _worlds.Children.Add(WorldCard(world, world == active, picked));
+                var card = WorldCard(world, world == active, picked);
+                _worlds.Children.Add(card);
+                _worldCount++;
+                if (world.Folder == _made && _play.Visibility == Visibility.Visible)
+                {
+                    _made = null;
+                    Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => { card.BringIntoView(); card.Flash(); });
+                }
             }
-            if (_worlds.Children.Count == 0)
-                _worlds.Children.Add(Empty(L.T("No worlds yet. Generate one above.")));
+            if (_worldCount == 0)
+                _worlds.Children.Add(Empty(L.T("No worlds yet. Make one under Create world.")));
         }
 
         /// <summary>Whether a ticked mod places the Coiled Host (Nocturne v2.0.0+), worked out off the UI thread (it reads a map file);
@@ -425,7 +472,7 @@ namespace BloodborneLauncher.Views
             var note = (inUse ? L.T("In use.") : L.T("Not in use.")) + " " + summary + Randomizer.BuiltOnText(builtOn) +
                        (builtOn != null && !shareable ? " " + L.T("Friends can't join it from the Join list: one of the mods it is built on is missing, can't be read or has the same files as another.") : "") +
                        (byContent.Count > 0 ? " " + L.F($"Friends who join it from the Join list need the same files of: {string.Join(", ", byContent)} (any folder name).") : "") +
-                       (stale ? " " + L.T("The mods ticked above are not the ones this world was made on: make it again on them, with a new character.") : "");
+                       (stale ? " " + L.T("The mods ticked under Create world are not the ones this world was made on: make it again on them, with a new character.") : "");
             var buttons = Row(
                 inUse ? SmallButton(L.T("Stop using"), SymbolRegular.Power24, (_, _) => StopUsing())
                       : SmallButton(L.T("Load"), SymbolRegular.Play24, (_, _) => Load(name)),
@@ -434,7 +481,7 @@ namespace BloodborneLauncher.Views
             if (stale)
                 buttons.Children.Add(SmallButton(L.T("Make again"), SymbolRegular.ArrowClockwise24, async (_, _) => await Regenerate(world)));
             buttons.Children.Add(IconButton(SymbolRegular.Rename24, L.T("Rename"), (_, _) => Rename(world)));
-            buttons.Children.Add(IconButton(SymbolRegular.Delete24, L.T("Delete"), (_, _) => Delete(name)));
+            buttons.Children.Add(IconButton(SymbolRegular.Delete24, L.T("Delete"), (_, _) => Delete(world)));
             foreach (var button in buttons.Children.OfType<UIElement>()) button.IsEnabled = !_busy;
             // The name is this PC's (WorldSaves); a world never played here yet shows its code.
             var saves = WorldSaves.Find(ProfileFolder, world.Code, world.Hash);
@@ -489,7 +536,7 @@ namespace BloodborneLauncher.Views
         {
             if (Ws.Game.Running)
             {
-                SetHint(_status, L.T("Close the game to change the game mode."));
+                SetHint(_playStatus, L.T("Close the game to change the game mode."));
                 return false;
             }
             change();
@@ -508,7 +555,7 @@ namespace BloodborneLauncher.Views
             if (answer == null) return;
             if (WorldSaves.ValidName(answer[0], out var error) is not { } valid)
             {
-                SetHint(_status, error);
+                SetHint(_playStatus, error);
                 return;
             }
             try
@@ -517,16 +564,33 @@ namespace BloodborneLauncher.Views
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
-                SetHint(_status, L.F($"The name could not be saved: {e.Message}"));
+                SetHint(_playStatus, L.F($"The name could not be saved: {e.Message}"));
             }
             Refresh();
         }
 
-        private void Delete(string name)
+        /// <summary>Deletes the world and its characters: its mod folder, then its saves in every profile (WorldSaves.Delete).
+        /// The mod folder goes first, so a world whose files can't go keeps its saves.</summary>
+        private void Delete(Randomizer.World world)
         {
-            if (!Prompt.Confirm(L.T("Delete world"), L.F($"Delete the mod folder {name}? Its characters stay on disk and come back if you generate the same code again."), L.T("Delete"))) return;
-            Directory.Delete(Path.Combine(GameEnvironment.ModsDir(S), name), recursive: true);
-            if (CuratedMods.Mode(S) == "world" && S.Str(Randomizer.WorldKey) == name)
+            if (Ws.Game.Running)
+            {
+                SetHint(_playStatus, L.T("Close the game to delete a world."));
+                return;
+            }
+            var title = WorldSaves.Find(ProfileFolder, world.Code, world.Hash)?.Name ?? world.Code;
+            if (!Prompt.Confirm(L.T("Delete world"), L.F($"Delete {title} and its characters? The world and its saves in every profile on this PC are deleted for good. Making the same code again makes the world again, with no characters."), L.T("Delete"))) return;
+            try
+            {
+                Directory.Delete(Path.Combine(GameEnvironment.ModsDir(S), world.Folder), recursive: true);
+                foreach (var profile in PlayerProfiles.All(S))
+                    WorldSaves.Delete(PlayerProfiles.Folder(S, profile), world);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                SetHint(_playStatus, L.F($"The world could not be deleted completely: {e.Message}"));
+            }
+            if (CuratedMods.Mode(S) == "world" && S.Str(Randomizer.WorldKey) == world.Folder)
             {
                 Randomizer.StopUsing(S);
                 CuratedMods.Apply(S, GameEnvironment.ModsDir(S));
@@ -560,7 +624,7 @@ namespace BloodborneLauncher.Views
         /// <summary>The same code again on today's mods: a new world (its own saves); the old one stays until deleted.</summary>
         private async Task Regenerate(Randomizer.World world)
         {
-            if (!Prompt.Confirm(L.T("Make again"), L.F($"Make {world.Code} again on the mods ticked above? It becomes a new world with its own characters; the old one stays until you delete it."), L.T("Make again"))) return;
+            if (!Prompt.Confirm(L.T("Make again"), L.F($"Make {world.Code} again on the mods ticked under Create world? It becomes a new world with its own characters; the old one stays until you delete it."), L.T("Make again"))) return;
             await Build(world.Code, PickedMods(),
                 name => L.F($"Made {name} on your current mods. It is on, and has its own saves."));
         }
@@ -594,8 +658,12 @@ namespace BloodborneLauncher.Views
             _bar.Value = 0;
             _bar.Visibility = Visibility.Visible;
             SetHint(_status, L.T("Starting the generator…"));
+            SetHint(_playStatus, null);
             Sync();
             Refresh();
+            // The progress and Stop are under Generate (Make again starts from Play).
+            ShowTab(play: false);
+            _ = Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => _generateRow.BringIntoView());
             try
             {
                 var name = await Randomizer.Generate(S, code, mods, (fraction, step) =>
@@ -607,7 +675,10 @@ namespace BloodborneLauncher.Views
                 CuratedMods.Apply(S, GameEnvironment.ModsDir(S));
                 Ws.SaveSoon();
                 NameBuilt(name, worldName);
-                SetHint(_status, done(name));
+                SetHint(_status, null);
+                SetHint(_playStatus, done(name));
+                _made = name;
+                ShowTab(play: true);
             }
             catch (OperationCanceledException)
             {

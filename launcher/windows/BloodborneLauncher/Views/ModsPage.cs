@@ -279,7 +279,7 @@ namespace BloodborneLauncher.Views
                 {
                     var list = Mods.Load(dir);
                     return (list, paused ? new Dictionary<string, List<Mods.Conflict>>()
-                        : Mods.Conflicts(dir, list.Where(m => m.Enabled).Select(m => m.Name)),
+                        : Mods.Conflicts(dir, list.Where(m => m.Enabled && Listed(m)).Select(m => m.Name)),
                         list.ToDictionary(m => m.Name, m => ModFeatureManifest.Read(Path.Combine(dir, m.Name))));
                 });
             }
@@ -292,10 +292,17 @@ namespace BloodborneLauncher.Views
             _mods = mods;
             _clashes = clashes;
             _manifests = manifests;
-            SetHint(_modsHint, _mods.Count == 0 ? L.F($"{dir} — no mods") : _mods.Count == 1 ? L.F($"{dir} — 1 mod") : L.F($"{dir} — {_mods.Count} mods"));
+            var count = _mods.Count(Listed);
+            var worlds = _mods.Count - count;
+            SetHint(_modsHint, (count == 0 ? L.F($"{dir} — no mods") : count == 1 ? L.F($"{dir} — 1 mod") : L.F($"{dir} — {count} mods")) +
+                (worlds == 0 ? "" : "\n" + (worlds == 1 ? L.T("1 randomized world is on the Randomizer tab.") : L.F($"{worlds} randomized worlds are on the Randomizer tab."))));
             if (ModsKey() == _modsShown) return;
             DrawMods();
         }
+
+        /// <summary>Randomized worlds are not listed: the Randomizer tab plays, renames and deletes them, and My mods never
+        /// loads one (CuratedMods.Apply). They keep their place in mods.json.</summary>
+        private static bool Listed(Mods.Entry mod) => !Randomizer.IsWorld(mod.Name);
 
         private string ModsKey() => string.Join("|", _mods.Select(m => $"{m.Name}={m.Enabled}{ClashText(m)}{ManifestText(m)}"));
 
@@ -321,9 +328,9 @@ namespace BloodborneLauncher.Views
                 var requires = m.Requires;
                 var features = string.Join(", ", m.Features);
                 var title = (m.Name.Length > 0 ? m.Name : m.Id) + (m.Version.Length > 0 ? " " + m.Version : "")
-                    + (m.Author.Length > 0 ? " � " + L.F($"by {author}") : "");
+                    + (m.Author.Length > 0 ? " · " + L.F($"by {author}") : "");
                 lines.Add(title);
-                lines.Add(L.F($"Needs Nightwatch {requires} or newer") + " � "
+                lines.Add(L.F($"Needs Nightwatch {requires} or newer") + " · "
                     + (m.Features.Count > 0 ? L.F($"Features: {features}") : L.T("No features")));
             }
             var detail = v.Detail;
@@ -342,7 +349,7 @@ namespace BloodborneLauncher.Views
         {
             var read = ++_modReads;
             var dir = GameEnvironment.ModsDir(S);
-            var enabled = _mods.Where(m => m.Enabled).Select(m => m.Name).ToList();
+            var enabled = _mods.Where(m => m.Enabled && Listed(m)).Select(m => m.Name).ToList();
             try
             {
                 var clashes = await Task.Run(() => Mods.Conflicts(dir, enabled));
@@ -360,10 +367,11 @@ namespace BloodborneLauncher.Views
         {
             _modsShown = ModsKey();
             _modList.Children.Clear();
-            for (var i = 0; i < _mods.Count; i++)
+            var listed = Enumerable.Range(0, _mods.Count).Where(i => Listed(_mods[i])).ToList();
+            for (var at = 0; at < listed.Count; at++)
             {
-                var index = i;
-                var mod = _mods[i];
+                var index = listed[at];
+                var mod = _mods[index];
                 var toggle = new ToggleSwitch { IsChecked = mod.Enabled, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
                 toggle.Click += (_, _) =>
                 {
@@ -371,21 +379,23 @@ namespace BloodborneLauncher.Views
                     SaveMods();
                     RefreshClashes();
                 };
-                var up = IconButton(SymbolRegular.ArrowUp24, L.T("Load earlier"), (_, _) => Move(index, -1));
-                var down = IconButton(SymbolRegular.ArrowDown24, L.T("Load later"), (_, _) => Move(index, 1));
-                up.IsEnabled = i > 0;
-                down.IsEnabled = i < _mods.Count - 1;
+                var before = at > 0 ? listed[at - 1] : -1;
+                var after = at < listed.Count - 1 ? listed[at + 1] : -1;
+                var up = IconButton(SymbolRegular.ArrowUp24, L.T("Load earlier"), (_, _) => Move(index, before));
+                var down = IconButton(SymbolRegular.ArrowDown24, L.T("Load later"), (_, _) => Move(index, after));
+                up.IsEnabled = before >= 0;
+                down.IsEnabled = after >= 0;
 
                 var clash = ClashText(mod);
-                var card = Card(SymbolRegular.Box24, mod.Name, L.F($"Load order {i + 1}") + (clash.Length > 0 ? "\n" + clash : ""), Row(up, down, toggle), out _);
+                var card = Card(SymbolRegular.Box24, mod.Name, L.F($"Load order {at + 1}") + (clash.Length > 0 ? "\n" + clash : ""), Row(up, down, toggle), out _);
                 card.Margin = new Thickness(24, 0, 0, 4);
                 _modList.Children.Add(card);
             }
         }
 
-        private void Move(int index, int direction)
+        /// <summary>Swaps a mod with the listed mod next to it (a world between them stays where it is).</summary>
+        private void Move(int index, int target)
         {
-            var target = index + direction;
             if (target < 0 || target >= _mods.Count) return;
             (_mods[index], _mods[target]) = (_mods[target], _mods[index]);
             SaveMods();

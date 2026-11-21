@@ -247,6 +247,15 @@ namespace BloodborneLauncher.Views
     public sealed class AdvancedRows : StackPanel { }
 
     /// <summary>
+    /// One of a page's own tabs (the Randomizer's Play and Create world): the page shows one at a time. Its groups get their
+    /// panes like the page's, and the settings search still finds its rows: Open shows it.
+    /// </summary>
+    public sealed class PageTab : StackPanel
+    {
+        public Action? Open { get; init; }
+    }
+
+    /// <summary>
     /// A folded part of a group: an "Advanced (n)" line that opens and closes the rows under it.
     /// Rows put in Rows stay searchable; the search opens the section to show one.
     /// </summary>
@@ -356,22 +365,32 @@ namespace BloodborneLauncher.Views
         /// <summary>
         /// Puts the rows that follow each group header into one rounded box. Rows, panels of rows
         /// and short captions go in; anything else (an info bar, a table, a summary card) ends the box.
+        /// A page's tab is sorted the same way inside.
         /// </summary>
-        private void Sectionize()
+        private void Sectionize() => Sectionize(Body);
+
+        private static void Sectionize(Panel panel)
         {
-            var children = Body.Children.Cast<UIElement>().ToList();
-            Body.Children.Clear();
+            var children = panel.Children.Cast<UIElement>().ToList();
+            panel.Children.Clear();
             StackPanel? box = null;
             foreach (var child in children)
             {
+                if (child is PageTab tab)
+                {
+                    Sectionize(tab);
+                    box = null;
+                    panel.Children.Add(tab);
+                    continue;
+                }
                 if (child is TextBlock { Tag: "group" })
                 {
-                    Body.Children.Add(child);
+                    panel.Children.Add(child);
                     box = new StackPanel { Margin = new Thickness(0, -1, 0, 0) };
                     var frame = Pane(box);
                     // A hidden header hides its whole group (Co-op's groups per mode).
                     frame.SetBinding(VisibilityProperty, new System.Windows.Data.Binding(nameof(Visibility)) { Source = child });
-                    Body.Children.Add(frame);
+                    panel.Children.Add(frame);
                     continue;
                 }
                 var fits = child is SettingRow || child is StackPanel || child is WrapPanel ||
@@ -387,7 +406,7 @@ namespace BloodborneLauncher.Views
                 else
                 {
                     box = null;
-                    Body.Children.Add(child);
+                    panel.Children.Add(child);
                 }
             }
         }
@@ -494,8 +513,8 @@ namespace BloodborneLauncher.Views
         private bool Shown(DependencyObject? at)
         {
             for (; at != null && !ReferenceEquals(at, this); at = LogicalTreeHelper.GetParent(at))
-                if (at is UIElement { Visibility: not Visibility.Visible } && at is not AdvancedRows)
-                    return false; // a folded Advanced section still counts: the search opens it
+                if (at is UIElement { Visibility: not Visibility.Visible } && at is not AdvancedRows && at is not PageTab)
+                    return false; // a folded Advanced section or a page's other tab still counts: the search opens it
             return at != null;
         }
 
@@ -507,6 +526,7 @@ namespace BloodborneLauncher.Views
         {
             for (DependencyObject? at = row; at != null; at = LogicalTreeHelper.GetParent(at))
                 if (at is AdvancedSection section) section.IsOpen = true;
+                else if (at is PageTab { Visibility: not Visibility.Visible, Open: { } open }) open();
             UpdateLayout();
             if (!row.IsVisible) return false;
             // Focus first: focusing scrolls the control into view, and the centring below comes after it.

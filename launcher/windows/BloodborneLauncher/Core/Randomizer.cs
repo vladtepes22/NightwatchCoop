@@ -82,18 +82,10 @@ namespace BloodborneLauncher.Core
             return world;
         }
 
-        /// <summary>The world the game would load now: game mode "world"'s world, else in My mods the last enabled one; none
-        /// while mods are off for this start.</summary>
-        public static World? Active(LauncherSettings s)
-        {
-            if (s.Bool("safe_mode_next")) return null;
-            var mode = CuratedMods.Mode(s);
-            if (mode == "world")
-                return Load(GameEnvironment.ModsDir(s), s.Str(WorldKey));
-            if (mode != "my" || !s.Bool("mods_enabled")) return null;
-            var dir = GameEnvironment.ModsDir(s);
-            return Mods.Load(dir).Where(m => m.Enabled).Select(m => Load(dir, m.Name)).LastOrDefault(w => w != null);
-        }
+        /// <summary>The world the game would load now: game mode "world"'s world (My mods never load one, CuratedMods.Apply);
+        /// none while mods are off for this start.</summary>
+        public static World? Active(LauncherSettings s) =>
+            !s.Bool("safe_mode_next") && CuratedMods.Mode(s) == "world" ? Load(GameEnvironment.ModsDir(s), s.Str(WorldKey)) : null;
 
         /// <summary>Plays this world: game mode "world" loads it and the mods it was built on, nothing else, and keeps My mods'
         /// list as the other modes do; <see cref="StopUsing"/> brings the mode before back. Settings change in memory: the

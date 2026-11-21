@@ -682,11 +682,20 @@ namespace BloodborneLauncher.Core
                     : world ?? new List<string>();
                 Mods.Save(keep.Select(n => new Mods.Entry(n, true)).Concat(current.Where(m => !keep.Contains(m.Name)).Select(m => m with { Enabled = false })));
             }
-            else if (written != "my" && ReadSaved(s.Str(SavedKey)) is { } saved)
+            else
             {
-                var available = Mods.Discover(modsDir);
-                var order = saved.Order.Where(available.Contains).Concat(available).Distinct();
-                Mods.Save(order.Select(n => new Mods.Entry(n, !saved.Disabled.Contains(n))));
+                // My mods never load a world: a world plays only in world mode, and the Mods page does not list worlds (a
+                // world new to the list would otherwise come back on, by Mods.Load's rule for new folders).
+                List<Mods.Entry>? restore = null;
+                if (written != "my" && ReadSaved(s.Str(SavedKey)) is { } saved)
+                {
+                    var available = Mods.Discover(modsDir);
+                    restore = saved.Order.Where(available.Contains).Concat(available).Distinct()
+                        .Select(n => new Mods.Entry(n, !saved.Disabled.Contains(n))).ToList();
+                }
+                var list = restore ?? current;
+                if (restore != null || list.Any(m => m.Enabled && Randomizer.IsWorld(m.Name)))
+                    Mods.Save(list.Select(m => Randomizer.IsWorld(m.Name) ? m with { Enabled = false } : m));
             }
             if (written != mode)
             {

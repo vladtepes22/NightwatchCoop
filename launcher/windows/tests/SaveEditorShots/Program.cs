@@ -203,8 +203,8 @@ internal static class Program
         Require(button.MouseOverBackground is SolidColorBrush { Color.A: >= 0xB0 }, look + ": action button hover is see-through");
     }
 
-    /// <summary>The Randomizer page on a fixture Mods folder (one world, one plain mod): as it opens, with a pasted code
-    /// (rows locked), with every section open, and the spoiler window. Nothing outside the output folder is written.</summary>
+    /// <summary>The Randomizer page on a fixture Mods folder (one world, one plain mod): as it opens (on Play, since a world
+    /// is there), then Create world new, with a pasted code (rows locked), with every section open, and the spoiler window. Nothing outside the output folder is written.</summary>
     private static void RandomizerShots(string output)
     {
         Environment.SetEnvironmentVariable("BB_LAUNCHER_CONFIG_DIR", Path.Combine(output, "fixture-config"));
@@ -228,12 +228,15 @@ internal static class Program
         settings.Set("mods_dir", mods);
         settings.Set("mods_enabled", true);
         const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
-        foreach (var state in new[] { "new", "code", "open", "bad-code", "bosses", "bosses-stay" })
+        foreach (var state in new[] { "play", "new", "code", "open", "bad-code", "bosses", "bosses-stay" })
         {
             var page = new RandomizerPage();
             typeof(LauncherPage).GetMethod("Sectionize", flags)!.Invoke(page, null);
             typeof(RandomizerPage).GetMethod("Sync", flags)!.Invoke(page, null);
             page.OnShown();
+            var create = (UIElement)typeof(RandomizerPage).GetField("_create", flags)!.GetValue(page)!;
+            Require(create.Visibility != Visibility.Visible, "a page with a world opens on Play");
+            if (state != "play") typeof(RandomizerPage).GetMethod("ShowTab", flags)!.Invoke(page, new object[] { false });
             var codeBox = (TextBox)typeof(RandomizerPage).GetField("_codeBox", flags)!.GetValue(page)!;
             var pasted = Randomizer.ToCode(Randomizer.Standard(2309737967) with { Bosses = true, Treasure = true })!;
             Require(codeBox.Text.StartsWith("R2-") && WorldCode.Decode(codeBox.Text).Kind == WorldCodeKind.Ok, "a new page shows the code of its options");
@@ -274,11 +277,38 @@ internal static class Program
                 Layout(root, 860, (int)root.Height);
             }
             var rows = Descendants(root).OfType<ComboBox>().Where(c => c.Visibility == Visibility.Visible && c.ActualWidth > 0).ToList();
+            // The rows shown locked are exactly those whose option is off in these options: with Enemies open, what needs bosses as
+            // enemies; with Bosses open, the Nocturne bosses (no Nocturne v2 / v5 in the fixture) and, while bosses stay home,
+            // what needs randomized bosses; with every section open also what needs the gem roulette.
+            var bossEnemyDependents = new[] { "Areas with bosses as enemies", "Bosses per area", "Boss HP as an enemy", "Huge bosses as enemies" };
+            var nocturneBosses = new[] { "Include Coiled Host (Nocturne boss)", "Include Scorched Beast (Nocturne boss)" };
+            var expectedLocked = (state switch
+            {
+                "open" => arenaDependents.Concat(nocturneBosses).Concat(bossEnemyDependents).Append("Cursed gems"),
+                "bosses-stay" => arenaDependents.Concat(nocturneBosses),
+                "bosses" => nocturneBosses,
+                "play" => Array.Empty<string>(),
+                _ => bossEnemyDependents,
+            }).ToHashSet();
+            // Laid out and not inside anything collapsed (a collapsed element keeps its last ActualWidth).
+            bool OnScreen(UIElement e)
+            {
+                for (DependencyObject? at = e; at != null && at != root; at = VisualTreeHelper.GetParent(at))
+                    if (at is UIElement { Visibility: not Visibility.Visible }) return false;
+                return e.RenderSize.Width > 0;
+            }
+            void LockedAsExpected(int minimum)
+            {
+                var locked = Descendants(root).OfType<SettingRow>()
+                    .Where(r => Descendants(r).OfType<ComboBox>().Any(c => !c.IsEnabled && OnScreen(c))).Select(r => r.Title).ToHashSet();
+                Require(rows.Count >= minimum && locked.SetEquals(expectedLocked),
+                    "exactly the dependent options are locked: " + state + ": " + string.Join(" | ", locked.Except(expectedLocked).Concat(expectedLocked.Except(locked))));
+            }
             if (state == "code")
             {
                 var note = (TextBlock)typeof(RandomizerPage).GetField("_codeNote", flags)!.GetValue(page)!;
                 var back = (Button)typeof(RandomizerPage).GetField("_backToPasted", flags)!.GetValue(page)!;
-                Require(rows.Count >= 5 && rows.All(c => c.IsEnabled), "a pasted code leaves the rows open: " + rows.Count(c => !c.IsEnabled) + " of " + rows.Count + " locked");
+                LockedAsExpected(5);
                 Require(codeBox.Text == pasted && WorldCode.Decode(codeBox.Text).Seed == 2309737967 && note.Text.StartsWith("Shuffled: enemies, boss arenas, treasure"), "a pasted code fills the options and keeps its seed, in its canonical spelling: " + note.Text);
                 Require(back.Visibility != Visibility.Visible, "no way back while the options make the pasted code");
                 Option("Enemies that change").SelectedIndex = 1;
@@ -290,8 +320,11 @@ internal static class Program
                 Require(codeBox.Text == pasted, "a pasted code keeps its seed when the page opens again");
                 Layout(root, 860, (int)root.Height);
             }
-            else if (state is "open" or "bosses-stay") Require(rows.Count >= (state == "open" ? 15 : 7) && rows.Count(c => !c.IsEnabled) == arenaDependents.Length, "bosses staying home disables exactly the dependent options: " + state);
-            else Require(rows.Count >= 5 && rows.All(c => c.IsEnabled), "rows are open: " + state + " " + rows.Count);
+            else if (state == "play")
+                Require(!rows.Any(OnScreen) && Descendants(root).OfType<SettingRow>().Any(r => r.Title == code && OnScreen(r)) &&
+                        Descendants(root).OfType<TextBlock>().Any(t => OnScreen(t) && t.Text.StartsWith("Friends don't need to make your world")),
+                    "Play shows the world and the note for guests, and no options");
+            else LockedAsExpected(state == "open" ? 15 : state == "bosses-stay" ? 7 : 5);
             if (state == "bad-code") Require(Descendants(root).OfType<TextBlock>().Any(t => t.Text.StartsWith("Not a world code yet")), "a broken code says so");
             Require(Descendants(root).OfType<TextBlock>().Any(t => t.Text == code), "the world's card shows its code");
             foreach (var control in Descendants(root).OfType<FrameworkElement>().Where(c => c is Button or TextBox or ComboBox && c.Visibility == Visibility.Visible && c.ActualWidth > 0))
@@ -311,7 +344,7 @@ internal static class Program
         Require(Descendants(spoilerRoot).OfType<TextBlock>().Any(t => t.Text == "→ Blood-starved Beast (c2090) ×3"), "the spoiler lists enemy changes with names");
         Render(spoilerRoot, 900, 600, 1, Path.Combine(output, "randomizer-spoiler.png"));
         window.Close();
-        Console.WriteLine("PASS: Randomizer page (new, pasted code, sections open, bad code, bosses, bosses stay) and spoiler rendered off screen; arena dependencies, values, locking and restoration checked.");
+        Console.WriteLine("PASS: Randomizer page (Play, new, pasted code, sections open, bad code, bosses, bosses stay) and spoiler rendered off screen; arena dependencies, values, locking and restoration checked.");
     }
 
     private static Border CoopRoot(UIElement content, int width, int height, Color shade)
