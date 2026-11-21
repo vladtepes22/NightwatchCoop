@@ -11,6 +11,7 @@
 #include "gpu/bbgpu.h"
 #include "respawn_patch.h"
 #include "havok_event_guard.h"
+#include "null_call_report.h"
 #if !defined(__x86_64__) || !defined(__GNUC__)
 #error This prototype requires x86-64 GCC or Clang (including MinGW).
 #endif
@@ -237,6 +238,53 @@ static int read_words(uintptr_t a, uint64_t *out, size_t count) {
     SIZE_T n = 0;
     return ReadProcessMemory(GetCurrentProcess(), (void *)a, out, count * sizeof(*out), &n) && n == count * sizeof(*out);
 }
+static int null_call_code(uint64_t address, uint8_t bytes[NCR_CALL_BYTES]) {
+    SIZE_T n = 0;
+    return ReadProcessMemory(GetCurrentProcess(), (void *)(uintptr_t)(address - NCR_CALL_BYTES), bytes, NCR_CALL_BYTES, &n) &&
+           n == NCR_CALL_BYTES;
+}
+/* NW-bbc8683: a call through a null or wild function pointer leaves RIP at the bad target, so no frame walk starts.
+ * [rsp] is the return address the call pushed; older stack words into the game image after a call are candidates
+ * for the callers before it (null_call_report.h). The stack is read only within its committed readable region. */
+static void report_null_call(const EXCEPTION_RECORD *r, const CONTEXT *c) {
+    if (r->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || r->NumberParameters < 2) return;
+    const uintptr_t target = (uintptr_t)r->ExceptionInformation[1];
+    MEMORY_BASIC_INFORMATION info;
+    const int in_module = guest_address(target) ||
+                          (VirtualQuery((void *)target, &info, sizeof(info)) && info.Type == MEM_IMAGE);
+    if (!ncr_wanted(r->ExceptionInformation[0] == 8, c->Rip, target, in_module)) return;
+    const DWORD readable = PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READ |
+                           PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+    const uintptr_t rsp = (uintptr_t)c->Rsp;
+    uint64_t words[NCR_STACK_WORDS];
+    size_t count = 0;
+    if (!(rsp & 7) && VirtualQuery((void *)rsp, &info, sizeof(info)) && info.State == MEM_COMMIT &&
+        (info.Protect & readable) && !(info.Protect & PAGE_GUARD)) {
+        count = ((uintptr_t)info.BaseAddress + info.RegionSize - rsp) / sizeof(uint64_t);
+        if (count > NCR_STACK_WORDS) count = NCR_STACK_WORDS;
+        if (!read_words(rsp, words, count)) count = 0;
+    }
+    char line[512], where[256];
+    int n;
+    if (!count) {
+        n = snprintf(line, sizeof(line), "  null call: stack at rsp=%llx unreadable\n", (unsigned long long)rsp);
+    } else {
+        describe(where, sizeof(where), (uintptr_t)words[0]);
+        n = snprintf(line, sizeof(line), "  null call: return address [rsp] %s (the caller; after a tail jump, its caller)\n",
+                     where);
+        uint64_t found[NCR_MAX_CANDIDATES];
+        const size_t candidates = image ? ncr_candidates(words, count, (uintptr_t)image, image_size, null_call_code, found,
+                                                         NCR_MAX_CANDIDATES) : 0;
+        if (candidates && n > 0 && (size_t)n < sizeof(line)) {
+            n += snprintf(line + n, sizeof(line) - n, "  null call: older callers? (stack scan, candidates):");
+            for (size_t i = 0; i < candidates && n > 0 && (size_t)n < sizeof(line); ++i)
+                n += snprintf(line + n, sizeof(line) - n, " guest+0x%llx", (unsigned long long)(found[i] - (uintptr_t)image));
+            if (n > 0 && (size_t)n < sizeof(line) - 1) { line[n++] = '\n'; line[n] = 0; }
+        }
+    }
+    DWORD written;
+    WriteFile(GetStdHandle(STD_ERROR_HANDLE), line, (DWORD)strlen(line), &written, NULL);
+}
 /* A crash inside the game's DLRegularHeap::Free (guest 0x20858a0..0x2085a5d): the registers it works with, the heap's
  * range (words 1 and 2 at r14) and the words around the freed block (rbx). Addresses and words only. */
 static void report_heap_free(CONTEXT *c) {
@@ -295,6 +343,8 @@ static void report_exception(EXCEPTION_POINTERS *e) {
                 runtime_rando_map[0] ? runtime_rando_map : "none", runtime_rando_chr[0] ? runtime_rando_chr : "none");
     fprintf(stderr, "  rax=%016llx rbx=%016llx rcx=%016llx rdx=%016llx\n  rsi=%016llx rdi=%016llx rbp=%016llx rsp=%016llx\n",
             c->Rax, c->Rbx, c->Rcx, c->Rdx, c->Rsi, c->Rdi, c->Rbp, c->Rsp);
+    fflush(stderr);
+    report_null_call(r, c);
     report_heap_free(c);
     uintptr_t rbp = c->Rbp;
     for (int depth = 0; depth < 24 && rbp; ++depth) {
@@ -490,6 +540,7 @@ static void note_host_fault(EXCEPTION_POINTERS *e) {
     HANDLE out = GetStdHandle(STD_ERROR_HANDLE);
     DWORD written;
     WriteFile(out, line, (DWORD)strlen(line), &written, NULL);
+    report_null_call(r, e->ContextRecord);
     void *frames[32];
     USHORT depth = RtlCaptureStackBackTrace(0, 32, frames, NULL);
     for (USHORT i = 0; i < depth; ++i) {

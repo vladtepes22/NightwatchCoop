@@ -870,6 +870,9 @@ add_executable(ipmask-test EXCLUDE_FROM_ALL ../tests/test_ipmask.c ../src/runtim
 target_include_directories(ipmask-test PRIVATE ../src)
 add_executable(havok-event-guard-test EXCLUDE_FROM_ALL ../tests/test_havok_event_guard.c)
 target_include_directories(havok-event-guard-test PRIVATE .. ../src)
+# null-call-report: the callers of a call through a null function pointer in a crash report (src/null_call_report.h, probe.c)
+add_executable(null-call-report-test EXCLUDE_FROM_ALL ../tests/test_null_call_report.c)
+target_include_directories(null-call-report-test PRIVATE ../src)
 add_executable(stall-probe-test EXCLUDE_FROM_ALL ../tests/test_stall_probe.cpp)
 target_include_directories(stall-probe-test PRIVATE shim)
 add_executable(seam-rules-test EXCLUDE_FROM_ALL ../tests/test_seam_rules.cpp)
@@ -884,7 +887,7 @@ target_link_libraries(fast-inflate-test PRIVATE zlibng::zlibng ZLIB::ZLIB)
 add_executable(zstd-inflate-test EXCLUDE_FROM_ALL ../tests/test_zstd_inflate.cpp)
 target_include_directories(zstd-inflate-test PRIVATE shim)
 target_link_libraries(zstd-inflate-test PRIVATE zlibng::zlibng zstd::zstd ZLIB::ZLIB)
-foreach(target ipmask-test havok-event-guard-test stall-probe-test seam-rules-test nw-direct-test
+foreach(target ipmask-test havok-event-guard-test null-call-report-test stall-probe-test seam-rules-test nw-direct-test
         live-refresh-test fast-inflate-test zstd-inflate-test)
     target_compile_options(${target} PRIVATE -UNDEBUG -Wall -Wextra -Werror)
     set_target_properties(${target} PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
