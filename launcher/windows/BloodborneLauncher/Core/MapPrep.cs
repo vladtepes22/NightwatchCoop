@@ -254,9 +254,35 @@ namespace BloodborneLauncher.Core
                 return;
             }
             foreach (var sub in dir.EnumerateDirectories()) RemoveView(sub);
-            foreach (var file in dir.EnumerateFiles()) file.Delete();
+            foreach (var file in dir.EnumerateFiles())
+            {
+                if (file.IsReadOnly) DeleteReadOnly(file.FullName);
+                else file.Delete();
+            }
             dir.Delete(recursive: false);
         }
+
+        /// <summary>Deletes a read-only file without clearing the flag: a hard link shares it with the game's or the
+        /// update's own file, which must keep it. Windows 10 1809+ on NTFS (where the view's hard links are).</summary>
+        private static void DeleteReadOnly(string path)
+        {
+            const uint Delete = 0x00010000, ShareAll = 7, OpenExisting = 3, OpenReparsePoint = 0x00200000;
+            const int FileDispositionInfoEx = 21;
+            const uint DispositionDelete = 0x1, PosixSemantics = 0x2, IgnoreReadOnly = 0x10;
+            using var handle = CreateFileW(path, Delete, ShareAll, IntPtr.Zero, OpenExisting, OpenReparsePoint, IntPtr.Zero);
+            if (handle.IsInvalid) throw new System.ComponentModel.Win32Exception();
+            var flags = DispositionDelete | PosixSemantics | IgnoreReadOnly;
+            if (!SetFileInformationByHandle(handle, FileDispositionInfoEx, ref flags, sizeof(uint)))
+                throw new System.ComponentModel.Win32Exception();
+        }
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern Microsoft.Win32.SafeHandles.SafeFileHandle CreateFileW(string path, uint access, uint share, IntPtr security,
+            uint disposition, uint flags, IntPtr template);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetFileInformationByHandle(Microsoft.Win32.SafeHandles.SafeFileHandle handle, int infoClass,
+            ref uint info, uint size);
 
         private static void LinkFolder(string target, string link)
         {

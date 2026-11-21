@@ -36,6 +36,12 @@ internal static class MapInputTests
             Write(Path.Combine(update, "dvdroot_ps4", "map", "mapstudio", "m34_00_00_00.msb.dcx"), "dlc m34");
             Write(Path.Combine(update, "dvdroot_ps4", "event", "m34_00_00_00.emevd.dcx"), "dlc event");
 
+            // Read-only game and update files (a copy from a disc or a read-only share) in a folder both have: the view's
+            // hard links share that flag, and removing the view must still work and leave the flag on the game's files.
+            var readOnly = new[] { Path.Combine(game, "dvdroot_ps4", "map", "mapstudio", "m21_00_00_00.msb.dcx"),
+                                   Path.Combine(update, "dvdroot_ps4", "map", "mapstudio", "m24_00_00_00.msb.dcx") };
+            foreach (var file in readOnly) File.SetAttributes(file, FileAttributes.ReadOnly);
+
             var input = MapPrep.PrepareInput(game, root);
             Check(input != game, "a separate update folder was not used");
             string Read(params string[] parts) => File.ReadAllText(Path.Combine(new[] { input }.Concat(parts).ToArray()));
@@ -54,6 +60,9 @@ internal static class MapInputTests
                   File.Exists(Path.Combine(update, "dvdroot_ps4", "map", "mapstudio", "m34_00_00_00.msb.dcx")) &&
                   File.Exists(Path.Combine(update, "dvdroot_ps4", "event", "m34_00_00_00.emevd.dcx")),
                   "removing the view touched the game or update files");
+            Check(readOnly.All(f => File.Exists(f) && File.GetAttributes(f).HasFlag(FileAttributes.ReadOnly)),
+                  "removing the view changed the game's read-only files");
+            foreach (var file in readOnly) File.SetAttributes(file, FileAttributes.Normal);
 
             MapPrep.RemoveInput(game);
             Check(File.Exists(Path.Combine(game, "eboot.bin")), "RemoveInput deleted a folder it did not make");
@@ -67,7 +76,8 @@ internal static class MapInputTests
         }
         finally
         {
-            MapPrep.RemoveInput(Path.Combine(tmp, "maps", "input"));
+            try { MapPrep.RemoveInput(Path.Combine(tmp, "maps", "input")); } catch { /* the checks above say why */ }
+            foreach (var file in Directory.EnumerateFiles(tmp, "*", SearchOption.AllDirectories)) File.SetAttributes(file, FileAttributes.Normal);
             Directory.Delete(tmp, recursive: true);
         }
     }
