@@ -47,7 +47,7 @@ LEVELS = {
     'merge': ['native', 'python', 'launcher', 'world'],
     'release': ['build', 'native', 'python', 'launcher', 'generator', 'smoke', 'coop', 'world', 'privacy'],
 }
-RELEASE_SCENARIOS = ['join', 'core', 'deaths', 'boss', 'guestrest', 'loadgap', 'invade']
+RELEASE_SCENARIOS = ['join', 'bossregion', 'core', 'deaths', 'boss', 'guestrest', 'loadgap', 'invade']
 # Touched path -> layers; the first matching rule wins (a party-only change needs the co-op rows, not the solo
 # smoke). The order of LAYERS decides the run order.
 RULES = [

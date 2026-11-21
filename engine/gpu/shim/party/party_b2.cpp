@@ -11273,6 +11273,67 @@ u64 WaitingGuestEntry() {
     return 0;
 }
 
+// The summon pickup: a taken summon entry (state 2) is joined by the stage step 0x1872360 (called every frame from
+// 0x19473C4), which finds it with 0x14BB200 and then asks, in order: the local player's play region takes summons
+// (0x191A750: the region's area-boss flag from the table at 0x47301B0 is clear, e.g. 2405 / 2406 / 2407 in Central
+// Yharnam), SprjSessionManager +0x124 is 0, 2 or 5, and its own +0x1F8 (set at construction). A failed check jumps to
+// 0x1873B49, which drops the entry: no JoinRoom, no packet, and the bell has no waiting entry afterwards.
+// "Party: Bells after boss defeated" lifts the area-boss rule at the summon builder and the SSM but not here, so a guest
+// whose own world had that region's boss killed dropped every summon it was handed (NW-dc104e5, NW-ffb869b; the test
+// guests are new games, whose bosses live). With that XML patch applied, the pickup's jump goes too (InstallSummonPickupRegion).
+constexpr u64 kSummonRegionOk = 0x191a750;       // bool (WorldChrMan*): the local player's play region takes summons
+constexpr u64 kPickupRegionJump = 0x1873882;     // je 0x1873B49 after `call 0x191A750; test al, al` in 0x1872360
+constexpr u64 kBossRuleSummonBuilder = 0x18749e8;  // the XML patch's first site (6 NOPs when it is applied)
+std::atomic<bool> g_pickup_region_lifted{false};
+
+void InstallSummonPickupRegion() {
+    if (EnvOff("BB_PARTY_PICKUP_REGION")) {
+        Log("summon pickup: the own region's area-boss rule kept (BB_PARTY_PICKUP_REGION=0)");
+        return;
+    }
+    if (!Matches(kBossRuleSummonBuilder, {0x90, 0x90, 0x90, 0x90, 0x90, 0x90})) {
+        Log("summon pickup: the own region's area-boss rule kept (\"Party: Bells after boss defeated\" is not applied)");
+        return;
+    }
+    g_pickup_region_lifted = PatchBytes(kPickupRegionJump, {0x0f, 0x84, 0xc1, 0x02, 0x00, 0x00},
+                                        {0x90, 0x90, 0x90, 0x90, 0x90, 0x90},
+                                        "summon pickup: the own region's area-boss rule (je 0x1873B49) lifted");
+}
+
+/// The summon pickup's checks as the game reads them now, for the log of a delivered summon that was not joined.
+std::string SummonPickupGates() {
+    const u64 wcm = Slot(kSlotWorldChrMan);
+    const u64 player = wcm ? Field<u64>(wcm, 0x60, 0) : 0;
+    const bool region_ok = player && (reinterpret_cast<u8(BB_COOP_SYSV*)(u64)>(Guest(kSummonRegionOk))(wcm) & 1);
+    const u64 ses = Slot(kSlotSession);
+    const u32 state = ses ? Field<u32>(ses, 0x124, 0xff) : 0xff;
+    const bool state_ok = state <= 5 && ((0x25u >> state) & 1);
+    char b[256];
+    std::snprintf(b, sizeof b, "own play region %d / %d: area-boss rule %s; session state %u%s",
+                  player ? Field<int>(player, 0x278, -1) : -1, player ? Field<int>(player, 0x27c, -1) : -1,
+                  region_ok ? "passes" : (g_pickup_region_lifted ? "fails (lifted: not asked)" : "FAILS: the pickup drops the summon"),
+                  state, state_ok ? "" : " (not 0 / 2 / 5: the pickup drops the summon)");
+    return b;
+}
+
+/// Test aid BB_PARTY_TEST_OWN_FLAGS=id[,id...]: a guest sets these event flags in its own world once it is up,
+/// before its first summon (e.g. 2405,2406,2407: the Central Yharnam area bosses killed, as in a played save).
+void TestOwnFlagsTick(const GameSnapshot& s) {
+    static bool done = false;
+    const char* v = std::getenv("BB_PARTY_TEST_OWN_FLAGS");
+    if (done || !v || !v[0] || !s.world_up || s.loading || Role() == RoleClient) return;
+    done = true;
+    std::string list = v, set;
+    for (std::size_t at = 0; at < list.size();) {
+        std::size_t end = list.find(',', at);
+        if (end == std::string::npos) end = list.size();
+        const long id = std::strtol(list.substr(at, end - at).c_str(), nullptr, 10);
+        if (id > 0) set += std::to_string(id) + (WriteEventFlag(static_cast<u32>(id), true) ? " " : " (not written) ");
+        at = end + 1;
+    }
+    Log("BB_PARTY_TEST_OWN_FLAGS: own world flags set: %s; %s", set.c_str(), SummonPickupGates().c_str());
+}
+
 constexpr u64 kChannelRequestByIdFn = 0x1e65290;  // DLRefCounted* FUN(out*, const ChannelId*): the get_details_info request by id
 
 /// The game's channel request for `id` (0x1e65290: the object the summon handler keeps in the entry's +0xc0), with one
@@ -11422,6 +11483,7 @@ bool DeliverSummon(const dsummon::Room& room, const std::string& host_name) {
 }
 
 void DirectSummonTick(const GameSnapshot& s, double now) {
+    TestOwnFlagsTick(s);
     if (!DirectSummonOn()) return;
     // Host: serve the requests.
     std::vector<int> req;
@@ -11741,7 +11803,10 @@ void DirectSummonTick(const GameSnapshot& s, double now) {
             }
         } else {
             // Connection warnings: delivered but never joined = the host's session cannot hear this game.
-            if (std::strncmp(fail_why, "delivered", 9) == 0) party::connwarn::GuestOwnSummonFailed(bbnet::settings().party_port);
+            if (std::strncmp(fail_why, "delivered", 9) == 0) {
+                party::connwarn::GuestOwnSummonFailed(bbnet::settings().party_port);
+                Log("direct summon: the game's summon pickup now: %s", SummonPickupGates().c_str());
+            }
             InvaderSay(gather ? "Invading: going to the host's area first" : "Invading: the quick way failed, taking the slower way in");
             Log("direct summon: FAILED (%s; %.1f s after the request): %s", fail_why, now - asked_at,
                 gather ? "the bell goes down; gather to the host's area first (loading screen), then ring again"
@@ -13000,6 +13065,7 @@ void Init() {
         PatchBytes(0x17897ae, {0xe9, 0x03, 0x00, 0x00}, {0x30, 0x75, 0x00, 0x00},
                    "F5 send queue limit 1001 -> 30000 (irregular leave)");
     }
+    InstallSummonPickupRegion();
     InstallEmptyStainSkip();
     SetEmevdSkipPredicate(&ClientIntroSkip);
     if (std::getenv("BB_PARTY_TEST_FORCE_WAIT") &&

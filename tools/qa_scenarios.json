@@ -20,6 +20,39 @@
       ]
     ]
   },
+  "bossregion": {
+    "about": "NW-dc104e5: a guest whose own world has the area boss of its play region killed (flag 2415, Cathedral Ward, where the test save stands) is still joined by the direct summon: the game's summon pickup no longer drops it.",
+    "seconds": 180,
+    "host": "",
+    "guest": "",
+    "guest_env": {
+      "BB_PARTY_TEST_OWN_FLAGS": "2415"
+    },
+    "expect": [
+      [
+        "guest",
+        "summon pickup: the own region's area-boss rule \\(je 0x1873B49\\) lifted"
+      ],
+      [
+        "guest",
+        "BB_PARTY_TEST_OWN_FLAGS: own world flags set: 2415 ; own play region 241010 / -241010: area-boss rule fails \\(lifted"
+      ],
+      [
+        "host",
+        "cooperators 0 -> 1"
+      ],
+      [
+        "guest",
+        "direct summon: joined the host's room"
+      ]
+    ],
+    "forbid": [
+      [
+        "guest",
+        "the pickup drops the summon"
+      ]
+    ]
+  },
   "core": {
     "about": "visy's s1 rows for two players: Party > Leave and Rejoin, a guest death with its bloodstain and respawn, then a party lamp travel (Tomb of Oedon) that the guest follows.",
     "seconds": 300,
