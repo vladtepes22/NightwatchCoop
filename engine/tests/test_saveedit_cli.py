@@ -421,5 +421,34 @@ class SaveEditorCliTests(unittest.TestCase):
         self.assertEqual([r["shape"] for r in rows].count(2), 6)
 
 
+class ModDataCacheTests(unittest.TestCase):
+    """The worker reads the mods' items and bosses once (about a second each request before), again when they change."""
+
+    def test_mod_data_is_kept_until_the_mods_change(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mods = Path(tmp) / "Mods"
+            mods.mkdir()
+            config = Path(tmp) / "mods.json"
+            config.write_text('{"order": []}\n', encoding="utf-8")
+            args = cli.argparse.Namespace(user=Path(tmp) / "user", game=tmp, mods=str(mods), mods_config=str(config))
+            catalogue = type("Catalogue", (), {"progress": None})()
+            calls = []
+            with patch.object(names, "read_mod_items", lambda *a: calls.append("items") or {1: "a"}), \
+                 patch.object(names, "read_mod_bosses", lambda *a: calls.append("bosses") or [(2, "b")]):
+                kept = {}
+                self.assertEqual(cli.mod_data(args, catalogue, kept), ({1: "a"}, [(2, "b")]))
+                cli.mod_data(args, catalogue, kept)
+                self.assertEqual(calls, ["items", "bosses"])  # the second request reads nothing
+                (mods / "NewMod").mkdir()  # a mod installed: the Mods folder changed
+                cli.mod_data(args, catalogue, kept)
+                self.assertEqual(len(calls), 4)
+                config.write_text('{"order": ["NewMod"]}\n', encoding="utf-8")  # a mod enabled
+                os.utime(config, ns=(1, 1))
+                cli.mod_data(args, catalogue, kept)
+                self.assertEqual(len(calls), 6)
+                cli.mod_data(args, catalogue, None)  # a single run (no worker) always reads
+                self.assertEqual(len(calls), 8)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -202,6 +202,34 @@ def describe(model, catalogue, icon_paths=lambda ids: {}):
 REPAIRS = ("phantom", "duplicate_keys")
 
 
+def mods_stamp(args):
+    """What says the enabled mods may have changed: the mods config file and the Mods folder (a mod added, removed or
+    renamed), by modification time and size."""
+    stamp = []
+    for path in (args.mods_config, args.mods):
+        try:
+            st = os.stat(path) if path else None
+            stamp.append((str(path), st.st_mtime_ns, st.st_size) if st else (str(path), None))
+        except OSError:
+            stamp.append((str(path), None))
+    return tuple(stamp)
+
+
+def mod_data(args, catalogue, catalogues=None):
+    """The enabled mods' items and bosses. Reading them parses the mods' params and events (about a second); the worker
+    keeps them with its catalogue (in `catalogues`) and reads them again only when mods_stamp changes."""
+    key = ("mods", str(args.user), str(args.game))
+    stamp = mods_stamp(args)
+    kept = catalogues.get(key) if catalogues is not None else None
+    if kept is not None and kept[0] == stamp and kept[1] is catalogue:
+        return kept[2], kept[3]
+    items = names.read_mod_items(args.game, args.mods, args.mods_config)
+    bosses = names.read_mod_bosses(args.game, args.mods, args.mods_config, catalogue.progress)
+    if catalogues is not None:
+        catalogues[key] = (stamp, catalogue, items, bosses)
+    return items, bosses
+
+
 def execute(args, edit=None, running=running_games, catalogues=None):
     user, kind = args.user, args.kind
     if args.command == "slots":
@@ -223,8 +251,9 @@ def execute(args, edit=None, running=running_games, catalogues=None):
         if catalogues is not None:
             catalogues[user] = catalogue
     if args.mods and args.game:
-        catalogue.set_mod_items(names.read_mod_items(args.game, args.mods, args.mods_config))
-        catalogue.set_mod_bosses(names.read_mod_bosses(args.game, args.mods, args.mods_config, catalogue.progress))
+        items, bosses = mod_data(args, catalogue, catalogues)
+        catalogue.set_mod_items(items)
+        catalogue.set_mod_bosses(bosses)
     art = icons.source(args.game, args.mods, args.mods_config) if args.game else None  # the icon sheet in game
     if args.command == "effects":
         return [dict(id=e, text=text) for e, text in catalogue.effects_for(0)]  # blood gem effects
