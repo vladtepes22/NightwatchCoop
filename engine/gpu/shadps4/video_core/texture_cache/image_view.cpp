@@ -112,6 +112,21 @@ ImageView::ImageView(const Vulkan::Instance& instance, const ImageViewInfo& info
         format = image.info.pixel_format;
         aspect = vk::ImageAspectFlagBits::eStencil;
     }
+    // bbport: a colour view of a depth/stencil image is invalid Vulkan; NVIDIA builds it and the
+    // GPU reads past the image (the device lost in loads, TextureCache::GetAssociatedDepth). Said
+    // so a path that still makes one shows in the log.
+    if (format != image.info.pixel_format && (aspect & (vk::ImageAspectFlagBits::eDepth |
+                                                        vk::ImageAspectFlagBits::eStencil))) {
+        static std::atomic<u32> said{0};
+        if (said.fetch_add(1, std::memory_order_relaxed) < 20) {
+            std::printf("Texture view: a %s view of the %s image %ux%u at %#llx (invalid)\n",
+                        vk::to_string(format).c_str(),
+                        vk::to_string(image.info.pixel_format).c_str(), image.info.size.width,
+                        image.info.size.height,
+                        static_cast<unsigned long long>(image.info.guest_address));
+            std::fflush(stdout);
+        }
+    }
 
     // bbport: a view lies inside its image. A texture resolved as a mip or slice of a cached image
     // (texture_cache.cpp, view_mip / view_slice) could ask for levels or layers past the image's

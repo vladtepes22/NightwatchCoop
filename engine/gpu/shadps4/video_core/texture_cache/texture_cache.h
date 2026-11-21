@@ -340,6 +340,15 @@ public:
         return {};
     }
 
+    /// The depth stencil image to sample in place of `image` through a view of `view_format`, or
+    /// none. bbport: only a stencil (R8) or depth (R16/R32) view can be served by the depth image
+    /// (ImageView turns those into its stencil/depth aspect). FindDepthTarget links whatever image
+    /// starts at the stencil address, and after a load the game can reuse that memory for a colour
+    /// target (a 2560x1600 RGBA16F): redirecting that one made an RGBA16F view of the D32S8 depth
+    /// image, and the GPU read past its end (device lost in loads, full-screen ps 290a042b,
+    /// 19-21 Nov).
+    ImageId GetAssociatedDepth(Image& image, vk::Format view_format);
+
     enum class MetaType {
         CMask,
         FMask,

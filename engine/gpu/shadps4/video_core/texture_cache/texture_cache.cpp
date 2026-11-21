@@ -915,6 +915,14 @@ void TextureCache::UnmapMemory(VAddr cpu_addr, size_t size) {
     }
 }
 
+ImageId TextureCache::GetAssociatedDepth(Image& image, vk::Format view_format) {
+    if (!Vulkan::LiverpoolToVK::IsFormatStencilCompatible(view_format) &&
+        !Vulkan::LiverpoolToVK::IsFormatDepthCompatible(view_format)) {
+        return {};
+    }
+    return GetAssociatedDepth(image);
+}
+
 ImageId TextureCache::ResolveDepthOverlap(const ImageInfo& requested_info, BindingType binding,
                                           ImageId cache_image_id, bool exact_fmt) {
     auto& cache_image = slot_images[cache_image_id];
