@@ -344,7 +344,55 @@ internal static class Program
         Require(Descendants(spoilerRoot).OfType<TextBlock>().Any(t => t.Text == "→ Blood-starved Beast (c2090) ×3"), "the spoiler lists enemy changes with names");
         Render(spoilerRoot, 900, 600, 1, Path.Combine(output, "randomizer-spoiler.png"));
         window.Close();
+        RandomizerWorldShots(output, mods, settings);
         Console.WriteLine("PASS: Randomizer page (Play, new, pasted code, sections open, bad code, bosses, bosses stay) and spoiler rendered off screen; arena dependencies, values, locking and restoration checked.");
+    }
+
+    /// <summary>The Play tab with several worlds (one named at the longest name a world takes, one never played here) at
+    /// the content size of a 1280x720 window and a large one; then no worlds at all, which opens on Create world.</summary>
+    private static void RandomizerWorldShots(string output, string mods, LauncherSettings settings)
+    {
+        settings.Set("user_dir", Path.Combine(output, "fixture-user"));
+        var codes = new[] { "R2-1C000-035G6-0GM68", "R2-0M000-01G74-ZY" };
+        var hashes = new[] { "22222222", "33333333" };
+        for (var i = 0; i < codes.Length; i++)
+        {
+            var folder = Path.Combine(mods, Randomizer.FolderName(codes[i], hashes[i]));
+            Directory.CreateDirectory(Path.Combine(folder, "dvdroot_ps4"));
+            File.WriteAllText(Path.Combine(folder, "randomizer_manifest.json"),
+                $$"""{"generator": 1, "code": "{{codes[i]}}", "input_hash": "{{new string(hashes[i][0], 64)}}", "mods": [], "base_label": null, "lobby_label": null}""");
+        }
+        var profile = PlayerProfiles.Folder(settings, PlayerProfiles.Current(settings));
+        var named = Randomizer.Load(mods, Randomizer.FolderName(codes[0], hashes[0]))!;
+        WorldSaves.SetName(profile, named, new string('W', 20) + " the very long world name ok", mods);
+        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        void Shot(string name, int width, int height, bool play)
+        {
+            var page = new RandomizerPage();
+            typeof(LauncherPage).GetMethod("Sectionize", flags)!.Invoke(page, null);
+            typeof(RandomizerPage).GetMethod("Sync", flags)!.Invoke(page, null);
+            page.OnShown();
+            var create = (UIElement)typeof(RandomizerPage).GetField("_create", flags)!.GetValue(page)!;
+            Require((create.Visibility != Visibility.Visible) == play, name + ": the page opens on " + (play ? "Play" : "Create world"));
+            var content = (UIElement)page.Content; page.Content = null;
+            var root = new Border { Child = content, Width = width, Height = height };
+            root.SetResourceReference(Border.BackgroundProperty, "DialogBackgroundBrush");
+            root.SetResourceReference(TextElement.ForegroundProperty, "TextFillColorPrimaryBrush");
+            Layout(root, width, height);
+            foreach (var control in Descendants(root).OfType<FrameworkElement>().Where(c => c is Button or TextBox or ComboBox && c.IsVisible && c.ActualWidth > 0))
+            {
+                var bounds = control.TransformToAncestor(root).TransformBounds(new Rect(control.RenderSize));
+                Require(bounds.Left >= 0 && bounds.Right <= width + 0.5, "Randomizer control clipped horizontally: " + name);
+            }
+            Render(root, width, height, 1, Path.Combine(output, "randomizer-" + name + ".png"));
+        }
+        // The launcher's content beside the navigation: about 1000x640 in a 1280x720 window.
+        Shot("worlds-1280x720", 1000, 640, play: true);
+        Shot("worlds-large", 1600, 1000, play: true);
+        Shot("worlds-narrow", 640, 900, play: true);
+        foreach (var dir in Directory.GetDirectories(mods).Where(d => Randomizer.IsWorld(Path.GetFileName(d)))) Directory.Delete(dir, true);
+        Shot("empty-1280x720", 1000, 640, play: false);
+        Shot("empty-large", 1600, 1000, play: false);
     }
 
     private static Border CoopRoot(UIElement content, int width, int height, Color shade)
