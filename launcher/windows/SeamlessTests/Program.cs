@@ -845,6 +845,7 @@ WorldJoinTests.Run();
 WorldRejoinTests.Run();
 WorldSavesTests.Run();
 PartyCodeTests.Run();
+MapInputTests.Run();
 SaveEditorTests.Run();
 CoopSetupTests.Run();
 CuratedModTests.Run();

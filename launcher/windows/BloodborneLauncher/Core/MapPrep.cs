@@ -179,12 +179,13 @@ namespace BloodborneLauncher.Core
             }
         }
 
-        /// <summary>Runs a step at low priority (the game may be playing), its output lines to
-        /// <paramref name="line"/>; throws when it fails.</summary>
         /// <summary>The folder the generator reads. With the 1.09 update beside the game (GameCheck finds
-        /// it, as the engine lays it over the game at start), it is a view of both: the update's eboot.bin
-        /// and sce_sys, the game's dvdroot_ps4 linked. The game folder itself is never written. Without an
-        /// update it is the game folder.</summary>
+        /// it, as the engine lays it over the game at start), it is a view of both, as the engine sees
+        /// them: the update's eboot.bin and sce_sys, and its dvdroot_ps4 files over the game's. The update
+        /// brings maps the game folder lacks (on base dumps such as CUSA00900, The Old Hunters' three
+        /// areas), so the game's dvdroot_ps4 alone is not enough. Folders only one side has are linked
+        /// (junctions); files in folders both have are hard links (copies across drives). The game and
+        /// update folders are never written. Without an update it is the game folder.</summary>
         public static string PrepareInput(string game, string root)
         {
             var update = GameCheck.UpdateFolder(game);
@@ -192,7 +193,12 @@ namespace BloodborneLauncher.Core
             var input = Path.Combine(root, "input");
             RemoveInput(input);
             Directory.CreateDirectory(Path.Combine(input, "sce_sys"));
-            LinkFolder(Path.Combine(game, "dvdroot_ps4"), Path.Combine(input, "dvdroot_ps4"));
+            File.WriteAllText(Path.Combine(input, InputMarker), "");
+            var updateData = Path.Combine(update, "dvdroot_ps4");
+            if (Directory.Exists(updateData))
+                Overlay(Path.Combine(game, "dvdroot_ps4"), updateData, Path.Combine(input, "dvdroot_ps4"));
+            else
+                LinkFolder(Path.Combine(game, "dvdroot_ps4"), Path.Combine(input, "dvdroot_ps4"));
             File.Copy(Path.Combine(update, "eboot.bin"), Path.Combine(input, "eboot.bin"), overwrite: true);
             var sfo = File.Exists(Path.Combine(update, "sce_sys", "param.sfo"))
                 ? Path.Combine(update, "sce_sys", "param.sfo")
@@ -201,16 +207,55 @@ namespace BloodborneLauncher.Core
             return input;
         }
 
-        /// <summary>Removes the view made by PrepareInput. Its dvdroot_ps4 is a junction: the link goes,
-        /// the game's folder under it stays. A folder whose dvdroot_ps4 is a real folder (the game
-        /// itself) is left alone.</summary>
+        /// <summary>Marks a folder PrepareInput made, so RemoveInput never deletes anything else.</summary>
+        private const string InputMarker = "nightwatch-map-input.txt";
+
+        /// <summary><paramref name="view"/> = <paramref name="top"/> laid over <paramref name="bottom"/>.</summary>
+        private static void Overlay(string bottom, string top, string view)
+        {
+            Directory.CreateDirectory(view);
+            var bottomDirs = Directory.GetDirectories(bottom).ToDictionary(p => Path.GetFileName(p), StringComparer.OrdinalIgnoreCase);
+            var topDirs = Directory.GetDirectories(top).ToDictionary(p => Path.GetFileName(p), StringComparer.OrdinalIgnoreCase);
+            foreach (var (name, dir) in topDirs)
+                if (bottomDirs.TryGetValue(name, out var under)) Overlay(under, dir, Path.Combine(view, name));
+                else LinkFolder(dir, Path.Combine(view, name));
+            foreach (var (name, dir) in bottomDirs)
+                if (!topDirs.ContainsKey(name)) LinkFolder(dir, Path.Combine(view, name));
+            var files = Directory.GetFiles(bottom).ToDictionary(p => Path.GetFileName(p), StringComparer.OrdinalIgnoreCase);
+            foreach (var file in Directory.GetFiles(top)) files[Path.GetFileName(file)] = file;
+            foreach (var (name, file) in files)
+            {
+                var link = Path.Combine(view, name);
+                if (!CreateHardLinkW(link, file, IntPtr.Zero)) File.Copy(file, link);
+            }
+        }
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern bool CreateHardLinkW(string link, string existing, IntPtr security);
+
+        /// <summary>Removes a view made by PrepareInput: links and hard links go, the game's and the
+        /// update's files stay (never followed into a junction). Anything else, the game folder
+        /// itself included, is left alone.</summary>
         public static void RemoveInput(string input)
         {
             if (!Directory.Exists(input)) return;
-            var link = new DirectoryInfo(Path.Combine(input, "dvdroot_ps4"));
-            if (link.Exists && !link.Attributes.HasFlag(FileAttributes.ReparsePoint)) return;
-            if (link.Exists) link.Delete(recursive: false);
-            Directory.Delete(input, recursive: true);
+            // An older launcher's view: no marker, its dvdroot_ps4 a junction.
+            var data = new DirectoryInfo(Path.Combine(input, "dvdroot_ps4"));
+            if (!File.Exists(Path.Combine(input, InputMarker)) &&
+                !(data.Exists && data.Attributes.HasFlag(FileAttributes.ReparsePoint))) return;
+            RemoveView(new DirectoryInfo(input));
+        }
+
+        private static void RemoveView(DirectoryInfo dir)
+        {
+            if (dir.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                dir.Delete(recursive: false);  // the junction only
+                return;
+            }
+            foreach (var sub in dir.EnumerateDirectories()) RemoveView(sub);
+            foreach (var file in dir.EnumerateFiles()) file.Delete();
+            dir.Delete(recursive: false);
         }
 
         private static void LinkFolder(string target, string link)
@@ -219,8 +264,11 @@ namespace BloodborneLauncher.Core
             foreach (var arg in new[] { "/c", "mklink", "/J", link, target }) mklink.ArgumentList.Add(arg);
             using var process = Process.Start(mklink) ?? throw new IOException("Cannot start mklink for the map");
             process.WaitForExit();
-            if (process.ExitCode != 0) throw new IOException("Cannot link the game's dvdroot_ps4 for the map");
+            if (process.ExitCode != 0) throw new IOException("Cannot link the game's files for the map: " + target);
         }
+
+        /// <summary>Runs a step at low priority (the game may be playing), its output lines to
+        /// <paramref name="line"/>; throws when it fails.</summary>
 
         private static async Task Run(ProcessStartInfo info, Action<string> line)
         {
