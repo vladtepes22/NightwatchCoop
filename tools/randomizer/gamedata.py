@@ -164,6 +164,14 @@ def content_root(folder):
     return None
 
 
+UPDATE_MARK = "event/m34_00_00_00.emevd.dcx"  # the first Old Hunters area's events: game data since 1.09 (a disc
+# game's base lacks them; its 1.09 update brings them with every map's new event files)
+
+
+class OldGame(RuntimeError):
+    """The game's files are from before the 1.09 update (randomizer.py: exit 7)."""
+
+
 class GameFiles:
     """`roots` = the game, then mod folders; later roots win, like the engine's load order. `update`: the game's update
     folder when it is kept beside the game, not copied into it (the launcher's GameCheck.UpdateFolder: CUSAxxxxx-patch
@@ -205,6 +213,16 @@ class GameFiles:
 
     def path(self, rel):
         return self._find(rel)[1]
+
+    def check_updated(self):
+        """Every edit is written against the 1.09 files. A disc game (CUSA00900) whose update is neither copied in nor
+        beside it (or only its eboot.bin and sce_sys were copied) has the base's map events: an arena edit then misses
+        its line (NW-bbc8683: 'event 12424790 has no 2004[17]'). Said plainly instead."""
+        if self.path(UPDATE_MARK) is None:
+            raise OldGame("The game's files are from before the 1.09 update (no Old Hunters events in dvdroot_ps4): "
+                          "copy the whole 1.09 update into the game folder (launcher: Game setup, Choose update "
+                          "folder) or keep it beside the game as %s-patch, then generate again."
+                          % os.path.basename(os.path.normpath(os.path.dirname(self.roots[0]))))
 
     def read(self, rel):
         index, path = self._find(rel)

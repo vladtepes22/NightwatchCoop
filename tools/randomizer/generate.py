@@ -600,6 +600,7 @@ def generate(game, mods, out_root, code, label=None, base_label=None, progress=N
     if base_label is not None and not BASE_LABEL.fullmatch(base_label):
         raise ValueError("base label: 1-180 characters of a-z 0-9 @ . _ : + -")
     files = GameFiles(game, mods, update)  # update: the game's update folder when beside the game (GameFiles)
+    files.check_updated()  # OldGame: a game without its 1.09 files, said before any edit misses its line
     step("read")
     census = Census(files)
     step("plan")

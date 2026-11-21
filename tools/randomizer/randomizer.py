@@ -156,6 +156,7 @@ def main():
             return 6
         return 0
     from buildid import BuildIdError
+    from gamedata import OldGame
     from generate import FolderInUse, generate
     try:
         decode(args.code)
@@ -172,6 +173,9 @@ def main():
     except BuildIdError as e:  # no world under an id that may not be this generator's
         print(e, file=sys.stderr)
         return 6
+    except OldGame as e:  # the launcher shows the last stderr line
+        print(e, file=sys.stderr)
+        return 7
     report = spoiler["report"]
     changed = sum(m["changed"] for m in report["maps"].values())
     print("wrote", folder)

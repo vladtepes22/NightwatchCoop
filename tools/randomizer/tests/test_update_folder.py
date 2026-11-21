@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from gamedata import GameFiles  # noqa: E402
+from gamedata import GameFiles, OldGame, UPDATE_MARK  # noqa: E402
 
 
 def _write(folder, rel, data):
@@ -49,6 +49,19 @@ class UpdateFolder(unittest.TestCase):
             # without the update the base is read: the old bytes, another hash
             alone = GameFiles(base)
             self.assertEqual(alone.read("event/m21.emevd.dcx"), b"old")
+
+    def test_a_game_without_its_update_is_refused_plainly(self):
+        """NW-bbc8683: a disc game read without its 1.09 files failed deep in an arena edit with a raw ValueError."""
+        with tempfile.TemporaryDirectory() as tmp:
+            base, update = (os.path.join(tmp, n) for n in ("CUSA00900", "CUSA00900-patch"))
+            _write(base, "event/m24_02_00_00.emevd.dcx", b"base")
+            _write(update, UPDATE_MARK, b"1.09")
+            with self.assertRaises(OldGame) as refused:
+                GameFiles(base).check_updated()
+            self.assertIn("CUSA00900-patch", str(refused.exception))
+            GameFiles(base, [], update).check_updated()  # the update beside the game counts
+            _write(base, UPDATE_MARK, b"1.09")
+            GameFiles(base).check_updated()  # and copied in
 
 
 if __name__ == "__main__":
