@@ -57,6 +57,13 @@ internal static class MapInputTests
 
             MapPrep.RemoveInput(game);
             Check(File.Exists(Path.Combine(game, "eboot.bin")), "RemoveInput deleted a folder it did not make");
+
+            // NW-bbc8683: a game with only eboot.bin and sce_sys copied in says 01.09 but lacks the update's map files:
+            // the randomizer must still read through the update (GameCheck.LaidOverGame, bb-start's rule)
+            Check(GameCheck.MissesUpdateFiles(update, game), "a game without the update's files counts as updated");
+            foreach (var file in Directory.EnumerateFiles(Path.Combine(update, "dvdroot_ps4"), "*", SearchOption.AllDirectories))
+                Write(Path.Combine(game, "dvdroot_ps4", Path.GetRelativePath(Path.Combine(update, "dvdroot_ps4"), file)), "copied in");
+            Check(!GameCheck.MissesUpdateFiles(update, game), "a game with all the update's files counts as not updated");
         }
         finally
         {

@@ -204,6 +204,22 @@ std::optional<std::string> AppVersion(const fs::path& folder) {
     }
 }
 
+// How many of the update's game files (dvdroot_ps4) the game folder lacks. A game counts as updated only with all of
+// them: one where only eboot.bin and sce_sys were copied says 01.09 but has the base's map events (NW-bbc8683).
+std::size_t MissingFromGame(const fs::path& update, const fs::path& game) {
+    const fs::path root = Child(update, L"dvdroot_ps4"), game_root = Child(game, L"dvdroot_ps4");
+    std::size_t missing = 0;
+    std::error_code e;
+    if (!IsDir(root)) return 0;
+    for (fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, e), end;
+         !e && it != end; it.increment(e)) {
+        std::error_code f;
+        if (!it->is_regular_file(f)) continue;
+        if (!Exists(game_root / it->path().native().substr(root.native().size() + 1))) ++missing;
+    }
+    return missing;
+}
+
 std::optional<fs::path> UpdateFolder(const fs::path& game) {
     const std::wstring update = Fold(game.filename().native() + L"-update"),
                        patch = Fold(game.filename().native() + L"-patch");
@@ -212,8 +228,13 @@ std::optional<fs::path> UpdateFolder(const fs::path& game) {
         if (!IsDir(entry) || (name != update && name != patch) || !IsFile(Child(entry, L"eboot.bin"))) continue;
         const auto version = AppVersion(entry);
         if (version && !version->empty() && AppVersion(game) == version) {
-            Log("Game update: %s is already in the game (%s)", Utf8(entry.filename()).c_str(), version->c_str());
-            return std::nullopt;
+            const std::size_t missing = MissingFromGame(entry, game);
+            if (!missing) {
+                Log("Game update: %s is already in the game (%s)", Utf8(entry.filename()).c_str(), version->c_str());
+                return std::nullopt;
+            }
+            Log("Game update: the game says %s but lacks %zu of %s's files (only part of it was copied in): laid "
+                "over the game", version->c_str(), missing, Utf8(entry.filename()).c_str());
         }
         return entry;
     }

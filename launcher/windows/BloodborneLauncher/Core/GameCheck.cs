@@ -63,7 +63,27 @@ namespace BloodborneLauncher.Core
         {
             if (UpdateFolder(gameDir) is not { } update) return null;
             var version = ReadSfo(Path.Combine(update, "sce_sys", "param.sfo")).GetValueOrDefault("APP_VER");
-            return version != null && ReadSfo(Path.Combine(gameDir, "sce_sys", "param.sfo")).GetValueOrDefault("APP_VER") == version ? null : update;
+            return version != null && ReadSfo(Path.Combine(gameDir, "sce_sys", "param.sfo")).GetValueOrDefault("APP_VER") == version &&
+                   !MissesUpdateFiles(update, gameDir) ? null : update;
+        }
+
+        /// <summary>Whether the game folder lacks any of the update's game files (dvdroot_ps4). A game counts as updated only
+        /// with all of them: one where only eboot.bin and sce_sys were copied says 01.09 but has the base's map events
+        /// (NW-bbc8683). Same rule as bb-start (start/mods.cpp MissingFromGame).</summary>
+        public static bool MissesUpdateFiles(string update, string gameDir)
+        {
+            try
+            {
+                var root = Path.Combine(update, "dvdroot_ps4");
+                if (!Directory.Exists(root)) return false;
+                var gameRoot = Path.Combine(gameDir, "dvdroot_ps4");
+                return Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+                    .Any(f => !File.Exists(Path.Combine(gameRoot, Path.GetRelativePath(root, f))));
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         /// <summary>The game update beside the game folder (&lt;game&gt;-UPDATE or &lt;game&gt;-patch, any case)

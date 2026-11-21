@@ -117,6 +117,18 @@ def app_version(folder):
         return None
 
 
+def missing_from_game(update, game):
+    """How many of the update's game files (dvdroot_ps4) the game folder lacks. A game counts as updated
+    only with all of them: one where only eboot.bin and sce_sys were copied says 01.09 but has the
+    base's map events (NW-bbc8683). Same rule as bb-start (start/mods.cpp MissingFromGame)."""
+    root, game_root = child(update, 'dvdroot_ps4'), child(game, 'dvdroot_ps4')
+    missing = 0
+    for directory, _, files in os.walk(root):
+        rel = os.path.relpath(directory, root)
+        missing += sum(1 for name in files if not (game_root / rel / name).exists())
+    return missing
+
+
 def update_folder(game):
     """The dumped game update beside the game, as shadPS4 keeps it (<game>-UPDATE or <game>-patch,
     any case), when it holds an eboot.bin and the game is not already at its version: it is layered
@@ -127,8 +139,12 @@ def update_folder(game):
                                                          f'{game.name}-patch'.casefold())                 and child(entry, 'eboot.bin').is_file():
             version = app_version(entry)
             if version and app_version(game) == version:
-                print(f'Game update: {entry.name} is already in the game ({version})', file=sys.stderr)
-                return None
+                missing = missing_from_game(entry, game)
+                if not missing:
+                    print(f'Game update: {entry.name} is already in the game ({version})', file=sys.stderr)
+                    return None
+                print(f"Game update: the game says {version} but lacks {missing} of {entry.name}'s files "
+                      '(only part of it was copied in): laid over the game', file=sys.stderr)
             return entry
     return None
 

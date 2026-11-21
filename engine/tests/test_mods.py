@@ -52,6 +52,25 @@ class ModTests(unittest.TestCase):
         self.assertEqual((self.game / 'eboot.bin').read_bytes(), b'original executable')
         self.assertIsNone(mods.update_folder(update))
 
+    def test_update_counts_as_copied_in_only_with_all_its_files(self):
+        # NW-bbc8683: a game whose sce_sys says 01.09 but which lacks the update's map files (only eboot.bin and
+        # sce_sys copied in) played and randomized the base's events
+        from test_game_check import param_sfo
+        update = self.root / 'CUSA03173-patch'
+        (update / 'dvdroot_ps4' / 'chr').mkdir(parents=True)
+        (update / 'sce_sys').mkdir()
+        (self.game / 'sce_sys').mkdir()
+        (update / 'eboot.bin').write_bytes(b'1.09 executable')
+        for folder in (update, self.game):
+            (folder / 'sce_sys' / 'param.sfo').write_bytes(param_sfo({'APP_VER': '01.09', 'TITLE_ID': 'CUSA03173'}))
+        (update / 'dvdroot_ps4' / 'chr' / 'a.dcx').write_bytes(b'updated')
+        (update / 'dvdroot_ps4' / 'chr' / 'new.dcx').write_bytes(b'only in the update')
+        self.assertEqual(mods.missing_from_game(update, self.game), 1)
+        self.assertTrue(mods.update_folder(self.game).samefile(update))
+        (self.assets / 'new.dcx').write_bytes(b'only in the update')
+        self.assertEqual(mods.missing_from_game(update, self.game), 0)
+        self.assertIsNone(mods.update_folder(self.game))
+
     def test_merge_replacement_new_file_and_directory_listing(self):
         a = self.mod('A')
         self.mod('A', b'new', 'new.dcx')
