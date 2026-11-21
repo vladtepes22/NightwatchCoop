@@ -207,7 +207,20 @@ namespace BloodborneLauncher
                 var byContent = world.Base is { } b && b.Contains(CuratedMods.ModToken);
                 var local = await Task.Run(() => CuratedMods.Local(s, dir, manifest, byContent));
                 var advice = CuratedMods.JoinAdvice(label, local, manifest?.Versions.Select(v => v.Version).ToList());
-                if (WorldRejoin.Decide(label, advice) != WorldRejoin.Answer.Build) return;
+                if (WorldRejoin.Decide(label, advice) != WorldRejoin.Answer.Build)
+                {
+                    // Nothing to build: say why the host's world can't be played here, as a Join list's row would before joining
+                    // (else the guest is left with the game's bare refusal).
+                    var why = advice.Kind == JoinKind.NocturneNotAvailable
+                        ? string.Format(L.T("You do not have Nocturne {0} installed. Install it in the {1}."), advice.Version, L.T("Workshop"))
+                        : CuratedMods.WorldProblemText(advice);
+                    if (why != null)
+                    {
+                        ws.Log(why, LogLevel.Bad);
+                        Prompt.Tell(L.T("Randomized world"), why);
+                    }
+                    return;
+                }
                 ws.Log(L.T("The host plays a randomized world you don't have: building it, then joining again."), LogLevel.Step);
                 ShowBuildBar(0, L.T("Building the host's world…"));
                 await WorldRejoin.RunAsync(label, advice,

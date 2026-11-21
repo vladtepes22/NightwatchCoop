@@ -1234,14 +1234,7 @@ public sealed class SeamlessPage : LauncherPage
     {
         var modsDiffer = advice.Kind is JoinKind.Modded or JoinKind.MismatchJoinAnyway;
         if (advice.Kind == JoinKind.NocturneNotAvailable) yield return NocturneNote(advice, fontSize);
-        if (advice.Kind == JoinKind.WorldNewer)
-            yield return NoteLine(L.T("This host's world was made by a newer randomizer: update the launcher to join it."), fontSize);
-        else if (advice.Kind == JoinKind.WorldOlder)
-            yield return NoteLine(L.T("This host's world was made by an older randomizer: the host needs to make it again with the current launcher before you can join."), fontSize);
-        else if (advice.Kind == JoinKind.WorldNotAvailable)
-            yield return NoteLine(L.T("This host's randomized world can't be built here: you probably can't join."), fontSize);
-        else if (advice.Kind == JoinKind.WorldModMissing)
-            yield return NoteLine(CuratedMods.MissingModsText((advice.Missing ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)), fontSize);
+        if (CuratedMods.WorldProblemText(advice) is { } world) yield return NoteLine(world, fontSize);
         // Patches (user, 4 Nov: a mod's own XML patch refused a join the lobby did not warn about).
         if (modsDiffer && advice.PatchesDiffer)
             yield return NoteLine(L.T("Mods and patches differ: enable the same mods and patches and try again."), fontSize);

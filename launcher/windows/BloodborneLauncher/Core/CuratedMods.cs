@@ -1112,6 +1112,17 @@ namespace BloodborneLauncher.Core
                 string.Join(", ", list));
         }
 
+        /// <summary>Why the host's randomized world can't be played here (a Join list's note before joining, and the message
+        /// after a refused join by code or address); null for any other advice.</summary>
+        public static string? WorldProblemText(JoinChoice advice) => advice.Kind switch
+        {
+            JoinKind.WorldNewer => L.T("This host's world was made by a newer randomizer: update the launcher to join it."),
+            JoinKind.WorldOlder => L.T("This host's world was made by an older randomizer: the host needs to make it again with the current launcher before you can join."),
+            JoinKind.WorldNotAvailable => L.T("This host's randomized world can't be built here: you probably can't join."),
+            JoinKind.WorldModMissing => MissingModsText((advice.Missing ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)),
+            _ => null,
+        };
+
         /// <summary>This folder already holds the host's world: its folder (Randomizer.FolderName) whose manifest is this generator's, with
         /// that code and input hash, built on base mods that a label names <paramref name="basePart"/> now (by content, so a
         /// base under another folder name counts; null: the game alone). A folder of that name from another generator is
