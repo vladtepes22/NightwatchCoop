@@ -21,7 +21,7 @@ import sys
 import struct
 import time
 import zlib
-from mods import remove_overlay
+from mods import hold_overlay, release_overlay, remove_overlay
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / 'scripts'
@@ -287,15 +287,19 @@ def main():
                        '--config', os.environ.get('BB_MODS_CONFIG', data / 'mods.json'),
                        '--enabled', os.environ.get('BB_MODS_ENABLED', '1')], capture=True))
     overlay = merged if merged.resolve() != original else None
+    # This start's overlay until it ends: another start's stale sweep (mods.py) leaves it alone.
+    held = hold_overlay(overlay) if overlay else None
     core = ('dvdroot_ps4/shader/gxshader.shaderbnd.dcx', 'dvdroot_ps4/other/systex.tpf.dcx')
     missing = [name for name in core if not (merged / name).is_file()]
     if missing and overlay and all((original / name).is_file() for name in core):
         print('Mods: the merged game lost its own files; starting without mods', flush=True)
         remove_overlay(overlay)
-        merged, overlay, missing = original, None, []
+        release_overlay(held)
+        merged, overlay, held, missing = original, None, None, []
     if missing:
         if overlay:
             remove_overlay(overlay)
+            release_overlay(held)
         sys.exit(f'The game folder {original} is incomplete: {", ".join(missing)} missing. '
                  'Dump or extract the game again (base game plus the 1.09 update).')
     # As bb-start (start/main.cpp): the PC menus check their prepared files against the merged game.
@@ -410,6 +414,7 @@ def main():
     finally:
         if overlay:
             remove_overlay(overlay)
+            release_overlay(held)
 
 
 if __name__ == '__main__':

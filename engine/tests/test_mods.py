@@ -94,6 +94,27 @@ class ModTests(unittest.TestCase):
         self.assertEqual((self.assets / 'a.dcx').read_bytes(), b'original')
         self.assertEqual((a / 'dvdroot_ps4/chr/a.dcx').read_bytes(), b'mod')
 
+    @unittest.skipUnless(mods.WINDOWS, 'the overlay lock is a Windows delete-on-close handle')
+    def test_a_new_start_leaves_a_running_games_overlay_alone(self):
+        a = self.mod('A')
+        out = self.root / 'out'
+        running = mods.build_overlay(self.game, out, [('A', a)])
+        held = mods.hold_overlay(running)  # as run_windows.py for the game it runs on `running`
+        self.assertIsNotNone(held)
+        stale = mods.build_overlay(self.game, out, [('A', a)])  # a start that was killed: no lock left
+        leftover_lock = mods.overlay_lock(stale)
+        leftover_lock.write_bytes(b'')  # a lock file nobody holds counts as not held
+        current = mods.build_overlay(self.game, out, [('A', a)])
+        self.assertTrue((running / 'dvdroot_ps4/chr/a.dcx').is_file())
+        self.assertFalse(stale.exists())
+        self.assertFalse(leftover_lock.exists())
+        self.assertTrue(current.exists())
+        mods.remove_overlay(running)
+        mods.release_overlay(held)
+        self.assertFalse(mods.overlay_lock(running).exists())  # deleted with the handle
+        mods.build_overlay(self.game, out, [])
+        self.assertEqual(list(out.iterdir()), [])
+
     def test_directory_conflict_does_not_modify_base(self):
         a = self.mod('A')
         (a / 'dvdroot_ps4/chr/a.dcx').unlink()

@@ -212,12 +212,69 @@ def expand(directory):
         directory.mkdir(exist_ok=True)
 
 
+# An overlay belongs to the start that runs the game on it for as long as that start runs: it holds
+# "<overlay>.lock" open (delete on close, so a crash leaves none), the same rule as start/mods.cpp
+# (HoldOverlay / OverlayInUse). A second start from the same folder used to remove the first game's
+# overlay under it, and that game's next file was "not found" (gxgui.shaderbnd.dcx: guest+0x21a2da5).
+if WINDOWS:
+    import ctypes
+    from ctypes import wintypes
+    _kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    _kernel32.CreateFileW.restype = wintypes.HANDLE
+    _kernel32.CreateFileW.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                                      wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE)
+    _kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    _kernel32.DeleteFileW.argtypes = (wintypes.LPCWSTR,)
+    _INVALID_HANDLE = wintypes.HANDLE(-1).value
+    _GENERIC_READ, _GENERIC_WRITE = 0x80000000, 0x40000000
+    _FILE_SHARE_READ, _FILE_SHARE_DELETE = 0x1, 0x4
+    _CREATE_ALWAYS, _OPEN_EXISTING = 2, 3
+    _FILE_ATTRIBUTE_HIDDEN, _FILE_FLAG_DELETE_ON_CLOSE = 0x2, 0x04000000
+    _ERROR_ACCESS_DENIED, _ERROR_SHARING_VIOLATION = 5, 32
+
+
+def overlay_lock(overlay):
+    return Path(str(overlay) + '.lock')
+
+
+def hold_overlay(overlay):
+    """Marks `overlay` in use until release_overlay or this process ends; returns the handle (None
+    off Windows, or when the lock cannot be made)."""
+    if not WINDOWS:
+        return None
+    handle = _kernel32.CreateFileW(str(overlay_lock(overlay)), _GENERIC_WRITE,
+                                   _FILE_SHARE_READ | _FILE_SHARE_DELETE, None, _CREATE_ALWAYS,
+                                   _FILE_ATTRIBUTE_HIDDEN | _FILE_FLAG_DELETE_ON_CLOSE, None)
+    return None if handle in (None, _INVALID_HANDLE) else handle
+
+
+def release_overlay(handle):
+    if handle is not None:
+        _kernel32.CloseHandle(handle)  # Windows deletes the lock file with it
+
+
+def overlay_in_use(overlay):
+    """True while another start holds `overlay`'s lock. A lock nobody holds is a leftover: removed."""
+    if not WINDOWS:
+        return False
+    lock = str(overlay_lock(overlay))
+    handle = _kernel32.CreateFileW(lock, _GENERIC_READ, 0, None, _OPEN_EXISTING, 0, None)
+    if handle not in (None, _INVALID_HANDLE):  # nobody holds it: a leftover
+        _kernel32.CloseHandle(handle)
+        _kernel32.DeleteFileW(lock)
+        return False
+    return ctypes.get_last_error() in (_ERROR_SHARING_VIOLATION, _ERROR_ACCESS_DENIED)  # denied: delete pending
+
+
 def remove_stale_overlays(out):
     """Deletes the overlays earlier starts left in `out`: run_windows.py removes its own when the
     game ends, but not when the launcher's Stop (or its "still running" prompt) kills it with the
     game. One still in use (an in-game restart's previous run, stopping) is left for the next start."""
     for overlay in Path(out).glob('mod-game-*'):
         if overlay.is_dir() and not is_link(overlay):
+            if overlay_in_use(overlay):
+                print(f'Mods: {overlay.name} belongs to another running game; left alone', file=sys.stderr)
+                continue
             try:
                 remove_overlay(overlay)
             except OSError:
