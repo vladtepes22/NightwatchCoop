@@ -124,6 +124,29 @@ constexpr Level LevelFor(u64 used, const Marks& m) {
     return used >= m.soft ? Level::Soft : Level::Idle;
 }
 
+/// The collector on the driver's own count (TextureCache::GarbageCollectImages): tight from the
+/// raw usage halfway between the hard mark and the budget on, until it is back under the hard
+/// mark. LevelFor works on EffectiveUsage, which takes off VMA block slack, but the driver counts
+/// it: an 8 GB laptop card (budget 7046 MiB, 2560x1600, mods) sat at 7578 MiB by the driver while
+/// the usage less ~700 MiB of slack stayed under the budget, so the collector never left its hard
+/// level (GPU-written and recent images kept) and the driver paged our memory out (frames of
+/// 50-100 ms). The game's data had this already (GuestLevelOnDriver); textures did not.
+constexpr bool DriverTight(bool was, u64 raw, const Marks& m) {
+    if (m.budget == 0) {
+        return false;
+    }
+    const u64 start = m.hard + (m.budget - m.hard) / 2;
+    return raw >= start || (was && raw >= m.hard);
+}
+
+/// While the driver's count is tight, at least the hard level: images unused for 2 s (and not in
+/// the last 120 frames) go, a capped number a frame (RuleFor), and the pass does not stop at the
+/// first eviction that brings the discounted usage under the mark (the raw count is only measured
+/// once a frame). The over level (write-backs, 8 protected frames) stays for the discounted usage.
+constexpr Level LevelOnDriver(Level level, bool tight) {
+    return tight && level < Level::Hard ? Level::Hard : level;
+}
+
 struct Rule {
     u32 idle_seconds;     ///< unused for at least this long (wall clock)
     u32 protect_frames;   ///< and not used in this many last frames

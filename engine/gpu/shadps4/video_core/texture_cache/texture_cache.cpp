@@ -1965,6 +1965,15 @@ void TextureCache::GarbageCollectImages() {
         total_used_memory = GcPolicy::EffectiveUsage(
             usage, instance.GetDeviceBlockSlack(),
             gc_pending_free_bytes.load(std::memory_order_relaxed));
+        // bbport: the driver's own count too (GcPolicy::DriverTight): VMA block slack, which the
+        // effective usage takes off, still counts against the budget. BB_GC_DRIVER_LEVEL=0: the
+        // effective usage alone, as before.
+        static const bool driver_level = [] {
+            const char* env = std::getenv("BB_GC_DRIVER_LEVEL");
+            return !(env && env[0] == '0');
+        }();
+        gc_driver_usage = usage;
+        gc_driver_tight = driver_level && GcPolicy::DriverTight(gc_driver_tight, usage, gc_marks);
     } else if (!instance.CanReportMemoryUsage() && gc_marks.budget == 0) {
         // No usage from the driver: the image bytes against shadPS4's fixed marks.
         gc_marks.soft = pressure_gc_memory;
@@ -1976,7 +1985,11 @@ void TextureCache::GarbageCollectImages() {
     if (BbToggle::Disabled(BbToggle::TextureCollector)) {
         return;
     }
-    const GcPolicy::Level level = GcPolicy::LevelFor(total_used_memory, gc_marks);
+    // bbport: at least the hard level while the driver's count is tight (GcPolicy::LevelOnDriver).
+    const GcPolicy::Level driver_floor =
+        GcPolicy::LevelOnDriver(GcPolicy::Level::None, gc_driver_tight);
+    const GcPolicy::Level level =
+        std::max(GcPolicy::LevelFor(total_used_memory, gc_marks), driver_floor);
     BbStats::gc_level.store(u32(level), std::memory_order_relaxed);
     if (level == GcPolicy::Level::None) {
         return;
@@ -2160,19 +2173,23 @@ void TextureCache::GarbageCollectImages() {
         BbStats::gc_freed_bytes_total.fetch_add(bytes, std::memory_order_relaxed);
         FreeImage(image_id);
         // Below the mark this rule started at: the rest waits for the next pass and its rule.
+        // bbport: while the driver's count is tight, the quota ends the pass instead (the raw
+        // count is measured once a frame).
         return level >= GcPolicy::Level::Soft &&
-               GcPolicy::LevelFor(total_used_memory, gc_marks) < level;
+               std::max(GcPolicy::LevelFor(total_used_memory, gc_marks), driver_floor) < level;
     });
     // bbport: evictions under memory pressure, at most every 5 s (BB_FRAME_STATS or not).
     if (level >= GcPolicy::Level::Soft || gc_downloads != 0 || gc_tiled_written != 0) {
         const auto now = std::chrono::steady_clock::now();
         if (now - gc_report_time >= std::chrono::seconds(5)) {
-            std::printf("Texture cache: memory pressure, %llu of %llu MiB budget (gradual from "
-                        "%llu, hard %llu): %llu images evicted (%llu MiB), %llu written back, "
-                        "%llu tiled written back, %llu GPU-written kept, %llu in use kept since "
-                        "the last report\n",
+            std::printf("Texture cache: memory pressure, %llu of %llu MiB budget (driver %llu%s; "
+                        "gradual from %llu, hard %llu): %llu images evicted (%llu MiB), %llu "
+                        "written back, %llu tiled written back, %llu GPU-written kept, %llu in use "
+                        "kept since the last report\n",
                         (unsigned long long)(total_used_memory >> 20),
                         (unsigned long long)(gc_marks.budget >> 20),
+                        (unsigned long long)(gc_driver_usage >> 20),
+                        gc_driver_tight ? ", tight" : "",
                         (unsigned long long)(gc_marks.soft >> 20),
                         (unsigned long long)(gc_marks.hard >> 20),
                         (unsigned long long)gc_evictions,

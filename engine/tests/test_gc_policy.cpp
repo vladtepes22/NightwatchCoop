@@ -210,6 +210,40 @@ int main() {
         assert(f.TickFramesAgo(15) == 9000);
     }
 
+    // The driver's count (DriverTight / LevelOnDriver): an 8 GB laptop card, budget 7046 MiB,
+    // the driver at 7578 MiB with ~700 MiB of VMA block slack. The effective usage (6878) is
+    // under the budget: by it alone the collector stays at its hard mark, the raw count at hard +
+    // slack, over the budget for good. Tight, it stays at least hard until the raw count is under
+    // the hard mark; the over level (write-backs) stays for the effective usage.
+    {
+        const Marks m = MarksFor(7046 * MiB);
+        assert(m.hard == 7046 * MiB - 7046 * MiB / 20); // 6694 MiB
+        const u64 start = m.hard + (m.budget - m.hard) / 2;
+        const u64 effective = EffectiveUsage(7578 * MiB, 700 * MiB, 0);
+        assert(LevelFor(effective, m) == Level::Hard);
+        assert(DriverTight(false, 7578 * MiB, m));
+        assert(DriverTight(false, start, m));
+        assert(!DriverTight(false, start - 1, m)); // under the start mark: not yet
+        assert(DriverTight(true, m.hard, m));      // tight stays down to the hard mark
+        assert(!DriverTight(true, m.hard - 1, m));
+        // Under the hard mark by the effective usage (evictions left holes), still tight.
+        const Level soft = LevelFor(EffectiveUsage(7000 * MiB, 900 * MiB, 0), m);
+        assert(soft == Level::Soft);
+        assert(LevelOnDriver(soft, true) == Level::Hard);
+        assert(LevelOnDriver(Level::None, true) == Level::Hard);
+        assert(LevelOnDriver(soft, false) == Level::Soft);
+        assert(LevelOnDriver(Level::Over, true) == Level::Over);
+        // Its rule: images unused for 2 s and not in the last 120 frames, no write-backs.
+        const Rule r = RuleFor(LevelOnDriver(Level::None, true));
+        assert(r.idle_seconds == 2 && r.protect_frames == 120 && !r.write_back);
+    }
+    // A card with plenty of VRAM (24 GB, 22 GB budget) at 9 GB: never tight; no marks: never.
+    {
+        const Marks m = MarksFor(22000 * MiB);
+        assert(!DriverTight(false, 9000 * MiB, m) && !DriverTight(true, 9000 * MiB, m));
+        assert(!DriverTight(true, 9000 * MiB, MarksFor(0)));
+    }
+
     std::printf("gc-policy-test: ok\n");
     return 0;
 }

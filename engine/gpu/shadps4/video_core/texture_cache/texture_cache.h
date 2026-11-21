@@ -581,6 +581,10 @@ private:
     GcPolicy::FrameQuota gc_quota{};
     u32 gc_measured_frame = ~0u;
     u64 gc_measured_tick = 0;
+    /// bbport: the driver's raw usage at the last measure, and whether it is tight
+    /// (GcPolicy::DriverTight; BB_GC_DRIVER_LEVEL=0: off).
+    u64 gc_driver_usage = 0;
+    bool gc_driver_tight = false;
     u64 gc_freed_bytes = 0; ///< pressure report
     std::atomic<u64> gc_pending_free_bytes{0};
     u64 trigger_gc_memory = 0;
