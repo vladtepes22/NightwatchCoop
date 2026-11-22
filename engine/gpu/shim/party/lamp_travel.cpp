@@ -433,7 +433,13 @@ __attribute__((noinline)) BB_COOP_SYSV u64 TalkCommandHook(u64 ctx, u64 call, u6
 }
 
 void Act(u32 here, u32 id, bool from_map = false) {
-    if (id == kDreamReturnPoint) {
+    if (id == kDreamReturnPoint && from_map) {
+        // From the map: no lamp is used, so no lamp's Dream event; the lamp warp to the Dream's
+        // return point (as the else branch below for a lamp), a map travel for the party rules.
+        Log("chose the Hunter's Dream on the map: lamp warp 0x13CDF30(%u)", id);
+        split::NoteMapTravel(id);
+        reinterpret_cast<void(BB_COOP_SYSV*)(u32)>(Guest(kLampWarp))(id);
+    } else if (id == kDreamReturnPoint) {
         // The lamp's own YES: its common event 7200 (turn, light, warp) - the vanilla rest trip.
         const u32 flag = IsChaliceLamp(here) ? ChaliceDreamFlag(ChaliceLampIndex(here)) : DreamFlag(here);
         const bool ok = flag && WriteEventFlag(flag, true);
@@ -490,10 +496,7 @@ void MapWatchTick(const GameSnapshot& s, double now) {
         sit.busy = sit.busy || g_p.open;
     }
     std::vector<u32> lit;
-    if (s.world_up && !s.loading) {
-        for (const Lamp& l : Lamps())
-            if (MapTravelTarget(ReturnPoint(l), &Flag, &KnownReturnPoint)) lit.push_back(ReturnPoint(l));
-    }
+    if (s.world_up && !s.loading) lit = MapTravelTargets(s.map_id, &Flag, &KnownReturnPoint);
     std::lock_guard<std::mutex> lk(g_map_snap_mu);
     g_map_snap_state = MapTravelState(sit);
     g_map_snap_lit = std::move(lit);
@@ -714,9 +717,9 @@ void TestTick(const GameSnapshot& s, double now) {
         }
         if (g_t.map) {
             u32 to = g_t.map_to;
-            for (const Lamp& l : Lamps()) {
+            for (const u32 rp : MapTravelTargetsNow()) {
                 if (to) break;
-                if (MapTravelAllowedTo(ReturnPoint(l))) to = ReturnPoint(l);
+                if (rp != kDreamReturnPoint) to = rp;
             }
             const MapTravel state = MapTravelNow();
             const bool asked = to && RequestMapTravel(to);
@@ -1017,8 +1020,8 @@ MapTravel MapTravelNow() {
     return MapTravelState(MapSituation(ReadGameState(false)));
 }
 
-bool MapTravelAllowedTo(std::uint32_t return_point) {
-    return MapTravelTarget(return_point, &Flag, &KnownReturnPoint);
+std::vector<std::uint32_t> MapTravelTargetsNow() {
+    return MapTravelTargets(ReadGameState(false).map_id, &Flag, &KnownReturnPoint);
 }
 
 bool MapWatch(MapTravel* state, std::vector<std::uint32_t>* lit) {
@@ -1111,7 +1114,7 @@ void Tick() {
             sit.busy = sit.busy || g_p.open;
         }
         const MapTravel state = MapTravelState(sit);
-        const bool target = MapTravelTarget(want, &Flag, &KnownReturnPoint);
+        const bool target = MapTravelTarget(want, s.map_id, &Flag, &KnownReturnPoint);
         const u32 menus = state == MapTravel::Ready && target ? MenuFlags() : 0;
         if (state != MapTravel::Ready || !target) {
             Log("map travel to lamp %u refused (state %d%s)", want, int(state), target ? "" : ", not a lit lamp to travel to");

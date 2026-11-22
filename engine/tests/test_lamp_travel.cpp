@@ -184,14 +184,24 @@ int main() {
         CHECK(MapTravelState(t) == MapTravel::Boss);
         t = m, t.busy = true;
         CHECK(MapTravelState(t) == MapTravel::Busy);
-        // Targets: lit lamps of the table, not blocked, known; never the Hunter's Dream.
-        CHECK(MapTravelTarget(2412950, flag, all));                                       // Central Yharnam, lit
-        CHECK(MapTravelTarget(ReturnPoint({220, 0, Frontier}), flag, all));
-        CHECK(!MapTravelTarget(ReturnPoint({240, 1, Yharnam}), flag, all));               // blocked
-        CHECK(!MapTravelTarget(ReturnPoint({270, 0, Frontier}), flag, all));              // not lit
-        CHECK(!MapTravelTarget(kDreamReturnPoint, [](std::uint32_t) { return true; }, all));
-        CHECK(!MapTravelTarget(1234567, [](std::uint32_t) { return true; }, all));        // not a lamp
-        CHECK(!MapTravelTarget(2412950, flag, [](std::uint32_t) { return false; }));      // no param row
+        // Targets: lit lamps of the table, not blocked, known; the Hunter's Dream from outside it.
+        const std::uint32_t yh = 0x18000000u, dream = 0x15000000u;
+        CHECK(MapTravelTarget(2412950, yh, flag, all));                                       // Central Yharnam, lit
+        CHECK(MapTravelTarget(ReturnPoint({220, 0, Frontier}), yh, flag, all));
+        CHECK(!MapTravelTarget(ReturnPoint({240, 1, Yharnam}), yh, flag, all));               // blocked
+        CHECK(!MapTravelTarget(ReturnPoint({270, 0, Frontier}), yh, flag, all));              // not lit
+        CHECK(MapTravelTarget(kDreamReturnPoint, yh, [](std::uint32_t) { return false; }, all)); // no flag needed
+        CHECK(!MapTravelTarget(kDreamReturnPoint, dream, [](std::uint32_t) { return true; }, all)); // already there
+        CHECK(MapTravelTarget(2412950, dream, flag, all));                                    // from the Dream
+        CHECK(!MapTravelTarget(1234567, yh, [](std::uint32_t) { return true; }, all));        // not a lamp
+        CHECK(!MapTravelTarget(2412950, yh, flag, [](std::uint32_t) { return false; }));      // no param row
+        const auto to = MapTravelTargets(yh, flag, all);
+        CHECK(std::is_sorted(to.begin(), to.end()));
+        CHECK(std::count(to.begin(), to.end(), kDreamReturnPoint) == 1);
+        CHECK(std::count(to.begin(), to.end(), 2412950u) == 1);
+        const auto from_dream = MapTravelTargets(dream, flag, all);
+        CHECK(std::count(from_dream.begin(), from_dream.end(), kDreamReturnPoint) == 0);
+        CHECK(from_dream.size() + 1 == to.size());
     }
     // 0.7.6: a guest's lamp stays closed while an NPC talk plays and for a second after it.
     CHECK(!GuestLampMayOpen(0.0));                      // a talk plays
@@ -200,7 +210,7 @@ int main() {
     CHECK(GuestLampMayOpen(kGuestLampAfterTalkGrace));  // later: the player's own press at the lamp
     CHECK(GuestLampMayOpen(1e9));                       // no talk yet
 
-    // 0.7.7: map travel (the test aid asks for it): the lit lamps of the table, never the Dream.
+    // 0.7.7: map travel (the test aid asks for it): the lit lamps of the table and the Dream.
     {
         MapTravelSituation ok;
         ok.on = ok.world_up = true;
@@ -224,10 +234,10 @@ int main() {
         CHECK(MapTravelState(t) == MapTravel::Chalice);
         const auto lit = [](std::uint32_t f) { return f == 12417830u; };
         const auto known = [](std::uint32_t) { return true; };
-        CHECK(MapTravelTarget(2412951, lit, known));
-        CHECK(!MapTravelTarget(2412950, lit, known));          // not lit
-        CHECK(!MapTravelTarget(kDreamReturnPoint, lit, known)); // the Dream is no map target
-        CHECK(!MapTravelTarget(9999999, lit, known));
+        CHECK(MapTravelTarget(2412951, ok.map, lit, known));
+        CHECK(!MapTravelTarget(2412950, ok.map, lit, known));          // not lit
+        CHECK(MapTravelTarget(kDreamReturnPoint, ok.map, lit, known)); // the Dream from a world map
+        CHECK(!MapTravelTarget(9999999, ok.map, lit, known));
     }
 
     // CL-48ee07: Chalice layer travel: the dungeon lamp's list (the Dream, then the other lit lamps)

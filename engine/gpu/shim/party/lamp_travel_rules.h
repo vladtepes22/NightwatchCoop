@@ -14,6 +14,7 @@
 //                                                     common event 7200 runs the warp to 2102950)
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -227,13 +228,25 @@ inline MapTravel MapTravelState(const MapTravelSituation& s) {
     return MapTravel::Ready;
 }
 
-/// Whether the map may travel to lamp `rp`: a lamp of the table other than the Hunter's Dream (the
-/// lamps' own Dream question does that), lit, travel not refused by its flag (as the headstones),
-/// and a ReturnPointParam row the game has. `flag(id)`, `known(rp)` as BuildList's.
+/// Whether the map may travel to lamp `rp` from packed map `map` (the player's): the Hunter's Dream
+/// from anywhere outside it, else a lamp of the table, lit, travel not refused by its flag (as the
+/// headstones), and a ReturnPointParam row the game has. `flag(id)`, `known(rp)` as BuildList's.
 template <class FlagFn, class KnownFn>
-bool MapTravelTarget(std::uint32_t rp, FlagFn flag, KnownFn known) {
+bool MapTravelTarget(std::uint32_t rp, std::uint32_t map, FlagFn flag, KnownFn known) {
+    if (rp == kDreamReturnPoint) return (map & 0xff000000u) != (MapOf(kDreamReturnPoint) & 0xff000000u) && known(rp);
     Lamp l{};
-    return rp != kDreamReturnPoint && LampOf(rp, &l) && known(rp) && flag(LitFlag(l)) && !flag(NameFlag(l));
+    return LampOf(rp, &l) && known(rp) && flag(LitFlag(l)) && !flag(NameFlag(l));
+}
+
+/// Every return point the map may travel to from `map` (MapTravelTarget), sorted.
+template <class FlagFn, class KnownFn>
+std::vector<std::uint32_t> MapTravelTargets(std::uint32_t map, FlagFn flag, KnownFn known) {
+    std::vector<std::uint32_t> out;
+    if (MapTravelTarget(kDreamReturnPoint, map, flag, known)) out.push_back(kDreamReturnPoint);
+    for (const Lamp& l : Lamps())
+        if (ReturnPoint(l) != kDreamReturnPoint && MapTravelTarget(ReturnPoint(l), map, flag, known)) out.push_back(ReturnPoint(l));
+    std::sort(out.begin(), out.end());
+    return out;
 }
 
 // ---- Chalice layer travel (CL-48ee07, BB_PARTY_LAYER_TRAVEL) ----

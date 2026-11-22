@@ -57,16 +57,16 @@ bool AddTalkCommandObserver(TalkCommandObserver fn);
 // The same lamp warp 0x13CDF30 as a choice in a world lamp's list (Act), from wherever the player
 // stands: in a party this player's own lamp use, so the party travel rules apply unchanged. Needs
 // lamp travel on; refused in a Chalice Dungeon, a cutscene, a boss fight, while dead or loading
-// (lamp_travel_rules.h MapTravelState). The Hunter's Dream is not a map target.
+// (lamp_travel_rules.h MapTravelState). The Hunter's Dream is a target from anywhere outside it.
 
 /// Whether map travel can start now (game thread: reads game state and event flags).
 MapTravel MapTravelNow();
-/// Lamp `return_point` is lit and may be travelled to (MapTravelTarget; game thread).
-bool MapTravelAllowedTo(std::uint32_t return_point);
+/// The return points the map may travel to now, sorted: the Dream (outside it) and the lit lamps
+/// (MapTravelTargets; game thread).
+std::vector<std::uint32_t> MapTravelTargetsNow();
 /// Any thread, once a frame while the map is open: asks the main-thread tick to keep the map's snapshot
 /// fresh (for 1.5 s from this call) and returns the last one: why map travel can or cannot start
-/// (MapTravelNow's state) and the lamps (return points) the map may travel to (MapTravelAllowedTo for
-/// each lamp of the table: lit and known). False before the first snapshot (state Off, no lamps).
+/// (MapTravelNow's state) and the lamps (return points) the map may travel to (MapTravelTargets). False before the first snapshot (state Off, no lamps).
 bool MapWatch(MapTravel* state, std::vector<std::uint32_t>* lit);
 /// Asks for map travel to `return_point` (any thread; reads nothing of the game); the main-thread
 /// tick checks it all again and runs the warp once no menu is up. False: lamp travel is off or

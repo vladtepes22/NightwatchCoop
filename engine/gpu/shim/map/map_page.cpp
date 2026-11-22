@@ -379,7 +379,7 @@ std::string TravelHint(coop::lamptravel::MapTravel state, bool target, bool drea
     switch (state) {
     case MapTravel::Ready:
         if (!target && dream)
-            return BbSettings::MenuText("The Hunter's Dream: any lamp in the world takes you there", "Сон Охотника: туда ведёт любой фонарь в мире");
+            return BbSettings::MenuText("You are in the Hunter's Dream", "Вы во Сне Охотника");
         if (!target) return BbSettings::MenuText("This lamp cannot be travelled to now", "К этому фонарю сейчас нельзя переместиться");
         return controller ? BbSettings::MenuText("Cross again: travel to this lamp", "Крест ещё раз: переместиться к фонарю")
                           : BbSettings::MenuText("Enter or click it again: travel to this lamp", "Enter или щелчок ещё раз: переместиться к фонарю");
@@ -746,7 +746,7 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
     // the game's main thread (lamp_travel.h). The hint says what a press does or why it cannot.
     const LampRef* chosen = r.selected ? &lamps[v.lamp] : nullptr;
     const bool travel_on = pad && settings.map_travel && travel != coop::lamptravel::MapTravel::Off;
-    // The party backend (MapTravelAllowedTo: lit, not refused, a known return point) is the one
+    // The party backend (MapTravelTargetsNow: the Dream, lit lamps not refused, known return points) is the one
     // authority on travel, as on visy's map: the atlas's own availability only greys the marker.
     const bool target = chosen && chosen->lamp->return_point && travel_to &&
                         std::binary_search(travel_to->begin(), travel_to->end(), chosen->lamp->return_point);
@@ -941,15 +941,8 @@ void Tick() {
         present = std::make_shared<const std::vector<int>>(world ? coop::balance::PresentEntities() : std::vector<int>{});
         if (BbSettings::Get().map_travel) {
             travel = coop::lamptravel::MapTravelNow();
-            auto to = std::make_shared<std::vector<std::uint32_t>>();
-            if (travel == coop::lamptravel::MapTravel::Ready) {
-                for (const auto& l : coop::lamptravel::Lamps()) {
-                    const std::uint32_t rp = coop::lamptravel::ReturnPoint(l);
-                    if (coop::lamptravel::MapTravelAllowedTo(rp)) to->push_back(rp);
-                }
-                std::sort(to->begin(), to->end());
-            }
-            travel_to = std::move(to);
+            travel_to = std::make_shared<const std::vector<std::uint32_t>>(
+                travel == coop::lamptravel::MapTravel::Ready ? coop::lamptravel::MapTravelTargetsNow() : std::vector<std::uint32_t>{});
         }
         static const bool npc_log = [] { const char* e = std::getenv("BB_MAP_NPC_LOG"); return e && *e == '1'; }();
         static std::int64_t npc_logged = 0;
