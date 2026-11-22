@@ -76,6 +76,7 @@ namespace BloodborneLauncher.Core
             ["cheat_vials_amount"] = 20,
             ["cheat_bullets_amount"] = 20,
             ["update_channel"] = "", // empty: beta builds follow beta, others stable
+            ["ui_scale"] = "auto", // auto | a percent (Views/UiScale.cs)
             ["ui_theme"] = "eldritch", // since 0.2.5 (EldritchMarker); "default" is the plain look
             ["ui_theme_colour"] = "#C41E3A",
             ["ui_background"] = "game", // game | custom | none

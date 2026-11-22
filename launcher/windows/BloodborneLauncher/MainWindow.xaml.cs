@@ -55,7 +55,8 @@ namespace BloodborneLauncher
                 finally { _restarting = false; }
             };
             hostRules.Start();
-            // The settings are read by Initialise: the saved window placement comes after it.
+            // The settings are read by Initialise: the launcher's size (UiScale) and the saved window placement come after it.
+            UiScale.Attach(this, resize: true);
             RestoreWindowPlacement(ws.Settings);
             KeyDown += Window_KeyDown;
             PreviewMouseDown += Window_PreviewMouseDown;
@@ -514,8 +515,18 @@ namespace BloodborneLauncher
             {
                 if (ResizeMode != ResizeMode.NoResize)
                     chrome.ResizeBorderThickness = new Thickness(8);
-                chrome.CaptionHeight = 40;
+                chrome.CaptionHeight = 40 * _titleScale;
             }
+        }
+
+        private double _titleScale = 1;
+
+        /// <summary>The title bar row (40) grows with the launcher's size (UiScale), and so must Windows' caption strip.</summary>
+        internal void ScaleTitleBar(double factor)
+        {
+            _titleScale = factor;
+            if (System.Windows.Shell.WindowChrome.GetWindowChrome(this) is { IsFrozen: false } chrome)
+                chrome.CaptionHeight = 40 * factor;
         }
 
         private DateTime? _gameStartedUtc;

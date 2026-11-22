@@ -3010,5 +3010,8 @@
   "{0} randomized worlds are on the Randomizer tab.": "有 {0} 個隨機世界在「隨機化器」分頁中。",
   "Code copied": "已複製代碼",
   "Your game is missing files of the 1.09 update, which the randomizer needs. Open the {0} and press \"{1}\" to copy the whole update into the game folder, then generate again.": "你的遊戲缺少隨機器需要的 1.09 更新檔案。開啟{0}，按「{1}」把整個更新複製到遊戲資料夾，然後重新產生。",
-  "Map: the game's 1.09 update folder could not be linked (it is on another drive than Nightwatch, or the drive has no hard links), so the map leaves out The Old Hunters' areas. To get them, copy the update into the game folder: Setup guide, \"Choose update folder…\".": "地圖：無法連結 1.09 更新資料夾（它與 Nightwatch 不在同一個磁碟機上，或該磁碟機不支援硬式連結），因此地圖不含 The Old Hunters 的區域。要包含它們，請把更新複製到遊戲資料夾：設定精靈，「選擇更新資料夾…」。"
+  "Map: the game's 1.09 update folder could not be linked (it is on another drive than Nightwatch, or the drive has no hard links), so the map leaves out The Old Hunters' areas. To get them, copy the update into the game folder: Setup guide, \"Choose update folder…\".": "地圖：無法連結 1.09 更新資料夾（它與 Nightwatch 不在同一個磁碟機上，或該磁碟機不支援硬式連結），因此地圖不含 The Old Hunters 的區域。要包含它們，請把更新複製到遊戲資料夾：設定精靈，「選擇更新資料夾…」。",
+  "Launcher size": "啟動器大小",
+  "How large the launcher's text and controls are": "啟動器文字與控制項的大小",
+  "Matches the screen on Linux; 100% on Windows, which scales the launcher itself": "在 Linux 上配合螢幕；在 Windows 上為 100%（Windows 會自行縮放啟動器）"
 }

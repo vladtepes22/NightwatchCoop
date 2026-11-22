@@ -3010,5 +3010,8 @@
   "{0} randomized worlds are on the Randomizer tab.": "Zrandomizowane światy ({0}) są w zakładce Randomizer.",
   "Code copied": "Skopiowano kod",
   "Your game is missing files of the 1.09 update, which the randomizer needs. Open the {0} and press \"{1}\" to copy the whole update into the game folder, then generate again.": "W grze brakuje plików aktualizacji 1.09, których potrzebuje randomizer. Otwórz {0} i naciśnij „{1}”, aby skopiować całą aktualizację do folderu gry, a potem wygeneruj ponownie.",
-  "Map: the game's 1.09 update folder could not be linked (it is on another drive than Nightwatch, or the drive has no hard links), so the map leaves out The Old Hunters' areas. To get them, copy the update into the game folder: Setup guide, \"Choose update folder…\".": "Mapa: nie udało się połączyć folderu aktualizacji 1.09 (jest na innym dysku niż Nightwatch albo dysk nie obsługuje twardych dowiązań), więc mapa pomija obszary The Old Hunters. Aby je mieć, skopiuj aktualizację do folderu gry: Przewodnik konfiguracji, „Wybierz folder aktualizacji…”."
+  "Map: the game's 1.09 update folder could not be linked (it is on another drive than Nightwatch, or the drive has no hard links), so the map leaves out The Old Hunters' areas. To get them, copy the update into the game folder: Setup guide, \"Choose update folder…\".": "Mapa: nie udało się połączyć folderu aktualizacji 1.09 (jest na innym dysku niż Nightwatch albo dysk nie obsługuje twardych dowiązań), więc mapa pomija obszary The Old Hunters. Aby je mieć, skopiuj aktualizację do folderu gry: Przewodnik konfiguracji, „Wybierz folder aktualizacji…”.",
+  "Launcher size": "Rozmiar launchera",
+  "How large the launcher's text and controls are": "Jak duże są tekst i kontrolki launchera",
+  "Matches the screen on Linux; 100% on Windows, which scales the launcher itself": "Na Linuksie dopasowuje się do ekranu; na Windows 100%, bo Windows sam skaluje launcher"
 }

@@ -36,6 +36,8 @@ namespace BloodborneLauncher.Views
                     Ws.SaveNow();
                     if (Prompt.Confirm(L.T("Change language"), L.T("Restart the launcher to apply the language."), L.T("Restart now"))) Restart();
                 });
+            SettingCombo(SymbolRegular.ZoomIn24, L.T("Launcher size"), L.T("How large the launcher's text and controls are"),
+                UiScale.Choices, "ui_scale", changed: UiScale.Changed);
             SettingCombo(SymbolRegular.PaintBrush24, L.T("Theme"), L.T("The accent colour, and a faint tint of it in the launcher's surfaces"),
                 LauncherTheme.Themes, "ui_theme", changed: () =>
                 {

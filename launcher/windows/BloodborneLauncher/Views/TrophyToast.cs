@@ -179,6 +179,7 @@ namespace BloodborneLauncher.Views
                 Place();
                 Animate();
             };
+            UiScale.Attach(this, resize: false);
         }
 
         /// <summary>The work area of the monitor the game is on (the primary one without a game).</summary>

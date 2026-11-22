@@ -222,6 +222,7 @@ namespace BloodborneLauncher.Views
                 Go(Step.Welcome);
                 await CheckAsync();
             };
+            UiScale.Attach(this, resize: false);
         }
 
         private static TextBlock Wrapped(double size, string brush)

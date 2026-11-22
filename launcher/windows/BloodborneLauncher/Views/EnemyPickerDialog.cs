@@ -116,6 +116,7 @@ internal sealed class EnemyPickerDialog : Window
         Loaded += (_, _) => _search.Focus();
         Filter();
         UpdateCount();
+        UiScale.Attach(this, resize: true);
     }
 
     private void Filter()

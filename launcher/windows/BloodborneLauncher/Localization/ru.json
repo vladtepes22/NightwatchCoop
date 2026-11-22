@@ -3010,5 +3010,8 @@
   "{0} randomized worlds are on the Randomizer tab.": "Случайных миров на вкладке «Рандомизатор»: {0}.",
   "Code copied": "Код скопирован",
   "Your game is missing files of the 1.09 update, which the randomizer needs. Open the {0} and press \"{1}\" to copy the whole update into the game folder, then generate again.": "В игре не хватает файлов обновления 1.09, которые нужны рандомайзеру. Откройте {0} и нажмите «{1}», чтобы скопировать всё обновление в папку игры, затем создайте мир снова.",
-  "Map: the game's 1.09 update folder could not be linked (it is on another drive than Nightwatch, or the drive has no hard links), so the map leaves out The Old Hunters' areas. To get them, copy the update into the game folder: Setup guide, \"Choose update folder…\".": "Карта: не удалось связать папку обновления 1.09 (она на другом диске, чем Nightwatch, или диск не поддерживает жёсткие ссылки), поэтому на карте нет областей The Old Hunters. Чтобы они были, скопируйте обновление в папку игры: Мастер настройки, «Выбрать папку обновления…»."
+  "Map: the game's 1.09 update folder could not be linked (it is on another drive than Nightwatch, or the drive has no hard links), so the map leaves out The Old Hunters' areas. To get them, copy the update into the game folder: Setup guide, \"Choose update folder…\".": "Карта: не удалось связать папку обновления 1.09 (она на другом диске, чем Nightwatch, или диск не поддерживает жёсткие ссылки), поэтому на карте нет областей The Old Hunters. Чтобы они были, скопируйте обновление в папку игры: Мастер настройки, «Выбрать папку обновления…».",
+  "Launcher size": "Размер лаунчера",
+  "How large the launcher's text and controls are": "Насколько крупными будут текст и элементы лаунчера",
+  "Matches the screen on Linux; 100% on Windows, which scales the launcher itself": "В Linux подстраивается под экран; в Windows 100%, так как Windows сама масштабирует лаунчер"
 }
