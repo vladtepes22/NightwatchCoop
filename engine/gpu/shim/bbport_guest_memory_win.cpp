@@ -2,8 +2,10 @@
 #ifdef _WIN32
 #include "bbport_guest_memory.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
@@ -26,6 +28,11 @@ std::mutex mutex;
 std::array<Chunk*, MaxChunks> chunks{};
 std::array<bool, MaxChunks> failed{};
 std::atomic<u64> chunk_bytes{0};
+
+bool PreloadWanted() {
+    const char* v = std::getenv("BB_GUEST_PRELOAD");
+    return !(v && v[0] == '0');
+}
 
 std::uint32_t PickType(std::uint32_t bits) {
     const auto props = vk_instance->GetPhysicalDevice().getMemoryProperties();
@@ -184,15 +191,18 @@ void Install(const Vulkan::Instance& instance) {
     if (!(in_place && in_place[0] == '1') || !PcModelGpu(instance) || !Usable(instance)) {
         return;
     }
-    std::printf("Guest memory: the GPU imports the game's memory in %llu MiB chunks as it uses "
-                "them (VK_EXT_external_memory_host)\n",
-                (unsigned long long)(ChunkSize >> 20));
+    std::printf("Guest memory: the GPU imports the game's memory in %llu MiB chunks "
+                "(VK_EXT_external_memory_host), %s\n",
+                (unsigned long long)(ChunkSize >> 20),
+                PreloadWanted() ? "all of them once the game starts"
+                                : "each as it is first used (BB_GUEST_PRELOAD=0)");
 }
 
 namespace {
 std::array<bool, MaxChunks> queued{};
 
 void ImportChunk(u64 n) {
+    const auto started = std::chrono::steady_clock::now();
     u64 direct_size = 0;
     unsigned char* backing = runtime_memory_backing(&direct_size);
     const u64 size = std::min(ChunkSize, direct_size - n * ChunkSize);
@@ -221,9 +231,56 @@ void ImportChunk(u64 n) {
         chunks[n] = chunk;
     }
     const u64 total = chunk_bytes.fetch_add(size) + size;
-    std::printf("Guest memory: direct memory %#llx+%llu MiB imported for the GPU, %llu MiB so far\n",
-                (unsigned long long)(n * ChunkSize), (unsigned long long)(size >> 20),
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - started)
+                        .count();
+    std::printf("Guest memory: direct memory %#llx+%llu MiB imported for the GPU in %lld ms, %llu MiB "
+                "so far\n",
+                (unsigned long long)(n * ChunkSize), (unsigned long long)(size >> 20), (long long)ms,
                 (unsigned long long)(total >> 20));
+}
+
+// NW-69aae50: while the driver imports a chunk it locks all of its pages (65,536 of them); the GPU
+// thread falls behind meanwhile and the game's submit waits on it, a 67-118 ms hitch wherever the
+// game first touches a chunk (the same streaming points every run). So after the first touch at
+// start-up one thread imports every chunk in turn. A chunk is left to first use when Windows'
+// commit would drop under a margin: with the pool committed as it is mapped, an import commits
+// memory the game has not asked for yet. Free RAM is not a gate: a route imports nearly every
+// chunk within minutes anyway, so holding back only moves the hitches back into play.
+constexpr u64 PreloadMargin = u64(2) << 30;
+
+bool PreloadFits(u64 size) {
+    MEMORYSTATUSEX st{.dwLength = sizeof(st)};
+    return GlobalMemoryStatusEx(&st) && st.ullAvailPageFile > size + PreloadMargin;
+}
+
+void Preload(u64 direct_size) {
+    const u64 count = std::min<u64>(MaxChunks, (direct_size + ChunkSize - 1) / ChunkSize);
+    const auto started = std::chrono::steady_clock::now();
+    u64 imported = 0;
+    u64 left = 0;
+    for (u64 n = 0; n < count; ++n) {
+        {
+            std::scoped_lock lk{mutex};
+            if (chunks[n] || failed[n] || queued[n]) {
+                continue;
+            }
+            if (!PreloadFits(std::min(ChunkSize, direct_size - n * ChunkSize))) {
+                ++left;
+                continue;
+            }
+            queued[n] = true;
+        }
+        ImportChunk(n);
+        ++imported;
+    }
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - started)
+                        .count();
+    std::printf("Guest memory: start-up import finished in %lld ms: %llu chunks imported, %llu left "
+                "to first use (under %llu MiB of Windows commit to spare)\n",
+                (long long)ms, (unsigned long long)imported, (unsigned long long)left,
+                (unsigned long long)(PreloadMargin >> 20));
 }
 }
 
@@ -245,6 +302,11 @@ const Chunk* Find(std::uint64_t phys) {
     }
     queued[n] = true;
     std::thread([n] { ImportChunk(n); }).detach();
+    static bool preload_started = false;
+    if (!preload_started && PreloadWanted()) {
+        preload_started = true;
+        std::thread([direct_size] { Preload(direct_size); }).detach();
+    }
     return nullptr;
 }
 }
