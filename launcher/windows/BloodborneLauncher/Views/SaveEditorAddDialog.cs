@@ -186,6 +186,7 @@ internal sealed class SaveEditorAddDialog : Window
         };
         PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) { e.Handled = true; Close(); } };
         Loaded += async (_, _) => await Load();
+        UiScale.Attach(this, resize: true);
     }
 
     private static T? Ancestor<T>(DependencyObject? node) where T : DependencyObject

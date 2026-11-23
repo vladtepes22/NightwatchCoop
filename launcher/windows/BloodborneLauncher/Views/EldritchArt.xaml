@@ -25,6 +25,5 @@
             <Rectangle x:Name="FogBack" Opacity="0.4" Height="512" VerticalAlignment="Bottom" />
             <Rectangle x:Name="FogFront" Opacity="0.5" Height="384" VerticalAlignment="Bottom" Margin="0,0,0,-40" />
         </Grid>
-        <Canvas x:Name="Surprises" />
     </Grid>
 </UserControl>

@@ -399,6 +399,7 @@ namespace BloodborneLauncher.Views
                     {
                         var index = Choices.IndexOf(item.Options, item.Default);
                         if (control is Segmented segmented) segmented.Select(index, notify: true);
+                        else if (control is ChoiceSwitch toggle) toggle.Select(index, notify: true);
                         else if (control is ComboBox box) box.SelectedIndex = index;
                     });
                     break;

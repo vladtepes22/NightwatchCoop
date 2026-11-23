@@ -18,6 +18,11 @@
 //   listener drops it as junk): [0xfa]['M'][ver 1] id u32  label: u8 len + 1..255 of a-z 0-9 @ . _ : + - (the VPN
 //   lobby's mods label, party_vpnlobby.h valid_mods_label / mods_label: "nocturne@1.0.1" from the launcher, else
 //   "mods:" + 8 hex of the party mod hash); 9..263 bytes. A listener uses it only as a key, never as a path or address.
+//   start-up rules (Nightwatch, its own datagram after the mods label; an old listener drops it as junk): [0xfa]['R']
+//   [ver 1] id u32  flags u8 (bit 0 Guests use lamps, 1 Guests can use Hunter's Mark, 2 Full rewards for guests,
+//   3 Party starts right away, 4 Key items for every player)  insight u8 (0 Same as the host, 1 Full bonus, 2 the game's own); 9 bytes. The rules a
+//   host compares with every guest's (party_link identity_mismatch): a guest's launcher sets them before it starts the
+//   game, so the join is not refused for them.
 //   Never the password, the party secret, a party code or an address (the receiver reads the host's
 //   address from the datagram's source). Parsing is strict: any length, version or character
 //   violation drops the packet. A listener ignores its own id and rate-limits per source.
@@ -61,6 +66,10 @@ struct Announce {
     std::uint32_t area_id = 0;
     std::uint8_t phase = 0, ng = 255;
     std::string mods;  // 0.7.9: the mods label (above), "" = none
+    // Nightwatch: the start-up rules (above); sent only when filled
+    bool startup = false;
+    bool st_lamps = true, st_mark = true, st_rewards = true, st_immediate = false, st_items = true;
+    std::uint8_t st_insight = 0;
 };
 struct AnnounceExt {
     std::uint32_t id = 0;
@@ -80,6 +89,16 @@ constexpr std::size_t kMaxModsPacket = 8 + bbnet::lobby::kMaxModsLabel;
 std::vector<std::uint8_t> encode_mods(const Announce& a);
 // Strict: magic / version, the length byte covers the rest exactly, a valid label (valid_mods_label).
 bool parse_mods(const std::uint8_t* d, std::size_t n, AnnounceMods* out);
+
+struct AnnounceRules {
+    std::uint32_t id = 0;
+    bool lamps = true, mark = true, rewards = true, immediate = false, items = true;
+    std::uint8_t insight = 0;
+};
+// The start-up rules datagram (9 bytes), or empty when a.startup is false.
+std::vector<std::uint8_t> encode_rules(const Announce& a);
+// Strict: exactly 9 bytes, magic / version, no unknown flag bit, insight <= 2.
+bool parse_rules(const std::uint8_t* d, std::size_t n, AnnounceRules* out);
 
 // Printable ASCII only; longer strings are cut, other bytes become '?'. The bytes to broadcast.
 std::vector<std::uint8_t> encode(const Announce& a);

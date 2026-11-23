@@ -263,15 +263,16 @@ namespace BloodborneLauncher.Views
         /// such as 35 % from a code).</summary>
         private void Bind(FrameworkElement control, Func<string> get, Func<bool>? editable = null)
         {
-            if (control is not ComboBox box) throw new ArgumentException("a drop-down row", nameof(control));
-            var parent = box.Parent as FrameworkElement;
+            if (control is not (ComboBox or ChoiceSwitch)) throw new ArgumentException("a drop-down or switch row", nameof(control));
+            var parent = control.Parent as FrameworkElement;
             while (parent != null && parent is not SettingRow) parent = parent.Parent as FrameworkElement;
             var row = (SettingRow)parent!;
             if (row.Parent is Panel panel && panel.Children.IndexOf(row) is > 0 and var index && panel.Children[index - 1] is TextBlock)
                 row.BorderThickness = new Thickness(0);
-            _rows.Add((box, () =>
+            _rows.Add((control, () =>
             {
-                box.SelectedIndex = box.Items.Cast<ComboBoxItem>().ToList().FindIndex(item => item.Tag as string == get());
+                if (control is ChoiceSwitch toggle) toggle.Select(Choices.IndexOf(toggle.Choices, get()), notify: false);
+                else if (control is ComboBox box) box.SelectedIndex = box.Items.Cast<ComboBoxItem>().ToList().FindIndex(item => item.Tag as string == get());
                 row.Opacity = !_busy && (editable?.Invoke() ?? true) ? 1 : 0.8;
             }, editable));
         }
@@ -470,9 +471,10 @@ namespace BloodborneLauncher.Views
                 summary = Randomizer.Summary(options, hidden) + " ";
             }
             var note = (inUse ? L.T("In use.") : L.T("Not in use.")) + " " + summary + Randomizer.BuiltOnText(builtOn) +
-                       (builtOn != null && !shareable ? " " + L.T("Friends can't join it from the Join list: one of the mods it is built on is missing, can't be read or has the same files as another.") : "") +
-                       (byContent.Count > 0 ? " " + L.F($"Friends who join it from the Join list need the same files of: {string.Join(", ", byContent)} (any folder name).") : "") +
-                       (stale ? " " + L.T("The mods ticked under Create world are not the ones this world was made on: make it again on them, with a new character.") : "");
+                       (byContent.Count > 0 ? " " + L.F($"Friends who join it from the Join list need the same files of: {string.Join(", ", byContent)} (any folder name).") : "");
+            // Problems get their own line in the warning colour, not the end of the grey summary.
+            var warning = ((builtOn != null && !shareable ? L.T("Friends can't join it from the Join list: one of the mods it is built on is missing, can't be read or has the same files as another.") + " " : "") +
+                           (stale ? L.T("The mods ticked under Create world are not the ones this world was made on: make it again on them, with a new character.") : "")).Trim();
             var buttons = Row(
                 inUse ? SmallButton(L.T("Stop using"), SymbolRegular.Power24, (_, _) => StopUsing())
                       : SmallButton(L.T("Load"), SymbolRegular.Play24, (_, _) => Load(name)),
@@ -480,14 +482,18 @@ namespace BloodborneLauncher.Views
                 SpoilerButton(world, folder));
             if (stale)
                 buttons.Children.Add(SmallButton(L.T("Make again"), SymbolRegular.ArrowClockwise24, async (_, _) => await Regenerate(world)));
-            buttons.Children.Add(IconButton(SymbolRegular.Rename24, L.T("Rename"), (_, _) => Rename(world)));
-            buttons.Children.Add(IconButton(SymbolRegular.Delete24, L.T("Delete"), (_, _) => Delete(world)));
+            buttons.Children.Add(SmallButton(L.T("Rename"), SymbolRegular.Rename24, (_, _) => Rename(world)));
+            // Delete stands apart from the rest, so it is not hit on the way to Rename.
+            var delete = SmallButton(L.T("Delete"), SymbolRegular.Delete24, (_, _) => Delete(world));
+            delete.Margin = new Thickness(16, delete.Margin.Top, delete.Margin.Right, delete.Margin.Bottom);
+            buttons.Children.Add(delete);
             foreach (var button in buttons.Children.OfType<UIElement>()) button.IsEnabled = !_busy;
             // The name is this PC's (WorldSaves); a world never played here yet shows its code.
             var saves = WorldSaves.Find(ProfileFolder, world.Code, world.Hash);
             if (saves != null) note = L.F($"Code {world.Code}.") + " " + note;
             var card = Card(SymbolRegular.Globe24, saves?.Name ?? world.Code, null, buttons, out var line, wide: true);
             SetHint(line, note);
+            SetHint(card.Warning, warning);
             return card;
         }
 

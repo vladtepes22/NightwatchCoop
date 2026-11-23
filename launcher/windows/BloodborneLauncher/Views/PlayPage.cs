@@ -40,15 +40,13 @@ namespace BloodborneLauncher.Views
             summary.SetResourceReference(Border.BackgroundProperty, "GlassPaneBrush");
             summary.SetResourceReference(Border.BorderBrushProperty, "GlassPaneStrokeBrush");
             var stack = new StackPanel();
-            var stats = new UniformGrid { Rows = 1 };
+            var stats = new UniformGrid { Rows = 1, Margin = new Thickness(0, 14, 0, 0) };
             stats.Children.Add(Stat(L.T("Game"), out _statGame));
             stats.Children.Add(Stat(L.T("Upscaler"), out _statUpscaler));
             stats.Children.Add(Stat(L.T("Output"), out _statResolution));
             stats.Children.Add(Stat(L.T("Frame rate"), out _statFps));
             stats.Children.Add(Stat(L.T("Trophies"), out _statVia));
-            stack.Children.Add(stats);
-
-            var actions = new Grid { Margin = new Thickness(0, 16, 0, 0) };
+            var actions = new Grid();
             actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             actions.ColumnDefinitions.Add(new ColumnDefinition());
             _play = new Button
@@ -56,7 +54,8 @@ namespace BloodborneLauncher.Views
                 Appearance = ControlAppearance.Primary,
                 Content = L.T("Play"),
                 Icon = Icon(SymbolRegular.Play24),
-                Padding = new Thickness(26, 10, 26, 10),
+                Padding = new Thickness(40, 13, 40, 13),
+                FontSize = 17,
                 FontWeight = FontWeights.SemiBold,
             };
             _play.Click += async (_, _) => await MainWindow.Instance!.PlayOrStopAsync();
@@ -67,6 +66,10 @@ namespace BloodborneLauncher.Views
             Grid.SetColumn(_playStatus, 1);
             actions.Children.Add(_playStatus);
             stack.Children.Add(actions);
+            var rule = new Border { Height = 1, Margin = new Thickness(0, 16, 0, 0) };
+            rule.SetResourceReference(Border.BackgroundProperty, "GlassPaneStrokeBrush");
+            stack.Children.Add(rule);
+            stack.Children.Add(stats);
             summary.Child = stack;
             Body.Children.Add(summary);
 
@@ -97,8 +100,7 @@ namespace BloodborneLauncher.Views
                 L.T("Updating downloads the latest package and keeps your settings, saves and mods."),
                 SmallButton(L.T("Update engine"), SymbolRegular.ArrowDownload24, async (_, _) => await MainWindow.Instance!.UpdateEngineAsync(),
                     ControlAppearance.Primary), out _);
-            _engineCard.Margin = new Thickness(0, 12, 0, 0);
-            Body.Children.Add(_engineCard);
+            Body.Children.Add(Notice(_engineCard));
 
             // The community: help, news and people to play with. Hidden for good with the X
             // (Settings keeps the link).
@@ -112,10 +114,9 @@ namespace BloodborneLauncher.Views
                         {
                             S.Set("discord_hidden", true);
                             Ws.SaveSoon();
-                            Body.Children.Remove(discord);
+                            Body.Children.Remove(discord!.Parent as UIElement);
                         })), out _);
-                discord.Margin = new Thickness(0, 12, 0, 0);
-                Body.Children.Add(discord);
+                Body.Children.Add(Notice(discord));
             }
 
             // ==================== Game ====================
@@ -157,8 +158,9 @@ namespace BloodborneLauncher.Views
                 L.T("Each profile has its own save files and trophies, so several people can play their own runs on this PC"), Row(
                 _profileButton,
                 SmallButton(L.T("New…"), SymbolRegular.PersonAdd24, (_, _) => NewProfile()),
-                IconButton(SymbolRegular.Rename24, L.T("Rename this profile"), (_, _) => RenameProfile()),
-                IconButton(SymbolRegular.PersonDelete24, L.T("Remove this profile from the list (its saves stay on disk)"), (_, _) => RemoveProfile())),
+                Tip(SmallButton(L.T("Rename"), SymbolRegular.Rename24, (_, _) => RenameProfile()), L.T("Rename this profile")),
+                Tip(SmallButton(L.T("Remove"), SymbolRegular.PersonDelete24, (_, _) => RemoveProfile()),
+                    L.T("Remove this profile from the list (its saves stay on disk)"))),
                 out _profileHint));
 
             _resetUser = IconButton(SymbolRegular.ArrowUndo24, L.T("Back to the default folder"), (_, _) =>
@@ -200,6 +202,15 @@ namespace BloodborneLauncher.Views
             Ws.GameStateChanged += () => { RefreshProfile(); RefreshBackups(); };
             Ws.Saved += RefreshSummary;
             Ws.TrophiesChanged += RefreshSummary;
+        }
+
+        /// <summary>A notice row in its own pane, shown and hidden with the row.</summary>
+        private static Border Notice(SettingRow row)
+        {
+            var pane = Pane(row);
+            pane.Margin = new Thickness(0, 12, 0, 0);
+            pane.SetBinding(VisibilityProperty, new System.Windows.Data.Binding(nameof(Visibility)) { Source = row });
+            return pane;
         }
 
         private static StackPanel Stat(string label, out TextBlock value)

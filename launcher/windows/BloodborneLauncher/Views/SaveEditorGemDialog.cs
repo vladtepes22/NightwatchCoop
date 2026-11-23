@@ -85,6 +85,7 @@ internal sealed class SaveEditorGemDialog : Window
         Content = body;
         PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) { e.Handled = true; Close(); } };
         Show(0);
+        UiScale.Attach(this, resize: true);
     }
 
     private static Button Small(string text, Action click)

@@ -92,6 +92,7 @@ namespace BloodborneLauncher.Views
             card.SetResourceReference(Border.BorderBrushProperty, "DialogStrokeBrush");
             Content = card;
             Go(0);
+            UiScale.Attach(this, resize: false);
         }
 
         private void Go(int step)

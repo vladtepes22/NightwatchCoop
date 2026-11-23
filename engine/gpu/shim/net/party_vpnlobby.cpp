@@ -171,6 +171,12 @@ std::vector<std::uint8_t> encode_announce_mods(const Announce& a) {
     return v;
 }
 
+std::vector<std::uint8_t> encode_announce_rules(const Announce& a) {
+    if (!a.rules) return {};
+    return {0xfa, 'L', 1, 13, static_cast<std::uint8_t>(a.rules_flags & 31),
+            static_cast<std::uint8_t>(a.rules_insight <= 2 ? a.rules_insight : 0)};
+}
+
 std::string mods_label(const char* launcher_label, bool gameplay_mods, const std::array<std::uint8_t, 32>& mods_hash) {
     if (!gameplay_mods) return "";
     if (launcher_label && valid_mods_label(launcher_label)) return launcher_label;
@@ -309,16 +315,19 @@ void thread_main(Provider provider) {
             std::vector<std::uint8_t> pkt = encode_announce(a);
             const std::vector<std::uint8_t> ext = encode_announce_ext(a);
             const std::vector<std::uint8_t> mods = encode_announce_mods(a);  // empty without a label
+            const std::vector<std::uint8_t> rules = encode_announce_rules(a);
             const std::size_t base = pkt.size();
-            if (!pkt.empty()) {  // compared as one; sent as two or three datagrams
+            if (!pkt.empty()) {  // compared as one; sent as two to four datagrams
                 pkt.insert(pkt.end(), ext.begin(), ext.end());
                 pkt.insert(pkt.end(), mods.begin(), mods.end());
+                pkt.insert(pkt.end(), rules.begin(), rules.end());
             }
             if (route.sock != kBad && !pkt.empty() &&
                 (pkt != last_pkt || now - last_sent >= std::chrono::milliseconds(kAnnounceEveryMs))) {
                 send_to(route, std::vector<std::uint8_t>(pkt.begin(), pkt.begin() + static_cast<std::ptrdiff_t>(base)));
                 send_to(route, ext);
                 if (!mods.empty()) send_to(route, mods);
+                if (!rules.empty()) send_to(route, rules);
                 last_pkt = pkt;
                 last_sent = now;
                 announced = true;

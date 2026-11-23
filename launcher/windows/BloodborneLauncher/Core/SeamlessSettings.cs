@@ -36,7 +36,7 @@ public static partial class SeamlessSettings
     /// for the party, 0.7.5); a guest follows the host's values, sent on connect.</summary>
     public static readonly string[] OwnSwitches =
     {
-        "party_grant_bells", "party_items", "party_progress", "party_progress_npc", "party_story",
+        "party_grant_bells", "party_progress", "party_progress_npc", "party_story",
     };
 
     /// <summary>The start-up rules the host compares with every guest's: the game reads them once at start, and the
@@ -45,7 +45,19 @@ public static partial class SeamlessSettings
     public static readonly (string Key, string Default)[] StartupRules =
     {
         ("party_guest_lamps", "1"), ("party_guest_mark", "1"), ("party_full_rewards", "1"),
-        ("party_guest_insight", "parity"), ("party_start", "prologue_solo"),
+        ("party_guest_insight", "parity"), ("party_start", "prologue_solo"), ("party_items", "1"),
+    };
+
+    /// <summary>A start-up rule's name as the launcher shows it (StartupRows).</summary>
+    public static string StartupRuleLabel(string key) => key switch
+    {
+        "party_guest_lamps" => L.T("Guests use lamps"),
+        "party_guest_mark" => L.T("Guests can use Hunter's Mark"),
+        "party_full_rewards" => L.T("Full Blood Echo rewards"),
+        "party_guest_insight" => L.T("Insight for bosses"),
+        "party_start" => L.T("Party starts"),
+        "party_items" => L.T("Key items for every player"),
+        _ => key,
     };
 
     /// <summary>The host's start-up rules named in its refusal text (identity_mismatch in party_link.cpp, names and values
@@ -62,12 +74,13 @@ public static partial class SeamlessSettings
                 "Full rewards for guests" => "party_full_rewards",
                 "Insight for bosses" => "party_guest_insight",
                 "Party starts" => "party_start",
+                "Key items for every player" => "party_items",
                 _ => "",
             };
             var value = (key, match.Groups[2].Value) switch
             {
-                ("party_guest_lamps" or "party_guest_mark" or "party_full_rewards", "on") => "1",
-                ("party_guest_lamps" or "party_guest_mark" or "party_full_rewards", "off") => "0",
+                ("party_guest_lamps" or "party_guest_mark" or "party_full_rewards" or "party_items", "on") => "1",
+                ("party_guest_lamps" or "party_guest_mark" or "party_full_rewards" or "party_items", "off") => "0",
                 ("party_guest_insight", "Same as the host") => "parity",
                 ("party_guest_insight", "Full bonus") => "full",
                 ("party_guest_insight", "Game's own (+1)") => "0",
@@ -82,16 +95,16 @@ public static partial class SeamlessSettings
 
     /// <summary>A guest the host refused for its start-up rules: stores the host's values named in the refusal (party
     /// status detail and alert). True when one changed, so the game has to restart to join.</summary>
-    public static bool TakeHostStartupRules(LauncherSettings s, IniFile ini, SeamlessSession.Status? status)
+    public static List<string> TakeHostStartupRules(LauncherSettings s, IniFile ini, SeamlessSession.Status? status)
     {
-        if (status is not { role: "guest" } || s.Str("party_mode") != "join") return false;
-        var changed = false;
+        var changed = new List<string>();
+        if (status is not { role: "guest" } || s.Str("party_mode") != "join") return changed;
         foreach (var (key, value) in StartupRulesFromRefusal(status.detail + "\n" + status.alert))
         {
             if (StartupValue(key, key == "party_start" ? s.Str(key) : ini.Get(key, "")) == value) continue;
             if (key == "party_start") s.Set(key, value);
             else ini.Set(key, value);
-            changed = true;
+            changed.Add(key);
         }
         return changed;
     }

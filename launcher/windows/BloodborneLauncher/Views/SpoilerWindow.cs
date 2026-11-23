@@ -72,6 +72,7 @@ public sealed class SpoilerWindow : Window
         _search.TextChanged += (_, _) => { _pause.Stop(); _pause.Start(); };
         _pause.Tick += (_, _) => { _pause.Stop(); Fill(); };
         Fill();
+        UiScale.Attach(this, resize: true);
     }
 
     private static Line Of(WorldSpoiler.Trade t) => new(t.Where, t.Was, t.Now);

@@ -18,6 +18,11 @@
 //   mods label (0.7.8, type 10, sent right after type 7 while gameplay mods are loaded): label u8 len + ASCII, 1..255 of
 //   a-z 0-9 @ . _ : + - ("nocturne@1.0" from the launcher's verified curated mod, else "mods:" + 8 hex of the party mod
 //   hash). The lobby relays it in type 12 (list type 11); a client uses it only as a key, never as a path or address.
+//   start-up rules (type 13, sent right after the mods label, or type 7 without one): flags u8 (bit 0 Guests use lamps,
+//   1 Guests can use Hunter's Mark, 2 Full rewards for guests, 3 Party starts right away, 4 Key items for every player)
+//   insight u8 (0 Same as the host, 1 Full bonus, 2 the game's own); the same bits as LAN discovery's 'R' datagram
+//   (party_discovery.h). The lobby relays them in type 15 (list type 14), so a guest's launcher starts with the
+//   host's values and the join check (party_link identity_mismatch) does not refuse it for them.
 // Only a machine with a 10.8.0.0/22 tunnel address announces (no other adapter, never the Internet).
 #pragma once
 
@@ -44,6 +49,8 @@ struct Announce {
     std::uint32_t area = 0;
     std::uint8_t phase = 0, ng = 255;
     std::string mods;  // the mods label (type 10), "" = none
+    bool rules = false;  // the start-up rules (type 13) below are filled
+    std::uint8_t rules_flags = 0, rules_insight = 0;
 };
 // The extension datagram (type 7); always 12 bytes.
 std::vector<std::uint8_t> encode_announce_ext(const Announce& a);
@@ -59,6 +66,9 @@ inline bool valid_mods_label(const std::string& label) {
 }
 // The mods label datagram (type 10), or empty when a.mods is empty or not a valid label.
 std::vector<std::uint8_t> encode_announce_mods(const Announce& a);
+// The start-up rules datagram (type 13, 6 bytes), or empty when a.rules is false. Unknown flag bits and an
+// Insight above 2 are never sent (cleared / 0).
+std::vector<std::uint8_t> encode_announce_rules(const Announce& a);
 // The label this host announces: none without gameplay mods; else `launcher_label` (BB_PARTY_MODS_LABEL, set by the
 // launcher only for a curated mod it verified) when valid, else "mods:" + the first 4 bytes of the party mod hash in hex.
 std::string mods_label(const char* launcher_label, bool gameplay_mods, const std::array<std::uint8_t, 32>& mods_hash);

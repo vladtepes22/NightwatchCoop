@@ -300,6 +300,7 @@ public sealed partial class SaveEditorWindow : Window
         _timer.Tick += (_, _) => UpdateRunning();
         Loaded += async (_, _) => { await LoadAsync(); _timer.Start(); };
         Closed += (_, _) => { _timer.Stop(); (_source as IDisposable)?.Dispose(); };
+        UiScale.Attach(this, resize: true);
     }
 
     public Task LoadAsync() => Guard(async () =>

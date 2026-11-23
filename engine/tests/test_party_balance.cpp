@@ -129,7 +129,8 @@ int main() {
         st.start_immediate = true;
         const std::string tag = JoinRulesTag(st);
         assert(tag.find("Guests use lamps=off") != std::string::npos && tag.find("Insight for bosses=Full bonus") != std::string::npos &&
-               tag.find("Party starts=Right away") != std::string::npos);
+               tag.find("Party starts=Right away") != std::string::npos &&
+               tag.find("Key items for every player=on") != std::string::npos);
     }
     // 0.7.5 (levelsync): Level sync and Phantom health go with the rules, on by default; a host from before them: on.
     {

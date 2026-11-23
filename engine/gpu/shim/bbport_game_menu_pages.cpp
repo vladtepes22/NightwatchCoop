@@ -1337,8 +1337,8 @@ void DefineAll() {
             "Yours: what the party brings into your own save: the host's item rewards, bells, key items (bbport)",
             "Ваше: что группа приносит в ваше сохранение: предметы хоста, колокольчики, ключи (bbport)");
     own(&Values::party_items, "Host's item rewards", "Предметы хоста гостям",
-        "Key and unique items the host gets are given to you too, once (not vials, bullets or materials). Next start",
-        "Ключевые и уникальные предметы хоста выдаются и вам, один раз (не флаконы, пули, материалы). Со след. запуска");
+        "Key and unique items the host gets are given to you too, once. Must be set like the host's. Next start",
+        "Ключевые и уникальные предметы хоста выдаются и вам, один раз. Должно совпадать с хостом. Со след. запуска");
     own(&Values::party_grant_bells, "Give the bells", "Выдать колокольчики",
         "The Beckoning Bell and Small Resonant Bell after the prologue (for ringing by hand). Next start",
         "Колокол призыва и Малый резонирующий колокол после пролога (звонить вручную). Со следующего запуска");

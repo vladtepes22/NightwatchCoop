@@ -2029,6 +2029,16 @@ void start_host(LinkConfig cfg) {
             a.talk = ho.talk == 1;
             a.droproll = ho.droproll == 1;
         }
+        {  // Nightwatch: the start-up rules a guest must match, so its launcher sets them before the game starts
+            const coop::balance::StartupRules st = coop::balance::StartupSessionRules();
+            a.startup = true;
+            a.st_lamps = st.guest_lamps;
+            a.st_mark = st.guest_mark;
+            a.st_rewards = st.full_rewards;
+            a.st_immediate = st.start_immediate;
+            a.st_insight = static_cast<std::uint8_t>(std::clamp(st.guest_insight, 0, 2));
+            a.st_items = st.items;
+        }
         {  // 0.7.8: invasions and where the host is (party_invade.h); the flag is false whenever the switch is off
             const coop::invade::Where w = coop::invade::Announced();
             a.invaders = w.allow && w.invadable;
@@ -2079,6 +2089,14 @@ void start_host(LinkConfig cfg) {
             a.area = w.area;
             a.phase = w.phase;
             a.ng = w.ng;
+        }
+        {  // the start-up rules a guest must match (party_vpnlobby.h type 13; the same bits as discovery's 'R')
+            const coop::balance::StartupRules st = coop::balance::StartupSessionRules();
+            a.rules = true;
+            a.rules_flags = static_cast<std::uint8_t>((st.guest_lamps ? 1 : 0) | (st.guest_mark ? 2 : 0) |
+                                                      (st.full_rewards ? 4 : 0) | (st.start_immediate ? 8 : 0) |
+                                                      (st.items ? 16 : 0));
+            a.rules_insight = static_cast<std::uint8_t>(std::clamp(st.guest_insight, 0, 2));
         }
         *out = a;
         return true;

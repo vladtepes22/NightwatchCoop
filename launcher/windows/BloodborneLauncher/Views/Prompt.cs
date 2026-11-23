@@ -194,6 +194,7 @@ namespace BloodborneLauncher.Views
                 }
             };
             PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) DialogResult = false; };
+            UiScale.Attach(this, resize: false);
         }
 
         /// <summary>--test-prompt &lt;png&gt;: where to save a picture of the first dialog over the launcher, then close.</summary>

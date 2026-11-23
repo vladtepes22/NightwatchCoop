@@ -72,6 +72,30 @@ std::vector<std::uint8_t> encode_ext(const Announce& a) {
     return v;
 }
 
+std::vector<std::uint8_t> encode_rules(const Announce& a) {
+    if (!a.startup) return {};
+    std::vector<std::uint8_t> v = {0xfa, 'R', 1};
+    for (int s = 24; s >= 0; s -= 8) v.push_back(static_cast<std::uint8_t>(a.id >> s));
+    v.push_back(static_cast<std::uint8_t>((a.st_lamps ? 1 : 0) | (a.st_mark ? 2 : 0) | (a.st_rewards ? 4 : 0) |
+                                          (a.st_immediate ? 8 : 0) | (a.st_items ? 16 : 0)));
+    v.push_back(a.st_insight <= 2 ? a.st_insight : 0);
+    return v;
+}
+
+bool parse_rules(const std::uint8_t* d, std::size_t n, AnnounceRules* out) {
+    if (!d || !out || n != 9 || d[0] != 0xfa || d[1] != 'R' || d[2] != 1 || (d[7] & ~31) || d[8] > 2) return false;
+    AnnounceRules r;
+    r.id = (std::uint32_t(d[3]) << 24) | (std::uint32_t(d[4]) << 16) | (std::uint32_t(d[5]) << 8) | d[6];
+    r.lamps = d[7] & 1;
+    r.mark = (d[7] & 2) != 0;
+    r.rewards = (d[7] & 4) != 0;
+    r.immediate = (d[7] & 8) != 0;
+    r.items = (d[7] & 16) != 0;
+    r.insight = d[8];
+    *out = r;
+    return true;
+}
+
 bool parse_ext(const std::uint8_t* d, std::size_t n, AnnounceExt* out) {
     if (!d || n != 14 || d[0] != 0xfa || d[1] != 'I' || d[2] != 1 || (d[7] & ~3) || d[12] > 4 || (d[13] > 7 && d[13] != 255)) return false;
     AnnounceExt e;
@@ -331,7 +355,8 @@ void thread_main(Provider provider) {
                 }
             }
             a.id = id;
-            const std::vector<std::uint8_t> pkt = encode(a), ext = encode_ext(a), mods = encode_mods(a);
+            const std::vector<std::uint8_t> pkt = encode(a), ext = encode_ext(a), mods = encode_mods(a),
+                                            rules = encode_rules(a);
             for (const Out& o : outs) {
                 sockaddr_in to{};
                 to.sin_family = AF_INET;
@@ -343,6 +368,9 @@ void thread_main(Provider provider) {
                          reinterpret_cast<sockaddr*>(&to), sizeof(to));
                 if (!mods.empty())
                     ::sendto(o.sock, reinterpret_cast<const char*>(mods.data()), static_cast<int>(mods.size()), 0,
+                             reinterpret_cast<sockaddr*>(&to), sizeof(to));
+                if (!rules.empty())
+                    ::sendto(o.sock, reinterpret_cast<const char*>(rules.data()), static_cast<int>(rules.size()), 0,
                              reinterpret_cast<sockaddr*>(&to), sizeof(to));
             }
         }

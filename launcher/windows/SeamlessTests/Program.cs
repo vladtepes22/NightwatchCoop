@@ -457,8 +457,9 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
     Check(example.Count == 2 && example["party_guest_lamps"] == "0" && example["party_guest_insight"] == "full", "Host refusal example not parsed");
     var defaults = SeamlessSettings.StartupRulesFromRefusal("set \"Guests use lamps\" like the host (host: on, yours: off), " +
         "set \"Guests can use Hunter's Mark\" like the host (host: on, yours: off), set \"Full rewards for guests\" like the host (host: on, yours: off), " +
-        "set \"Insight for bosses\" like the host (host: Same as the host, yours: Full bonus), set \"Party starts\" like the host (host: After the prologue, yours: Right away)");
-    Check(defaults.Count == 5 && SeamlessSettings.StartupRules.All(r => defaults[r.Key] == r.Default), "Default host rule values not parsed");
+        "set \"Insight for bosses\" like the host (host: Same as the host, yours: Full bonus), set \"Party starts\" like the host (host: After the prologue, yours: Right away), " +
+        "set \"Key items for every player\" like the host (host: on, yours: off)");
+    Check(defaults.Count == 6 && SeamlessSettings.StartupRules.All(r => defaults[r.Key] == r.Default), "Default host rule values not parsed");
     var insight = SeamlessSettings.StartupRulesFromRefusal("set \"Insight for bosses\" like the host (host: Game's own (+1), yours: Full bonus)");
     Check(insight.Count == 1 && insight["party_guest_insight"] == "0", "Game's own Insight not parsed");
     Check(SeamlessSettings.StartupRulesFromRefusal("set \"Unknown rule\" like the host (host: on, yours: off), " +
@@ -474,13 +475,13 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
     var refused = new SeamlessSession.Status("guest", "error", "host refused: version mismatch with the host (yours 1): " +
         "set \"Guests use lamps\" like the host (host: off, yours: on), set \"Party starts\" like the host (host: Right away, yours: After the prologue)" +
         ": the launcher's Party Rules tab or System > Party rules in the game, then restart the game", "", "", "", "", Array.Empty<SeamlessSession.Member>());
-    Check(SeamlessSettings.TakeHostStartupRules(guest, guestIni, refused) && guestIni.Raw("party_guest_lamps") == "0" && guest.Str("party_start") == "immediate",
+    Check(SeamlessSettings.TakeHostStartupRules(guest, guestIni, refused).SequenceEqual(new[] { "party_guest_lamps", "party_start" }) && guestIni.Raw("party_guest_lamps") == "0" && guest.Str("party_start") == "immediate",
           "The host's start-up rules were not taken from its refusal");
-    Check(!SeamlessSettings.TakeHostStartupRules(guest, guestIni, refused), "Taking the host's start-up rules again counted as a change");
-    Check(!SeamlessSettings.TakeHostStartupRules(guest, guestIni, refused with { role = "host" }) &&
-          !SeamlessSettings.TakeHostStartupRules(guest, guestIni, null), "Start-up rules taken outside a refused guest");
+    Check(SeamlessSettings.TakeHostStartupRules(guest, guestIni, refused).Count == 0, "Taking the host's start-up rules again counted as a change");
+    Check(SeamlessSettings.TakeHostStartupRules(guest, guestIni, refused with { role = "host" }).Count == 0 &&
+          SeamlessSettings.TakeHostStartupRules(guest, guestIni, null).Count == 0, "Start-up rules taken outside a refused guest");
     guest.Set("party_mode", "host");
-    Check(!SeamlessSettings.TakeHostStartupRules(guest, new IniFile(), refused), "Start-up rules taken in Host mode");
+    Check(SeamlessSettings.TakeHostStartupRules(guest, new IniFile(), refused).Count == 0, "Start-up rules taken in Host mode");
 }
 
 // Host over a VPN (0.7.5 party_vpn) and the discovery adapter rule: the launcher repeats the game's adapter choice.
@@ -619,6 +620,23 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
     var told = PartyDiscovery.AdoptEnv(PartyDiscovery.Parse(Packet(flags: 0x40 | 4 | 32, max: 4))!);
     Check(told["BB_PARTY_MAX"] == "4" && told["BB_PARTY_GUEST_LAMPS"] == "1" && told["BB_PARTY_HEADSTONES"] == "0" &&
           told["BB_PARTY_GUEST_TALK"] == "0" && told["BB_PARTY_SHARED_DROP_ROLL"] == "1", "The host's announced options were not read");
+    byte[] Rules(uint id, byte flags, byte insight) =>
+        new byte[] { 0xfa, (byte)'R', 1, (byte)(id >> 24), (byte)(id >> 16), (byte)(id >> 8), (byte)id, flags, insight };
+    var rules = PartyDiscovery.ParseRules(Rules(0xdeadbeef, 2 | 8 | 16, 2));
+    Check(rules is { Id: 0xdeadbeef } r && r.Env["BB_PARTY_GUEST_LAMPS"] == "0" && r.Env["BB_PARTY_GUEST_MARK"] == "1" &&
+          r.Env["BB_PARTY_FULL_REWARDS"] == "0" && r.Env["BB_PARTY_START"] == "immediate" && r.Env["BB_PARTY_ITEMS"] == "1" &&
+          r.Env["BB_PARTY_GUEST_INSIGHT"] == "0", "The host's start-up rules datagram was not read");
+    Check(PartyDiscovery.ParseRules(Rules(1, 32, 0)) == null && PartyDiscovery.ParseRules(Rules(1, 0, 3)) == null &&
+          PartyDiscovery.ParseRules(Rules(1, 0, 0)[..8]) == null && PartyDiscovery.ParseRules(Rules(1, 0, 0).Append((byte)0).ToArray()) == null &&
+          PartyDiscovery.Parse(Rules(1, 0, 0)) == null && PartyDiscovery.ParseMods(Rules(1, 0, 0)) == null, "A junk rules datagram was accepted");
+    var withRules = PartyDiscovery.AdoptEnv(PartyDiscovery.Parse(Packet(flags: 1))!, rules!.Value.Env);
+    Check(withRules["BB_PARTY_START"] == "immediate" && withRules["BB_PARTY_ITEMS"] == "1" && withRules.ContainsKey("BB_PARTY_MAX"),
+          "The host's start-up rules were not told to the launch");
+    var ruleBook = new PartyDiscovery.Book();
+    Check(ruleBook.Feed(Rules(0xdeadbeef, 16, 1), "192.168.1.9", 100) && ruleBook.Feed(Packet(), "192.168.1.9", 100) &&
+          ruleBook.Snapshot(100) is [{ Rules: { } heardRules }] && heardRules["BB_PARTY_GUEST_INSIGHT"] == "full" &&
+          ruleBook.Feed(Packet(), "192.168.1.10", 100) && ruleBook.Snapshot(100).Count(p => p.Rules == null) == 1,
+          "Start-up rules were not kept with their host's announcement (same address and id only)");
     Check(PartyDiscovery.AdoptEnv(PartyDiscovery.Parse(Packet(flags: 1))!).Keys.Single() == "BB_PARTY_MAX", "An announcement without options told some");
     var adopt = PartyDiscovery.ParseAdopt("# note\nBB_PARTY_MAX=4\r\nBB_PARTY_HEADSTONES=1\nBB_PARTY_MAX2=9\nBB_PARTY_GUEST_TALK=2\nPATH=x\n");
     Check(adopt.Count == 2 && adopt["BB_PARTY_MAX"] == "4" && adopt["BB_PARTY_HEADSTONES"] == "1", "party_adopt.txt accepted something unknown");
@@ -687,6 +705,18 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
         "A label outside a-z 0-9 @ . _ : + - or missing refuses the page");
     Check(VpnLobby.ParseReply(Labelled(new string('a', 255))) is { } l4 && l4.Games[0].Mods.Length == 255, "A 255-character label (a world code) parses");
     Check(VpnLobby.ParseReply(Reply(9, 1, 1, true)) is { } l3 && l3.Games[0].Mods == "", "The type 9 reply has no label");
+    // Type 15 (nwlobby types 13-15): type 12's rows plus the host's start-up rules (bit 7 known, bits 0-4, Insight 0..2).
+    static byte[] WithRules(byte flags, byte insight) =>
+        Reply(15, 1, 1, true).Concat(new byte[] { 4 }).Concat(System.Text.Encoding.ASCII.GetBytes("a.b1")).Concat(new[] { flags, insight }).ToArray();
+    Check(VpnLobby.ListRequest(0, 4)[3] == 14, "The list with start-up rules is asked with type 14");
+    Check(VpnLobby.ParseReply(WithRules(0x80 | 16 | 8, 1)) is { } r1 && r1.Games[0].Mods == "a.b1" && r1.Games[0].Rules is { } rr &&
+          rr["BB_PARTY_ITEMS"] == "1" && rr["BB_PARTY_START"] == "immediate" && rr["BB_PARTY_GUEST_INSIGHT"] == "full" && rr["BB_PARTY_GUEST_LAMPS"] == "0",
+          "The type 15 reply does not carry the host's start-up rules");
+    Check(VpnLobby.ParseReply(WithRules(0, 0)) is { } r2 && r2.Games[0].Rules == null, "A host without start-up rules got some");
+    Check(VpnLobby.ParseReply(WithRules(0x40, 0)) == null && VpnLobby.ParseReply(WithRules(0x80, 3)) == null &&
+          VpnLobby.ParseReply(WithRules(0x01, 0)) == null && VpnLobby.ParseReply(WithRules(0x80, 0)[..^1]) == null &&
+          VpnLobby.ParseReply(Reply(12, 1, 1, true).Concat(new byte[] { 0 }).ToArray()) is { } r3 && r3.Games[0].Rules == null,
+          "A bad rules pair was accepted, or a type 12 reply got rules");
     // An Invade start: BB_PARTY_INVADE for that start only, and never the password.
     var invader = new LauncherSettings();
     invader.Set("party_mode", "join");

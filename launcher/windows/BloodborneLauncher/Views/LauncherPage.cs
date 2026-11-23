@@ -13,12 +13,14 @@ namespace BloodborneLauncher.Views
     /// <summary>
     /// One setting: its title on the left (descriptions in an ⓘ tooltip), its control on the right,
     /// or below it for wide controls such as segmented buttons. Hint is a line under the title for
-    /// live status (a path, "not available on this GPU"); it stays hidden until something is set.
+    /// live status (a path, "not available on this GPU"); it stays hidden until something is set. Warning is a
+    /// line under it in the warning colour, for a problem the player must act on.
     /// </summary>
     public sealed class SettingRow : Border
     {
         public SymbolIcon Icon { get; }
         public TextBlock Hint { get; }
+        public TextBlock Warning { get; }
         public string Title { get; }
         /// <summary>The description (the ⓘ tooltip).</summary>
         public string? Info { get; }
@@ -63,6 +65,11 @@ namespace BloodborneLauncher.Views
 
             Hint = new TextBlock { FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0), Visibility = Visibility.Collapsed };
             Hint.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorTertiaryBrush");
+            Warning = new TextBlock { FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0), Visibility = Visibility.Collapsed };
+            Warning.SetResourceReference(TextBlock.ForegroundProperty, "WarningTextBrush");
+            var notes = new StackPanel();
+            notes.Children.Add(Hint);
+            notes.Children.Add(Warning);
 
             var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             text.Children.Add(titleLine);
@@ -88,21 +95,21 @@ namespace BloodborneLauncher.Views
                     Grid.SetColumnSpan(element, 2);
                     grid.Children.Add(element);
                     grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                    Grid.SetRow(Hint, 2);
-                    Grid.SetColumn(Hint, 1);
-                    Grid.SetColumnSpan(Hint, 2);
-                    grid.Children.Add(Hint);
+                    Grid.SetRow(notes, 2);
+                    Grid.SetColumn(notes, 1);
+                    Grid.SetColumnSpan(notes, 2);
+                    grid.Children.Add(notes);
                 }
                 else
                 {
-                    text.Children.Add(Hint);
+                    text.Children.Add(notes);
                     if (element is FrameworkElement fe) fe.Margin = new Thickness(12, 0, 0, 0);
                     Grid.SetColumn(element, 2);
                     grid.Children.Add(element);
                 }
             }
             else
-                text.Children.Add(Hint);
+                text.Children.Add(notes);
 
             Child = grid;
         }
@@ -162,6 +169,43 @@ namespace BloodborneLauncher.Views
     }
 
     /// <summary>A row of options where one is chosen, like the PS4/macOS segmented control.</summary>
+    /// <summary>A setting whose only two choices are On and Off: a switch, not a drop-down. Select and Changed
+    /// work by choice index, as on Segmented, so a page treats both alike.</summary>
+    public sealed class ChoiceSwitch : ToggleSwitch
+    {
+        private readonly int _on;
+        public IReadOnlyList<Choice> Choices { get; }
+        public event Action<int>? Changed;
+
+        private ChoiceSwitch(IReadOnlyList<Choice> choices, int on)
+        {
+            Choices = choices;
+            _on = on;
+            // A subclass gets no implicit style of its own: take the switch's.
+            SetResourceReference(StyleProperty, typeof(ToggleSwitch));
+            VerticalAlignment = VerticalAlignment.Center;
+            Click += (_, _) => Changed?.Invoke(SelectedIndex);
+        }
+
+        /// <summary>A switch for these choices, or null when they are not exactly On and Off.</summary>
+        public static ChoiceSwitch? For(IReadOnlyList<Choice> choices)
+        {
+            if (choices.Count != 2) return null;
+            string on = L.T("On"), off = L.T("Off");
+            if (choices[0].Label == on && choices[1].Label == off) return new ChoiceSwitch(choices, 0);
+            if (choices[0].Label == off && choices[1].Label == on) return new ChoiceSwitch(choices, 1);
+            return null;
+        }
+
+        public int SelectedIndex => IsChecked == true ? _on : 1 - _on;
+
+        public void Select(int index, bool notify)
+        {
+            IsChecked = index == _on;
+            if (notify) Changed?.Invoke(SelectedIndex);
+        }
+    }
+
     public sealed class Segmented : Border
     {
         private readonly List<Border> _items = new();
@@ -218,6 +262,13 @@ namespace BloodborneLauncher.Views
         /// unspaced brackets count too, as Chinese and Korean write them.</summary>
         public static string Short(string label) =>
             label.IndexOfAny(new[] { '(', '（' }) is > 0 and var i ? label[..i].TrimEnd() : label;
+
+        /// <summary>Shows or hides one choice; a hidden one takes no room.</summary>
+        public void SetVisible(int index, bool visible)
+        {
+            _items[index].Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+            ((Grid)Child).ColumnDefinitions[index].Width = visible ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        }
 
         public void Select(int index, bool notify)
         {
@@ -326,6 +377,8 @@ namespace BloodborneLauncher.Views
         protected static IniFile Ini => Ws.Ini;
 
         protected StackPanel Body { get; }
+        /// <summary>Where groups and rows go when no panel is given: Body, or the tab a page is filling.</summary>
+        protected Panel Target { get; set; } = null!;
         protected ScrollViewer Scroller { get; }
         private bool _sectioned;
 
@@ -348,6 +401,7 @@ namespace BloodborneLauncher.Views
 
             // The tab says which page this is; no page title.
             Body = new StackPanel { Margin = new Thickness(20, 6, 20, 24), MaxWidth = 880 };
+            Target = Body;
             Scroller = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = Body };
             Content = Scroller;
             PageScroll.Attach(Scroller);
@@ -437,7 +491,7 @@ namespace BloodborneLauncher.Views
         {
             var header = Text(text, "GroupHeader");
             header.Tag = "group";
-            (into ?? Body).Children.Add(header);
+            (into ?? Target).Children.Add(header);
             _group = text;
             return header;
         }
@@ -449,7 +503,7 @@ namespace BloodborneLauncher.Views
         protected Panel Advanced(string title = "Advanced", Panel? into = null)
         {
             var section = new AdvancedSection(title == "Advanced" ? L.T("Advanced") : title);
-            (into ?? Body).Children.Add(section);
+            (into ?? Target).Children.Add(section);
             return section.Rows;
         }
 
@@ -489,7 +543,7 @@ namespace BloodborneLauncher.Views
         /// <summary>Puts a setting on the page; the settings search finds every row added here.</summary>
         protected SettingRow Add(SettingRow row, Panel? into = null)
         {
-            (into ?? Body).Children.Add(row);
+            (into ?? Target).Children.Add(row);
             row.Searchable = true;
             row.Section = _group;
             _searchRows.Add(row);
@@ -596,6 +650,13 @@ namespace BloodborneLauncher.Views
             button.Foreground = Brushes.White;
         }
 
+        /// <summary>Gives a button a tooltip and returns it, for use inline.</summary>
+        public static Button Tip(Button button, string tooltip)
+        {
+            button.ToolTip = tooltip;
+            return button;
+        }
+
         public static Button IconButton(SymbolRegular icon, string tooltip, RoutedEventHandler click)
         {
             var button = new Button
@@ -655,6 +716,17 @@ namespace BloodborneLauncher.Views
                 segmented.Changed += Picked;
                 row.Tag = note;
                 return segmented;
+            }
+
+            if (!buttons && ChoiceSwitch.For(choices) is { } toggle)
+            {
+                var row = Add(Card(icon, title, hint, toggle, out note), into);
+                row.Choices = options;
+                toggle.Select(Choices.IndexOf(choices, get()), notify: false);
+                ShowNote(toggle.SelectedIndex);
+                toggle.Changed += Picked;
+                row.Tag = note;
+                return toggle;
             }
 
             var box = new ComboBox { Width = width, VerticalAlignment = VerticalAlignment.Center };

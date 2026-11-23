@@ -82,6 +82,7 @@ std::string JoinRulesTag(const StartupRules& r) {
     t += std::string("; Full rewards for guests=") + on(r.full_rewards);
     t += std::string("; Insight for bosses=") + insight[std::clamp(r.guest_insight, 0, 2)];
     t += std::string("; Party starts=") + (r.start_immediate ? "Right away" : "After the prologue");
+    t += std::string("; Key items for every player=") + on(r.items);
     return t;
 }
 
