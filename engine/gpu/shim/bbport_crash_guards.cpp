@@ -8,6 +8,7 @@
 //   BB_SF_TEXT_GUARD=0     a text shown before its layout exists is not guarded (+0x12d5e0 / +0x12df80)
 //   BB_FMOD_RING_GUARD=0   a sound freed while still in FMOD's sound ring is not taken out first (+0xdab3a0)
 //   BB_MOVIE_DRAW_WAIT=0   the attract movie's frame draw / close (+0x28fe7c0 / +0x28fe2e0) do not wait for GXRenderThread
+//   BB_SF_MESH_GUARD=0     a UI mesh fill into a buffer with no memory (+0x10b3406) is not skipped
 #include "bbport_crash_guards.h"
 #include "bbport_scaleform_logic.h"
 #include "bbport_fmod_logic.h"
@@ -796,6 +797,65 @@ bool InstallMovieWait() {
            WriteBranch(kMovieClose, 0xe9, close_stub, sizeof(kMovieClosePrologue) - 5);
 }
 
+// ======================================================================================
+// 7. Scaleform mesh fill into a buffer with no memory (NW-618899b; ours, not from bbhost).
+// BB_SF_MESH_GUARD=0: off. The UI renderer's mesh fill (+0x10b33a0, GXRenderThread; called per mesh
+// from +0x11df17) asks the mesh buffer for its data pointer (vtable +0x78, at +0x10b3402), adds the
+// mesh's offset (+0x10b3406) and copies the vertices there, then the indices behind them. Guests in
+// co-op crashed three times with that pointer null (memcpy to 0x20), mostly at the host's lamp travel.
+// The cause of the null buffer is not traced (no dump); a fill whose destination lies in the null page
+// is skipped (to the function's epilogue at +0x10b349f), so that mesh misses its draw data once.
+// ======================================================================================
+constexpr u64 kMeshFillAdd = 0x10b3406;  // add r13, [rbp-0x50]; mov [rbp-0x50], r13
+constexpr u8 kMeshFillAddBytes[] = {0x4c, 0x03, 0x6d, 0xb0, 0x4c, 0x89, 0x6d, 0xb0};
+constexpr u64 kMeshFillNext = 0x10b340e; // and rbx, -2
+constexpr u64 kMeshFillEnd = 0x10b349f;  // the stack check and epilogue
+constexpr u8 kMeshFillEndBytes[] = {0x48, 0x8b, 0x05}; // mov rax, [rip + ...]
+std::atomic<u64> mesh_skipped{0};
+
+BB_SYSV void MeshSkipped(u64 destination) {
+    const u64 n = ++mesh_skipped;
+    if (LogThis(n)) {
+        std::printf("Stability: sf mesh: fill into 0x%llx skipped (the mesh buffer has no memory; %llu so far)\n",
+                    ull(destination), ull(n));
+        std::fflush(stdout);
+    }
+}
+
+void MeshReport() {
+    if (const u64 n = mesh_skipped.load()) {
+        std::printf("Stability: sf mesh: %llu fills into a buffer with no memory skipped\n", ull(n));
+        std::fflush(stdout);
+    }
+}
+
+bool InstallMeshGuard() {
+    if (!MatchesBytes(kMeshFillAdd, kMeshFillAddBytes, sizeof(kMeshFillAddBytes)) ||
+        !MatchesBytes(kMeshFillEnd, kMeshFillEndBytes, sizeof(kMeshFillEndBytes))) {
+        std::printf("Stability: sf mesh: guest +0x%llx is not the expected code; left alone\n", ull(kMeshFillAdd));
+        return false;
+    }
+    const u64 base = reinterpret_cast<u64>(image);
+    Emitter e = NewStub();
+    e.Bytes({0x4c, 0x03, 0x6d, 0xb0});                   // add r13, [rbp-0x50]
+    e.Bytes({0x49, 0x81, 0xfd, 0x00, 0x00, 0x01, 0x00}); // cmp r13, 0x10000
+    e.Bytes({0x72, 0x09});                               // jb skip (over the next 9 bytes)
+    e.Bytes({0x4c, 0x89, 0x6d, 0xb0});                   // mov [rbp-0x50], r13
+    e.JmpTo(base + kMeshFillNext);
+    // skip: only callee-saved registers and the frame are live here (the call before clobbered the rest).
+    e.SaveVolatile();
+    e.Bytes({0x4c, 0x89, 0xef}); // mov rdi, r13
+    e.CallAbs(reinterpret_cast<const void*>(&MeshSkipped));
+    e.RestoreVolatile();
+    e.JmpTo(base + kMeshFillEnd);
+    const u64 stub = PlaceStub(e);
+    if (!stub) {
+        std::printf("Stability: sf mesh: no stub space; left alone\n");
+        return false;
+    }
+    return WriteBranch(kMeshFillAdd, 0xe9, stub, sizeof(kMeshFillAddBytes) - 5);
+}
+
 } // namespace
 
 void PatchImage(unsigned char* guest_image, std::uint64_t size) {
@@ -812,11 +872,14 @@ void PatchImage(unsigned char* guest_image, std::uint64_t size) {
     note(std::string("fmod-ring-guard ") + (fmod_ring ? "on" : "off"));
     movie_wait_on = On("BB_MOVIE_DRAW_WAIT") && stub_page && InstallMovieWait();
     note(std::string("movie-wait ") + (movie_wait_on ? "on" : "off"));
-    if (sf_lock_on || sf_guard_on || fmod_ring || movie_wait_on) {
+    const bool mesh_guard = On("BB_SF_MESH_GUARD") && stub_page && InstallMeshGuard();
+    note(std::string("sf-mesh-guard ") + (mesh_guard ? "on" : "off"));
+    if (sf_lock_on || sf_guard_on || fmod_ring || movie_wait_on || mesh_guard) {
         std::atexit([] {
             SfReport();
             FmodReport();
             MovieReport();
+            MeshReport();
         });
     }
     if (stub_page) {
