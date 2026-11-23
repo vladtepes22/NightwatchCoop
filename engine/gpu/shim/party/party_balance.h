@@ -122,6 +122,8 @@ bool OnNpcOff(int slot, const std::string& json);
 /// through the chr's own ApplySpEffect (vfunc +0x3f0, the path the boss events' 2004[8] take, H4
 /// sees it); `*what` the chr's doping rows / HP rate after it. False: no such chr loaded.
 bool ApplySpEffectToEntity(int entity, int id, std::string* what);
+/// Test aid (Auto-hide HUD script): SpEffect `id` on `chr` through the same path. False: no chr.
+bool ApplySpEffectToChr(std::uint64_t chr, int id);
 /// H3: what the game's kill-echo payer (0x18C5070) checks on a dead chr, for the logs.
 std::string DescribeKillEchoGates(std::uint64_t chr);
 
