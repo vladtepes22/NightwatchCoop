@@ -584,7 +584,10 @@ class Census:
         self.phases = {e: key for e, key in found.items()
                        if self._ordinary_reason(next(p for p in stem_enemies[arenas.BY_KEY[key].stem] if p["entity"] == e),
                                                 forced, every_script) in (None, "special")}
-        arenas.set_phases(self.phases)
+        import helpers  # here: helpers needs arenas.PHASES' arena table, gamedata none of helpers at import
+        self.phase_helpers = helpers.phase_helpers(stem_events, {stem: {e["entity"]: e for e in v}
+                                                                 for stem, v in stem_enemies.items()}, self.phases)
+        arenas.set_phases(self.phases, self.phase_helpers)
         for stem in STEMS:
             enemies = stem_enemies[stem]
             slots = []
@@ -617,6 +620,10 @@ class Census:
         names = set(candidates)
         for slots in self.slots.values():
             names.update(s["model"] for s in slots)
+        import textures
+        # models that draw with another model's textures: that model is loaded beside them (planner, generate)
+        self.texture_sources = textures.sources(files, names)
+        names.update(m for sources in self.texture_sources.values() for m in sources)
         for model in sorted(names):
             head = files.head("chr/%s.chrbnd.dcx" % model, 0x24)
             self.sizes[model] = dcx_size(head) if head else 0
