@@ -74,7 +74,7 @@ class Inputs:
         if cls._census is None:
             from gamedata import Census
             cls._census = Census(cls.files())
-        arenas.set_phases(cls._census.phases)
+        arenas.set_phases(cls._census.phases, cls._census.phase_helpers)
         return cls._census
 
     @classmethod
@@ -110,7 +110,7 @@ def plan(seed, options):
     if normalize(options)["chalice_enemies"]:
         from gamedata import Census
         census = Census(Inputs.files())
-        arenas.set_phases(census.phases)
+        arenas.set_phases(census.phases, census.phase_helpers)
     return world_plan(Inputs.files(), census, seed, options)[0]
 
 

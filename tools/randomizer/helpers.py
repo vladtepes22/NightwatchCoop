@@ -68,6 +68,8 @@ IF_FLAG = (3, 0)  # [group | state << 8, flag]; group 0 waits in place (vanilla:
 CONDITION_BANKS = (0, 1, 3, 4)
 AI_SWITCH = (2004, 1)
 INVINCIBLE = (2004, 15)
+GENERATOR = (2003, 3)  # [generator, 1 on / 0 off]
+KILL = (2004, 4)       # [character, 0]
 AUTHORITY = (2004, 28)  # [entity, 4095]: the body's state is synced to the guests (every set-up event of a Nocturne boss makes it)
 
 
@@ -77,7 +79,8 @@ class Fight:
 
     def __init__(self, key, init, moved, park=(), repoint=(), labels=(), disable=(), bar=None, end_with=None, warps=(),
                  same_hp=(), wake=(), hold=None, home=True, boss=None, travel=None, stage=None,
-                 stage_events=(), stage_extra=(), stage_labels=(), stage_bar_after=None, handover=None, made=(), authority=()):
+                 stage_events=(), stage_extra=(), stage_labels=(), stage_bar_after=None, handover=None, made=(), authority=(),
+                 runs=None, as_started=(), models=None):
         arena = arenas.BY_KEY[key]
         self.key, self.stem = key, arena.stem
         self.defeat, self.started = arena.flags
@@ -119,6 +122,11 @@ class Fight:
         # Travelling bodies whose network authority call (2004[28]) the home hold event makes once the fight starts: it is
         # made for their new entity too (co-op: a body without it is not synced to the guests)
         self.authority = authority
+        # Moved events that are templates: {event: [(slot, argument words)]}, the home map's runs of each. The copy keeps
+        # its parameters and is run once per home run, with the arguments renamed (a phase body's helpers, phase_helpers)
+        self.runs = dict(runs or {})
+        self.as_started = tuple(as_started)  # home flags the copies read as the new arena's started flag
+        self.models = dict(models or {})     # {travelling body: model} when the census has no slot for it
 
 
 _BASE_FIGHTS = {
@@ -215,6 +223,74 @@ _LESSER_DEMON = Fight("lesser_demon",
                       made=(((4, 0, (0, 2300820, 1)), (2004, 43, (2300821, 1)), (2004, 4, (2300821, 0))),
                             ((4, 2, (0, 2300820, 5, 1056964608)), (2004, 8, (2300821, 5500010, 0)))))
 FIGHTS = dict(sorted({**_BASE_FIGHTS, 2410810: _GASCOIGNE_ONE, 3400800: _LUDWIG_ONE, 2300820: _LESSER_DEMON}.items()))  # {home body: Fight}
+_LISTED = dict(FIGHTS)
+
+
+# A phase body's helpers (arenas.PHASE_HELPERS; user 23 Nov: "the Coiled Host's helpers travel with him"). Found, never
+# listed. DATA Nocturne v6.0.0 m27: the Coiled Host's dip (3035) has no hit of its own; at 0.15 s his AI sends message 20,
+# on which 12704813 (run from event 0 once per snake ball 2700803-805, c5033 row 503300) enables a ball with its AI; 12704830
+# (one run per ball) kills the balls once his HP is 0; his pools (the user's "puddles"): 12704851 shoots the pool bullet
+# 2770001 from the invisible producers 2701968-970 (c9010, owner 2701966) once 12704808 is on (the defeat event 12701800
+# sets it as he wakes), 12704852 renews their look (effect 651207, resident) every 5 s while he lives. The
+# rule: every event of the home map but event 0 / 50, the defeat event and the body's hold (2004[01] [body, 0]) that names
+# the body in its own lines and, in its lines or its runs' arguments, an enemy part of the map that is no boss body; those
+# parts travel. A flag of the home block that the defeat event turns on and such an event reads is the fight's start.
+def _runs(events):
+    """{template: [(slot, argument words)]} of the 2000[00] calls in one map's events (_events format)."""
+    out = {}
+    for instructions, _ in events.values():
+        for bank, iid, words in instructions:
+            if (bank, iid) == CALL and len(words) > 1 and words[1] in events:
+                out.setdefault(words[1], []).append((words[0], tuple(words[2:])))
+    return out
+
+
+def phase_helpers(events, enemies, phases):
+    """{phase body: {"travel", "moved", "runs", "as_started", "models"}} for the phase bodies with helpers. events: {stem:
+    {event: (instructions, params)}} (gamedata._events); enemies: {stem: {entity: MSB enemy part}}; phases: {entity:
+    arena key} (arenas.PHASES)."""
+    out = {}
+    bosses = set(arenas.BY_ENTITY) | set(phases)
+    for body, key in sorted(phases.items()):
+        arena = arenas.BY_KEY[key]
+        own, parts = events.get(arena.stem, {}), enemies.get(arena.stem, {})
+        runs = _runs(own)
+        holds = {e for e, (lines, _) in own.items() if any((b, i) == AI_SWITCH and tuple(w[:2]) == (body, 0) for b, i, w in lines)}
+        skip = {0, 50, arena.flags[0]} | holds
+        moved, travel = [], set()
+        for event in sorted(own):
+            if event in skip:
+                continue
+            lines = own[event][0]
+            if not any(body in w for _, _, w in lines):
+                continue
+            named = {x for _, _, w in lines for x in w} | {x for _, args in runs.get(event, ()) for x in args}
+            found = {x for x in named if x in parts and x not in bosses}
+            if found:
+                moved.append(event)
+                travel |= found
+        if not moved:
+            continue
+        block = arena.flags[0] // 10000
+        read = {x for e in moved for b, _, w in own[e][0] if b in (3, 1003) for x in w}
+        starts = sorted({w[0] for b, i, w in own.get(arena.flags[0], ((), {}))[0]
+                         if (b, i) == (2003, 2) and len(w) > 1 and w[1] == 1 and w[0] // 10000 == block and w[0] in read})
+        out[body] = {"travel": tuple(sorted(travel)), "moved": tuple(moved),
+                     "runs": {e: list(runs[e]) for e in moved if e in runs and own[e][1]},
+                     "as_started": tuple(starts), "models": {e: parts[e]["model"] for e in sorted(travel)}}
+    return out
+
+
+def _sync_phase_fights():
+    """FIGHTS and OWNED with the phase bodies' helpers (arenas.PHASE_HELPERS) beside the listed fights: each is a fight of
+    its arena that never dismisses at home (its home arena is the Shadows' own business)."""
+    FIGHTS.clear()
+    FIGHTS.update(_LISTED)
+    for body, spec in sorted(arenas.PHASE_HELPERS.items()):
+        FIGHTS[body] = Fight(arenas.PHASES[body], init=(), moved=spec["moved"], boss=body, travel=spec["travel"],
+                             home=False, runs=spec["runs"], as_started=spec["as_started"], models=spec["models"])
+    OWNED.clear()
+    OWNED.update({boss: frozenset(f.moved) | frozenset(f.park) for boss, f in FIGHTS.items()})
 
 
 # Phase one alone (planner.second_bodies, user 10 Nov: each boss once per run): a Gascoigne, Ludwig or Orphan whose
@@ -237,6 +313,7 @@ def fight_of(fighter):
 # bosses.
 OWNED = {boss: frozenset(f.moved) | frozenset(f.park) for boss, f in FIGHTS.items()}
 BY_KEY = {f.key: f for f in FIGHTS.values()}
+arenas.ON_PHASES.append(_sync_phase_fights)
 PART_GAP = 60  # new entities and event ids from base + 60 to base + 99, apart from boss_events' + 90 range
 
 
@@ -253,8 +330,9 @@ def extras_of(slots, origin):
         return (), ()
     fight = FIGHTS[origin]
     by_entity = {s["entity"]: s for s in slots[fight.stem]}
-    own = by_entity[origin]["model"]
-    return tuple(fight.travel), tuple(sorted({by_entity[e]["model"] for e in fight.travel} - {own}))
+    model = lambda e: fight.models[e] if e in fight.models else by_entity[e]["model"]
+    return tuple(fight.travel), tuple(sorted({model(e) for e in fight.travel} - {model(origin) if origin in fight.models
+                                                                                    else by_entity[origin]["model"]}))
 
 
 def stage_bosses():
@@ -357,7 +435,7 @@ def slot_flags(events):
     return out
 
 
-def free_event_ids(events, arena, count):
+def free_event_ids(events, arena, count, blocks=None):
     """Event ids from the arena's started flag block + PART_GAP that no event here uses and no word here names; when
     those 30 run out (one draw for every body of a group: two or three bosses with bodies of their own travel into one
     arena, the One Reborn alone needs 12), the rest of the block's thousand from X4100, outside the X4800-X4899 hundred,
@@ -368,11 +446,20 @@ def free_event_ids(events, arena, count):
             named.update(words)
     base = arena_flags(arena)[1] // 100 * 100
     free = [c for c in range(base + PART_GAP, base + 90) if c not in named]
-    if len(free) < count:
+    if len(free) < count or blocks is not None:
         import boss_events  # here: boss_events imports this module
         taken = boss_events._taken(events)
         block = base // 1000 * 1000
         free += [c for c in range(block + 100, block + 800) if not base <= c < base + 100 and c not in taken]
+    if blocks is not None:  # templates run in slots 0..n-1: id and the n-1 flags after it all free (slot_flags)
+        left, out = set(free), []
+        for size in blocks:
+            start = next((c for c in free if all(c + k in left for k in range(size))), None)
+            if start is None:
+                raise ValueError("no %d free event ids in a row near %d" % (size, base))
+            left -= set(range(start, start + size))
+            out.append(start)
+        return out
     if len(free) < count:
         raise ValueError("no %d free event ids near %d" % (count, base))
     return free[:count]
@@ -461,6 +548,30 @@ def gate(body, started):
     return insert_line(body, k, line)
 
 
+def _template_copy(origin_events, event, home, body, runs, renames, origin, defeat):
+    """A moved template (Fight.runs): (body, parameters, calls [(slot, renamed arguments)]). A line fed by an argument
+    that some run gives as a thing of the home map this arena lacks (Nocturne's snake-ball generators 2705001-003) becomes a
+    label like the lines rewrite drops, and that argument is 0 in every call; a label drops its parameters."""
+    params = origin_events.param_entries(event)
+    stale = {k * 4 for _, args in runs for k, w in enumerate(args) if w not in renames and _old_map(w, origin, defeat)}
+    body = list(body)
+    used = {iid for bank, iid, _ in home if bank == LABEL_BANK}
+    label = next(i for i in reversed(range(10)) if i not in used)
+    for i, _, src, _ in params:
+        if src in stale and body[i][0] != LABEL_BANK:
+            body[i] = (LABEL_BANK, label, [])
+    # a body its home generator brought back (2003[03] on its line, the generator left home) is disabled where the
+    # template killed it: the next run enables it again (DATA Nocturne m27: 12704813 kills each snake ball after its
+    # attack and its generator 2705001-003 respawns it on the next dip; LIVE 23 Nov, killed: one ball per dip only once)
+    if any((home[i][0], home[i][1]) == GENERATOR and src in stale for i, _, src, _ in params):
+        for i, _, src, _ in params:
+            if (body[i][0], body[i][1]) == KILL:
+                body[i] = (ENABLE[0], ENABLE[1], [0] + list(body[i][2][1:]))
+    params = [p for p in params if body[p[0]][0] != LABEL_BANK]
+    calls = [(slot, tuple(0 if k * 4 in stale else renames.get(w, w) for k, w in enumerate(args))) for slot, args in runs]
+    return body, params, calls
+
+
 def travel(events, arena, fighter, origin_events, new_entities):
     """The fighter (planner fighter dict; its "origin" names the home body) now fights on `arena` (a boss body of this
     map). origin_events: the home map's Emevd (or a function entity -> Emevd). new_entities: {home body: its new
@@ -489,7 +600,9 @@ def travel(events, arena, fighter, origin_events, new_entities):
     defeat, started = arena_flags(arena)
     caller = _caller(events, arena)
     setup = bool(travelling or init_lines)  # a fight with nothing to set up at load (only events) gets no set-up event
-    ids = free_event_ids(events, arena, len(moved_events) + len(fight.made) + setup)
+    sizes = [1 + max((slot for slot, _ in fight.runs.get(e, ())), default=0) for e in moved_events]
+    sizes += [1] * (len(fight.made) + setup)
+    ids = free_event_ids(events, arena, sum(sizes), blocks=sizes if fight.runs else None)
     moved = dict(zip(moved_events, ids))
     made_ids = ids[len(moved_events):len(moved_events) + len(fight.made)]
     renames = {origin: arena, fight.defeat: defeat, fight.started: started}
@@ -498,6 +611,7 @@ def travel(events, arena, fighter, origin_events, new_entities):
     renames.update({pool: arena for pool in fight.stay})  # the boss holds the HP here
     if fight.hold is not None:
         renames[fight.hold] = started
+    renames.update({flag: started for flag in fight.as_started})
     renames.update(new_entities)
     renames.update(moved)
     report = {"arena": arena, "origin": origin, "bodies": dict(new_entities), "events": [],
@@ -513,10 +627,20 @@ def travel(events, arena, fighter, origin_events, new_entities):
         if stage:
             home = _stage_lines(fight, event, home, stage)
         body = rewrite(home, renames, origin, fight.defeat)
+        if event in fight.runs:
+            body, params, calls = _template_copy(origin_events, event, home, body, fight.runs[event], renames, origin,
+                                                 fight.defeat)
+        else:
+            params, calls = (), [(0, ())]
         if fight.gate:
-            body = gate(body, started)
-        events.add_event(moved[event], origin_events.restart(event), body, source=(event, arena, "helper"))
-        events.append_instruction(caller, CALL[0], CALL[1], [0, moved[event], 0])
+            gated = gate(body, started)
+            if len(gated) > len(body):  # the wait went in before line k: parameters of later lines move down one
+                k = next(i for i, (bank, _, _) in enumerate(body) if bank < 1000)
+                params = [(i + (i >= k), a, src, n) for i, a, src, n in params]
+            body = gated
+        events.add_event(moved[event], origin_events.restart(event), body, params=params, source=(event, arena, "helper"))
+        for slot, args in calls:
+            events.append_instruction(caller, CALL[0], CALL[1], [slot, moved[event]] + (list(args) or [0]))
         report["events"].append((event, moved[event]))
     for event, lines in zip(made_ids, fight.made):
         body = gate(rewrite(list(lines), renames, origin, fight.defeat), started)

@@ -44,7 +44,7 @@ class Noc:
         if cls._census is None:
             from gamedata import Census
             cls._census = Census(cls.files())
-        arenas.set_phases(cls._census.phases)  # another module's census may have read the game alone since
+        arenas.set_phases(cls._census.phases, cls._census.phase_helpers)  # another module's census may have read the game alone since
         return cls._census
 
     @classmethod
@@ -102,6 +102,30 @@ class Detection(unittest.TestCase):
         # a table body is never a phase body
         own = [(2003, 11, (1, SHADOWS, 0, 1)), (4, 0, (2, SHADOWS, 1)), (2003, 12, (SHADOWS,))]
         self.assertEqual(phase_bodies({"m27_00": {shadows.flags[0]: (own, {})}}, {"m27_00": {SHADOWS: {}}}), {})
+
+    def test_phase_helpers_are_the_parts_his_events_drive(self):
+        """helpers.phase_helpers on a made-up m27: an event naming the body and a part travels with the part; a template
+        brings its runs; the defeat event, the hold and an event naming only boss bodies stay; a flag the defeat event
+        turns on and a moved event reads is the start."""
+        import helpers
+        shadows = arenas.BY_KEY["shadows"]
+        defeat = shadows.flags[0]
+        body, ball, owner, gen, flag = 2700899, 2700898, 2700897, 2705099, 12704899
+        own = {
+            0: ([(2000, 0, (0, 12704890, ball, gen)), (2000, 0, (1, 12704890, ball + 100, gen))], {}),
+            defeat: ([(2003, 2, (flag, 1)), (2004, 1, (body, 1)), (2003, 12, (body,))], {}),
+            12704880: ([(2004, 1, (body, 0)), (2004, 5, (owner, 0))], {}),            # his hold: stays
+            12704890: ([(4, 8, (255, body, 20, 1)), (2004, 5, (0, 1))], {1: {0: 0}}),  # template, runs above
+            12704891: ([(3, 0, (257, flag)), (4, 0, (1, body, 0)), (2003, 5, (owner, owner, 101, 1))], {}),
+            12704892: ([(4, 0, (1, body, 0)), (2004, 1, (SHADOWS, 1))], {}),          # bosses only: stays
+        }
+        parts = {e: {"model": "c%04d" % (e % 10000)} for e in (body, ball, ball + 100, owner, SHADOWS)}
+        out = helpers.phase_helpers({"m27_00": own}, {"m27_00": parts}, {body: "shadows"})[body]
+        self.assertEqual(out["moved"], (12704890, 12704891))
+        self.assertEqual(out["travel"], (owner, ball, ball + 100))
+        self.assertEqual(out["runs"], {12704890: [(0, (ball, gen)), (1, (ball + 100, gen))]})
+        self.assertEqual(out["as_started"], (flag,))
+        self.assertEqual(helpers.phase_helpers({"m27_00": {defeat: own[defeat]}}, {"m27_00": parts}, {body: "shadows"}), {})
 
     @needs_game
     def test_the_game_alone_has_none_and_the_option_does_nothing(self):
@@ -215,7 +239,7 @@ class OnNocturne(unittest.TestCase):
 
     def test_he_fights_elsewhere_with_nothing_of_his_home_map(self):
         """In another arena he is that arena's boss: its fight can end, its bars show his name (NpcName 503000), and
-        nothing of m27 comes along (his home events are the Shadows fight's, his summons stay home)."""
+        nothing of m27 is named there (his helpers come as copies under new ids: phase_helpers)."""
         Noc.census()
         failures = []
         for body in (AMELIA, LOGARIUS, 2200800):
@@ -226,8 +250,9 @@ class OnNocturne(unittest.TestCase):
             names = [w[3] for e in events.event_ids() for w in lines(events, e, 2003, 11) if w[0] == 1 and w[1] == body]
             if not names or set(names) != {503000}:
                 failures.append("%d: bars %r" % (body, names))
+            bullets = {ws[3] for e in events.event_ids() for b, i, ws in events.instructions(e) if (b, i) == (2003, 5)}
             home = {w for e in events.event_ids() for _, _, ws in events.instructions(e) for w in ws
-                    if 2700000 <= w < 2800000 or 12700000 <= w < 12800000}
+                    if (2700000 <= w < 2800000 or 12700000 <= w < 12800000) and w not in bullets}
             if home:
                 failures.append("%d: names m27's %r" % (body, sorted(home)[:5]))
             for kind in ("parts", "phases"):
@@ -235,6 +260,56 @@ class OnNocturne(unittest.TestCase):
                     if entity == body and added:
                         failures.append("%d: copied %s %r" % (body, kind, added))
         self.assertEqual(failures, [])
+
+    def test_his_helpers_travel_with_him(self):
+        """User 23 Nov: his dip (3035) has no hit of its own; its message 20 releases the snake balls, so they and the
+        bullet owners come along with their events (LIVE 23 Nov, beta 3: in the Blood-starved Beast's arena every dip did
+        nothing). DATA Nocturne v6.0.0 m27: 12704813 (one run per ball), 12704830, 12704851 / 852; flag 12704808."""
+        import helpers
+        Noc.census()
+        spec = arenas.PHASE_HELPERS.get(HOST)
+        self.assertIsNotNone(spec)
+        self.assertTrue({2700803, 2700804, 2700805, 2701966} <= set(spec["travel"]), spec["travel"])
+        self.assertTrue(not set(spec["travel"]) & set(arenas.BY_ENTITY), spec["travel"])
+        self.assertTrue({12704813, 12704830} <= set(spec["moved"]), spec["moved"])
+        # his pools ("amygdala puddles", user 23 Nov): bullet 2770001 shot from the producers 2701968-970 (owner 2701966)
+        # by 12704851, their look (effect 651207) renewed by 12704852 (snake-ball NOTES 22-23 Nov)
+        self.assertTrue({2701968, 2701969, 2701970} <= set(spec["travel"]), spec["travel"])
+        self.assertTrue({12704851, 12704852} <= set(spec["moved"]), spec["moved"])
+        self.assertEqual(sorted(slot for slot, _ in spec["runs"][12704813]), [0, 1, 2])
+        self.assertIn(12704808, spec["as_started"])
+        self.assertIs(helpers.FIGHTS[HOST].home, False)  # his own arena under another boss is not dismissed
+        body = 2300800  # the Blood-starved Beast's (LIVE 23 Nov)
+        arena = arenas.arena_of(body)
+        events, vanilla, travellers, _ = build(arena.stem, {body: HOST}, {})
+        self.assertEqual(check_case(arena, {body: HOST}, events, vanilla, travellers), [])
+        new = travellers[body]
+        self.assertEqual(set(new), set(spec["travel"]))
+        balls = sorted(new[e] for e in (2700803, 2700804, 2700805))
+        calls = [tuple(w) for b, i, w in events.instructions(0) if (b, i) == (2000, 0) and len(w) > 2 and w[2] in balls]
+        template = {w[1] for w in calls}
+        self.assertEqual(len(template), 2, calls)  # the release and the end, each once per ball
+        release = next(t for t in template if any((b, i) == (4, 8) and w[1] == body and w[2] == 20
+                                                  for b, i, w in events.instructions(t)))
+        self.assertEqual(sorted(w[2] for w in calls if w[1] == release), balls)
+        self.assertEqual(sorted(w[0] for w in calls if w[1] == release), [0, 1, 2])
+        for t in template:  # the generators stay home: the copies disable a ball where m27 killed it (its generator
+            # brought it back on the next dip), and no line names a generator
+            self.assertEqual([w for b, i, w in events.instructions(t) if (b, i) in ((2004, 4), (2003, 3))], [], t)
+            self.assertEqual(events.restart(t), 1)
+        self.assertTrue(all(w[3] == 0 for w in calls))  # the generator argument
+        started = arenas.arena_of(body).flags[1]
+        pools = [e for e in events.event_ids() if any((b, i) == (2003, 5) and w[3] == 2770001 and w[0] == new[2701966]
+                                                      for b, i, w in events.instructions(e))]
+        self.assertEqual(len(pools), 1)
+        shot = sorted(w[1] for b, i, w in events.instructions(pools[0]) if (b, i) == (2003, 5))
+        self.assertEqual(shot, sorted(new[e] for e in (2701968, 2701969, 2701970)))
+        looks = [e for e in events.event_ids() if any((b, i) == (2006, 3) and w[3] == 651207
+                                                      for b, i, w in events.instructions(e))]
+        self.assertEqual(len(looks), 1)
+        for t in sorted(template):
+            first = next(w for b, i, w in events.instructions(t) if b < 1000)
+            self.assertEqual(tuple(first), (256, started), t)
 
     def test_off_no_summons_also_silences_nocturnes_summon_event(self):
         """Nocturne runs its own copy of the summon event (12704813, which also waits on his message 20) in place of

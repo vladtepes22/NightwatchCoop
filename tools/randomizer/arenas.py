@@ -168,12 +168,23 @@ ESCORTS = frozenset(e for a in ARENAS for e in a.escorts)
 # Shadows of Yharnam). Never a fixed table: the census finds them in the player's inputs (gamedata.phase_bodies) and
 # registers them here, {entity: arena key}; empty without such a mod.
 PHASES = {}
+# The map-side helpers a phase body's attacks need (helpers.phase_helpers: the parts and events its AI messages drive,
+# the Coiled Host's snake balls and bullet owners), {entity: spec}; found with the phase bodies, never listed. Modules
+# that build tables from them (helpers.FIGHTS) register a hook here and rebuild when the phases change.
+PHASE_HELPERS = {}
+ON_PHASES = []
 
 
-def set_phases(phases):
-    """The phase bodies of this world's inputs (gamedata.Census calls it): arena_of knows them from now on."""
+def set_phases(phases, phase_helpers=None):
+    """The phase bodies of this world's inputs (gamedata.Census calls it): arena_of knows them from now on. phase_helpers:
+    their helper specs (None: keep the ones known for bodies still listed)."""
     PHASES.clear()
     PHASES.update(phases)
+    keep = dict(PHASE_HELPERS) if phase_helpers is None else dict(phase_helpers)
+    PHASE_HELPERS.clear()
+    PHASE_HELPERS.update({e: spec for e, spec in keep.items() if e in PHASES})
+    for hook in ON_PHASES:
+        hook()
 
 
 def arena_of(entity):

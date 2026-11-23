@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import zlib
 
 from ailua import Archive, script_name
@@ -343,6 +344,69 @@ def replaced_entities(census, stem, final):
                      and s["part"] in final and final[s["part"]][0] != s["model"])
 
 
+PARK = 80.0  # metres under the part that needs it (vanilla parks the Orphan's phase two 82 units under his arena)
+
+
+def texture_parts(census, variants, events):
+    """A hidden part for every model the map's enemies draw with but no enemy part of the map loads (textures.py,
+    planner.with_sources: the Orphan's phase two c4541 alone needs c4540): a copy of the first enemy part that needs it,
+    with that model and one of its own rows, PARK metres under it, held at load (event 0) the way vanilla parks a waiting
+    body (the Orphan's phase two 82 units under his arena): AI, gravity and its HP bar off, invincible. A character's
+    model loads only when the player comes near it, and never while it is disabled (LIVE 23 Nov: a disabled c4540 part
+    in m22 never loaded). variants: {variant: MSB bytes} after every other part change; events: this map's Emevd
+    (edited in place). Returns ({variant: bytes}, [{model, entity, name, think, npc, for}])."""
+    import planner
+    msbs = {v: Msb(b) for v, b in variants.items()}
+    present = set().union(*({e["model"] for e in m.enemies()} for m in msbs.values()))
+    planner.TEXTURE_SOURCES.clear()
+    planner.TEXTURE_SOURCES.update(census.texture_sources)
+    missing = sorted(planner.with_sources(present) - present)
+    if not missing:
+        return variants, []
+    rows = {}
+    for stem in sorted(census.slots):
+        for slot in census.slots[stem]:
+            rows.setdefault(slot["model"], (slot["think"], slot["npc"]))
+    for model, pairs in sorted(census.candidates.items()):
+        rows.setdefault(model, tuple(pairs[0]))
+    named = set()
+    for event in events.event_ids():
+        for _, _, words in events.instructions(event):
+            named.update(words)
+    blobs = [bytes(m.data) for m in msbs.values()]
+    names = set().union(*(m.part_names() for m in msbs.values()))
+    first = msbs[sorted(msbs)[0]].enemies()
+    base = next(e["entity"] for e in first if e["entity"] > 0) // 10000 * 10000
+    hidden = []
+    for model in missing:
+        if model not in rows:
+            raise RuntimeError("no NPC row for texture source %s" % model)
+        entity = next(c for c in range(base + 9999, base + 9000, -1)
+                      if c not in named and not any(struct.pack("<i", c) in b for b in blobs))
+        named.add(entity)
+        name = next("%s_%04d" % (model, k) for k in range(9000, 10000) if "%s_%04d" % (model, k) not in names)
+        names.add(name)
+        think, npc = rows[model]
+        users = sorted(m for m in present if model in planner.with_sources({m}) and m != model)
+        hidden.append({"model": model, "entity": entity, "name": name, "think": think, "npc": npc, "for": users})
+    out = {}
+    for variant, msb in msbs.items():
+        for h in hidden:
+            # the first part of this variant that needs it (a variant without one: the first anywhere)
+            users = [e for e in msb.enemies() if e["model"] in h["for"] and len(e["part"]) == len(h["name"])]
+            if not users:
+                users = [e for m in msbs.values() for e in m.enemies() if e["model"] in h["for"]]
+                users = [e for e in msb.enemies() if e["part"] == users[0]["part"]] if users else []
+            user = users[0] if users else next(e for e in msb.enemies() if len(e["part"]) == len(h["name"]))
+            x, y, z = struct.unpack_from("<3f", msb.data, user["at"] + 0x28)
+            msb.add_enemy(user["part"], h["name"], h["entity"], h["model"], h["think"], h["npc"], (x, y - PARK, z))
+        out[variant] = msb.bytes()
+    for h in hidden:
+        for bank, iid, state in ((2004, 1, 0), (2004, 10, 0), (2004, 30, 0), (2004, 15, 1)):
+            events.append_instruction(0, bank, iid, [h["entity"], state])
+    return out, hidden
+
+
 def riders_off(census, stem, replaced):
     """The riding parts (Census.riders) whose host gets another model: their rider goes too (user, 10 Nov)."""
     return sorted(r for r, h in census.riders[stem].items() if h in replaced)
@@ -582,7 +646,8 @@ def world_plan(files, census, seed, options):
     huge = (huge_rows(census, [s["npc"] for v in census.slots.values() for s in v if s["role"] in ("body", "extra")]
                       + [f["npc"] for f in extra_fighters]) if wanted["bosses_as_enemies"] else frozenset())
     result = plan(slots, census.candidates, census.sizes, groups, limits, seed, options, census.animations,
-                  difficult.candidates(census), extra_fighters, hard_rows, huge=huge)
+                  difficult.candidates(census), extra_fighters, hard_rows, huge=huge,
+                  texture_sources=census.texture_sources)
     problems = check(result, slots, census.candidates, census.sizes, groups, limits, census.animations)
     if problems:
         raise RuntimeError("the plan broke its own rules: " + "; ".join(problems[:5]))
@@ -634,6 +699,7 @@ def generate(game, mods, out_root, code, label=None, base_label=None, progress=N
     outputs, missing_scripts, boss_patches, pose_patches, released_report, ai_report, rider_report = {}, {}, [], [], {}, {}, {}
     home_stem = {s["entity"]: stem for stem in STEMS for s in census.slots[stem]}
     event_reports = {}
+    texture_report = {}  # {stem: [[source model, entity, models that need it]]} (texture_parts)
     travelled = {}  # {stem: {(model, home npc row)}} of the bodies that came with a boss, for their effects
 
     def origin_events(entity):
@@ -724,6 +790,17 @@ def generate(game, mods, out_root, code, label=None, base_label=None, progress=N
         if ai_done:
             ai_report[stem] = [[entity, event, line, list(call) if call else None, copy]
                                for entity, event, line, call, copy in ai_done]
+        # the models whose textures this map's enemies draw with get a hidden part each (textures.py)
+        rel = "event/%s_00_00.emevd.dcx" % stem
+        events = Emevd(dcx_read(outputs[rel] if rel in outputs else files.read(rel))[0])
+        edited, hidden = texture_parts(census, {v: b[0] for v, b in variants.items()}, events)
+        if hidden:
+            for variant, data in edited.items():
+                variants[variant] = (data,) + variants[variant][1:]
+            added = added + [h["name"] for h in hidden]
+            helper_scripts = helper_scripts + sorted({(h["model"], h["think"], h["npc"]) for h in hidden})
+            outputs[rel] = dcx_write(events.bytes(), dcx_read(files.read(rel))[1])
+            texture_report[stem] = [[h["model"], h["entity"], h["for"]] for h in hidden]
         for variant, (data, payload, header, before) in sorted(variants.items()):
             rel = "map/mapstudio/%s.msb.dcx" % variant
             if sorted(Msb(data).part_names()) != sorted(before + added):
@@ -889,7 +966,7 @@ def generate(game, mods, out_root, code, label=None, base_label=None, progress=N
         "generator": GENERATOR_MAJOR, "generator_build": build, "code": code, "seed": seed, "options": _plain(result["options"]),
         "input_hash": input_hash, "read_hash": files.read_hash(), "report": result["report"], "npc_rows_added": len(new_rows),
         "effects": effect_report, "boss_events": event_reports, "boss_patches": boss_patches, "pose_patches": pose_patches,
-        "released_runs": released_report, "ai_released": ai_report, "riders_off": rider_report, "treasure": {str(a): b for a, b in sorted(lots.items())},
+        "released_runs": released_report, "ai_released": ai_report, "riders_off": rider_report, "texture_parts": texture_report, "treasure": {str(a): b for a, b in sorted(lots.items())},
         "starters": {str(a): b for a, b in sorted(starter_plan.items())},
         "starter_copies": {str(a): b for a, b in sorted(starter_copies.items())},
         "starter_armor": outfit,

@@ -30,8 +30,25 @@ class Limits:
         self.group_bytes = group_bytes * scale // 100
 
 
+# {model: models whose textures it draws with} (textures.sources, set by plan): a map that loads the model loads them too
+# (generate.texture_parts adds a hidden part of each), so they count against its budget
+TEXTURE_SOURCES = {}
+
+
+def with_sources(models):
+    """The models and every model their textures need, transitively (c2712 -> c2711 -> c2710)."""
+    out, todo = set(models), list(models)
+    while todo:
+        for source in TEXTURE_SOURCES.get(todo.pop(), ()):
+            if source not in out:
+                out.add(source)
+                todo.append(source)
+    return out
+
+
 def _fits(models, sizes, limits, max_models, max_bytes):
-    return len(models) <= max_models and sum(sizes[m] for m in models) <= max_bytes
+    models = with_sources(models)
+    return len(models) <= max_models and sum(sizes.get(m, 0) for m in models) <= max_bytes
 
 
 def _room(stem, models, loaded, sizes, limits, membership):
@@ -125,8 +142,8 @@ def replacement_pool(options, candidates, sizes):
 def boss_fighters(slots, index, excluded, hard_rows=None, extra=(), phases=(), options=None):
     """The bosses that can fight elsewhere, as fighter dicts (arenas.py contract), in a stable order: the arena table's
     fighters with their slot rows (or their hard copy's) and the bodies that
-    travel with them (helpers.extras_of), then the phase bodies `phases` (option coiled_host: "<arena>_phase", no bodies
-    of their own), then `extra` (chalice bosses: home None, origin None)."""
+    travel with them (helpers.extras_of), then the phase bodies `phases` (option coiled_host: "<arena>_phase", with the
+    helpers their attacks need: helpers.phase_helpers), then `extra` (chalice bosses: home None, origin None)."""
     hard_rows = hard_rows or {}
     out = []
     for arena in ARENAS:
@@ -148,9 +165,10 @@ def boss_fighters(slots, index, excluded, hard_rows=None, extra=(), phases=(), o
     for entity in phases:
         slot = index[entity][1]
         if slot["model"] not in excluded:
+            extras, extra_models = extras_of(slots, entity)  # its helpers (helpers.phase_helpers), when it has any
             out.append({"key": "%s_phase" % slot["arena"], "model": slot["model"], "think": slot["think"],
-                        "npc": slot["npc"], "origin": entity, "home": slot["arena"], "extras": [], "extra_models": [],
-                        "needs_end": False})
+                        "npc": slot["npc"], "origin": entity, "home": slot["arena"], "extras": list(extras),
+                        "extra_models": list(extra_models), "needs_end": False})
     out.extend(f for f in extra if f["model"] not in excluded)
     return out
 
@@ -347,7 +365,7 @@ def away_slot(slot, outside, animations):
 
 
 def plan(slots, candidates, sizes, groups, group_limits, seed, options, animations=None, difficult=None,
-         extra_fighters=(), hard_rows=None, connected=None, huge=frozenset()):
+         extra_fighters=(), hard_rows=None, connected=None, huge=frozenset(), texture_sources=None):
     """slots: {stem: [slot dict]}; candidates: {model: [(think, npc)]}; sizes: {model: bytes};
     groups: [[stem...]] loaded together; group_limits: (max models, max bytes);
     animations: {model: ids}, for slots whose events force animations (LIVE: a model lacking one freezes);
@@ -358,8 +376,11 @@ def plan(slots, candidates, sizes, groups, group_limits, seed, options, animatio
     huge: NpcParam rows of bosses too wide for an ordinary slot (generate.huge_rows; option huge_bosses_as_enemies lets them);
     connected: {stem: stems} the player meets right after it (None: neighbours.connections(); {} turns the rule off): a
     map's model order puts the models those maps already hold last (user, 4 Nov: the next map holds fewer of the last's).
+    texture_sources: textures.sources (a model's texture sources count in every budget with it).
     Returns {'changes': {stem: {part: (model, think, npc)}}, 'report': {...}, 'bosses', 'boss_fighters', 'fighters',
     'arena_modes', ...}."""
+    TEXTURE_SOURCES.clear()
+    TEXTURE_SOURCES.update(texture_sources or {})
     norm = normalize(options)
     index = _index(slots)
     skipped = {}
