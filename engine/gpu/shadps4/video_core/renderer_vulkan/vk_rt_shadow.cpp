@@ -21,6 +21,7 @@
 #include "video_core/host_shaders/rt_shadow_filter_comp.h"
 #include "video_core/host_shaders/rt_unproject_bounds_comp.h"
 #include "video_core/host_shaders/rt_unproject_comp.h"
+#include "video_core/renderer_vulkan/vk_breadcrumbs.h"
 #include "video_core/renderer_vulkan/vk_camera_motion.h"
 #include "video_core/renderer_vulkan/vk_effect_pass.h"
 #include "video_core/renderer_vulkan/vk_gpu_profiler.h"
@@ -499,6 +500,10 @@ void RtShadow::DiagFrameEnd() {
                     per(p.pose_refits), per(p.pose_still), per(p.pose_waited),
                     (unsigned long long)RtRules::CutRefitEvery);
     }
+    std::printf("Ray tracing scene builds: %.2f a frame, each in its own instance range; %llu left "
+                "out for want of room (the frame kept its last scene)\n",
+                per(scene_builds), (unsigned long long)scenes_reused);
+    scene_builds = scenes_reused = 0;
     if (evict_hold) {
         std::printf("Ray tracing eviction hold (BB_RT_EVICT_HOLD=1): %.2f passes, %.2f entries "
                     "spared a frame, %.2f evicted a frame\n",
@@ -547,11 +552,14 @@ bool RtShadow::Make(Buffer& out, vk::DeviceSize size, bool host, VkBufferUsageFl
     out.buffer = raw;
     out.mapped = info.pMappedData;
     out.address = instance.GetDevice().getBufferAddress({.buffer = out.buffer});
+    // bbport: named for the device-fault report (NW-652966d had no name for the address).
+    Breadcrumbs::NoteRange(out.address, size, VK_OBJECT_TYPE_BUFFER, "ray tracing buffer");
     return out.address != 0;
 }
 
 void RtShadow::Free(Buffer& buffer) {
     if (buffer.buffer && buffer.allocation) {
+        Breadcrumbs::ForgetRange(buffer.address);
         vmaDestroyBuffer(instance.GetAllocator(), buffer.buffer, buffer.allocation);
     }
     buffer = {};
@@ -674,13 +682,16 @@ void RtShadow::Destroy(Entry& entry) {
     const auto device = instance.GetDevice();
     const auto allocator = instance.GetAllocator();
     DeferFree([device, allocator, handle = entry.handle, storage = entry.storage,
-               indices = entry.indices, retired = retired,
+               indices = entry.indices, retired = retired, address = entry.address,
                slices = std::array{entry.storage_slice, entry.index_slice}] {
+        Breadcrumbs::ForgetRange(address);
         device.destroyAccelerationStructureKHR(handle);
         if (storage.allocation) {
+            Breadcrumbs::ForgetRange(storage.address);
             vmaDestroyBuffer(allocator, storage.buffer, storage.allocation);
         }
         if (indices.allocation) {
+            Breadcrumbs::ForgetRange(indices.address);
             vmaDestroyBuffer(allocator, indices.buffer, indices.allocation);
         }
         if (retired && (slices[0].block || slices[1].block)) {
@@ -846,6 +857,7 @@ void RtShadow::ReturnEmptyChunks() {
             }
             vmaDestroyVirtualBlock(chunk.block);
             DeferFree([allocator, buffer = chunk.buffer] {
+                Breadcrumbs::ForgetRange(buffer.address);
                 vmaDestroyBuffer(allocator, buffer.buffer, buffer.allocation);
             });
             ++pool_returned;
@@ -1209,6 +1221,8 @@ RtShadow::Made RtShadow::CreateEntry(const Source& draw, u8 mask, u64 scene_byte
     }
     entry->handle = handle;
     entry->address = device.getAccelerationStructureAddressKHR({.accelerationStructure = handle});
+    Breadcrumbs::NoteRange(entry->address, sizes.accelerationStructureSize,
+                           VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR, "ray tracing BLAS");
     made.entry = std::move(entry);
     return made;
 }
@@ -1775,10 +1789,18 @@ bool RtShadow::PrepareScene() {
     if (persistent ? RtRules::SceneUnchanged(count, tlas_count, drawn, tlas_drawn) : count == tlas_count) {
         return true;
     }
+    // bbport: each build of this frame writes its own range of the slot (RtRules::TakeInstances).
+    const auto range = RtRules::TakeInstances(instances_used, count, MaxInstances);
+    if (!range.fits) {
+        ++scenes_reused;
+        return true;
+    }
+    instances_used += count;
+    ++scene_builds;
     tlas_drawn = drawn;
     const u32 slot = u32(frame % 4);
-    auto* out = static_cast<vk::AccelerationStructureInstanceKHR*>(instance_data.mapped) +
-                slot * MaxInstances;
+    const u64 first = u64(slot) * MaxInstances + range.first;
+    auto* out = static_cast<vk::AccelerationStructureInstanceKHR*>(instance_data.mapped) + first;
     u64 triangles = 0;
     for (u32 i = 0; i < count; ++i) {
         const Entry* entry = i < drawn ? frame_entries[i] : offscreen[i - drawn];
@@ -1797,8 +1819,7 @@ bool RtShadow::PrepareScene() {
     }
     tlas_count = count;
     slot_ticks[slot] = scheduler.CurrentTick();
-    const u64 instances_address =
-        instance_data.address + u64(slot) * MaxInstances * sizeof(vk::AccelerationStructureInstanceKHR);
+    const u64 instances_address = instance_data.address + first * sizeof(vk::AccelerationStructureInstanceKHR);
     auto* profiler = GpuProfiler::Get();
     const u64 resume = profiler ? profiler->Current() : 0;
     if (resume) {
@@ -2082,6 +2103,7 @@ void RtShadow::OnFrameEnd() {
     alpha_casters = 0;
     missed = 0;
     tlas_count = 0;
+    instances_used = 0;
     frame_entries.clear();
     frame_cameras.clear();
     camera_slots.Clear();

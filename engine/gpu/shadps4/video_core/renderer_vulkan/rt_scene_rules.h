@@ -528,6 +528,23 @@ inline bool RecentCaster(std::uint64_t frame, std::uint64_t seen_frame) {
     return LANTERN_RT_RULES_PICK(67, true, frame - seen_frame <= RecentFrames);
 }
 
+// bbport: the scene is built more than once a frame (sun, lamp shadows, bounce light each ask), and
+// the instance records sit in host memory the GPU reads when it runs the build, after later asks
+// were recorded. One shared range let a later, shorter list leave an earlier build reading records
+// from four frames ago that name freed BLAS (device lost in "Ray tracing scene", NW-652966d). Each
+// build of a frame takes its own range of the frame's slot; with no room left the frame keeps the
+// scene it built last (the first build of a frame always fits).
+struct InstanceRange {
+    bool fits;
+    std::uint32_t first;
+};
+inline InstanceRange TakeInstances(std::uint32_t used, std::uint32_t count, std::uint32_t capacity) {
+    if (used > capacity || count > capacity - used) {
+        return {false, used};
+    }
+    return {true, used};
+}
+
 inline bool SceneUnchanged(std::uint32_t count, std::uint32_t built_count, std::uint32_t drawn,
                            std::uint32_t built_drawn) {
     return count == built_count && LANTERN_RT_RULES_PICK(62, true, drawn == built_drawn);

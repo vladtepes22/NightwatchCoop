@@ -736,6 +736,22 @@ void TestOffscreen() {
            "a drawn entry trading places with an added one rebuilds the scene");
 }
 
+// NW-652966d: a later, shorter scene build of the same frame must not rewrite the records an
+// earlier build (still waiting on the GPU) reads.
+void TestInstanceRanges() {
+    std::uint32_t used = 0;
+    const auto first = R::TakeInstances(used, 250, 8192);
+    Expect(first.fits && first.first == 0, "the first build of a frame starts the slot");
+    used += 250;
+    const auto second = R::TakeInstances(used, 240, 8192);
+    Expect(second.fits && second.first == 250, "a second build gets the records after the first");
+    used += 240;
+    Expect(first.first + 250 <= second.first, "the two builds' records do not overlap");
+    Expect(!R::TakeInstances(8000, 250, 8192).fits, "a build with no room left is refused");
+    Expect(R::TakeInstances(0, 8192, 8192).fits, "a full-size first build fits");
+    Expect(!R::TakeInstances(9000, 1, 8192).fits, "a count past the slot never wraps");
+}
+
 void TestPersistentEvict() {
     const std::uint64_t limit = 800;
     const auto calm = R::EvictBefore({}, 100, limit, 1000, {});
@@ -811,6 +827,7 @@ int RunSuite() {
     TestBoxBits();
     TestFrustum();
     TestOffscreen();
+    TestInstanceRanges();
     TestPersistentEvict();
     TestCameraSlots();
     TestBudget();
