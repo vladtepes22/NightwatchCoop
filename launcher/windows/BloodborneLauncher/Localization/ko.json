@@ -3013,5 +3013,18 @@
   "Launcher size": "런처 크기",
   "How large the launcher's text and controls are": "런처의 글자와 컨트롤 크기",
   "Matches the screen on Linux; 100% on Windows, which scales the launcher itself": "Linux에서는 화면에 맞춥니다. Windows에서는 100% (Windows가 런처 크기를 직접 조정합니다)",
-  "Your own connection: the router opens the port (UPnP), or play over a LAN or another VPN": "직접 연결: 공유기가 포트를 엽니다 (UPnP). 또는 LAN이나 다른 VPN으로 플레이"
+  "Your own connection: the router opens the port (UPnP), or play over a LAN or another VPN": "직접 연결: 공유기가 포트를 엽니다 (UPnP). 또는 LAN이나 다른 VPN으로 플레이",
+  "Rules": "규칙",
+  "Saves": "저장",
+  "Difficulty": "난이도",
+  "Travel and lamps": "이동과 등불",
+  "Death and revival": "죽음과 부활",
+  "PvP": "PvP",
+  "Chat and sharing": "채팅과 공유",
+  "Loading and rejoining": "로딩과 재참가",
+  "Restore and troubleshoot": "복원 및 문제 해결",
+  "Back to recommended": "권장값으로",
+  "Set the setup wizard's rules (guest health, scaling, rot on death, level sync, boss drops, travel votes) back to the recommended values?": "설정 마법사의 규칙(게스트 체력, 스케일링, 사망 시 부패, 레벨 동기화, 보스 드롭, 이동 투표)을 권장값으로 되돌릴까요?",
+  "Scaling: {0}. Everything as recommended.": "스케일링: {0}. 모두 권장값입니다.",
+  "Scaling: {0}. {1} of {2} answers differ from the recommended setup.": "스케일링: {0}. {2}개 중 {1}개 답변이 권장값과 다릅니다."
 }

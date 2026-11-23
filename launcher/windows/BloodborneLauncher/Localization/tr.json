@@ -3013,5 +3013,18 @@
   "Launcher size": "Başlatıcı boyutu",
   "How large the launcher's text and controls are": "Başlatıcının yazı ve denetimlerinin ne kadar büyük olduğu",
   "Matches the screen on Linux; 100% on Windows, which scales the launcher itself": "Linux'ta ekrana uyar; Windows'ta %100, çünkü Windows başlatıcıyı kendisi ölçekler",
-  "Your own connection: the router opens the port (UPnP), or play over a LAN or another VPN": "Kendi bağlantınız: modem bağlantı noktasını açar (UPnP) ya da LAN veya başka bir VPN üzerinden oynayın"
+  "Your own connection: the router opens the port (UPnP), or play over a LAN or another VPN": "Kendi bağlantınız: modem bağlantı noktasını açar (UPnP) ya da LAN veya başka bir VPN üzerinden oynayın",
+  "Rules": "Kurallar",
+  "Saves": "Kayıtlar",
+  "Difficulty": "Zorluk",
+  "Travel and lamps": "Seyahat ve fenerler",
+  "Death and revival": "Ölüm ve dönüş",
+  "PvP": "PvP",
+  "Chat and sharing": "Sohbet ve paylaşım",
+  "Loading and rejoining": "Yükleme ve yeniden katılma",
+  "Restore and troubleshoot": "Geri yükleme ve sorun giderme",
+  "Back to recommended": "Önerilene dön",
+  "Set the setup wizard's rules (guest health, scaling, rot on death, level sync, boss drops, travel votes) back to the recommended values?": "Kurulum sihirbazının kuralları (misafir sağlığı, ölçekleme, ölümde çürüme, seviye eşitleme, boss ganimetleri, seyahat oylaması) önerilen değerlere dönsün mü?",
+  "Scaling: {0}. Everything as recommended.": "Ölçekleme: {0}. Her şey önerildiği gibi.",
+  "Scaling: {0}. {1} of {2} answers differ from the recommended setup.": "Ölçekleme: {0}. {2} yanıttan {1} tanesi önerilenden farklı."
 }

@@ -263,6 +263,13 @@ namespace BloodborneLauncher.Views
         public static string Short(string label) =>
             label.IndexOfAny(new[] { '(', '（' }) is > 0 and var i ? label[..i].TrimEnd() : label;
 
+        /// <summary>Shows or hides one choice; a hidden one takes no room.</summary>
+        public void SetVisible(int index, bool visible)
+        {
+            _items[index].Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+            ((Grid)Child).ColumnDefinitions[index].Width = visible ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        }
+
         public void Select(int index, bool notify)
         {
             if (index < 0 || index >= _items.Count || !_items[index].IsEnabled) return;
@@ -370,6 +377,8 @@ namespace BloodborneLauncher.Views
         protected static IniFile Ini => Ws.Ini;
 
         protected StackPanel Body { get; }
+        /// <summary>Where groups and rows go when no panel is given: Body, or the tab a page is filling.</summary>
+        protected Panel Target { get; set; } = null!;
         protected ScrollViewer Scroller { get; }
         private bool _sectioned;
 
@@ -392,6 +401,7 @@ namespace BloodborneLauncher.Views
 
             // The tab says which page this is; no page title.
             Body = new StackPanel { Margin = new Thickness(20, 6, 20, 24), MaxWidth = 880 };
+            Target = Body;
             Scroller = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = Body };
             Content = Scroller;
             PageScroll.Attach(Scroller);
@@ -481,7 +491,7 @@ namespace BloodborneLauncher.Views
         {
             var header = Text(text, "GroupHeader");
             header.Tag = "group";
-            (into ?? Body).Children.Add(header);
+            (into ?? Target).Children.Add(header);
             _group = text;
             return header;
         }
@@ -493,7 +503,7 @@ namespace BloodborneLauncher.Views
         protected Panel Advanced(string title = "Advanced", Panel? into = null)
         {
             var section = new AdvancedSection(title == "Advanced" ? L.T("Advanced") : title);
-            (into ?? Body).Children.Add(section);
+            (into ?? Target).Children.Add(section);
             return section.Rows;
         }
 
@@ -533,7 +543,7 @@ namespace BloodborneLauncher.Views
         /// <summary>Puts a setting on the page; the settings search finds every row added here.</summary>
         protected SettingRow Add(SettingRow row, Panel? into = null)
         {
-            (into ?? Body).Children.Add(row);
+            (into ?? Target).Children.Add(row);
             row.Searchable = true;
             row.Section = _group;
             _searchRows.Add(row);

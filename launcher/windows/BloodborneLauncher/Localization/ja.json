@@ -3013,5 +3013,18 @@
   "Launcher size": "ランチャーの大きさ",
   "How large the launcher's text and controls are": "ランチャーの文字とコントロールの大きさ",
   "Matches the screen on Linux; 100% on Windows, which scales the launcher itself": "Linuxでは画面に合わせます。Windowsでは100%（Windowsがランチャーを拡大縮小します）",
-  "Your own connection: the router opens the port (UPnP), or play over a LAN or another VPN": "自分の接続：ルーターがポートを開く (UPnP)、または LAN や別の VPN でプレイ"
+  "Your own connection: the router opens the port (UPnP), or play over a LAN or another VPN": "自分の接続：ルーターがポートを開く (UPnP)、または LAN や別の VPN でプレイ",
+  "Rules": "ルール",
+  "Saves": "セーブ",
+  "Difficulty": "難易度",
+  "Travel and lamps": "移動と灯り",
+  "Death and revival": "死亡と復帰",
+  "PvP": "PvP",
+  "Chat and sharing": "チャットと共有",
+  "Loading and rejoining": "ロードと再参加",
+  "Restore and troubleshoot": "復元とトラブルシューティング",
+  "Back to recommended": "推奨に戻す",
+  "Set the setup wizard's rules (guest health, scaling, rot on death, level sync, boss drops, travel votes) back to the recommended values?": "セットアップウィザードのルール（ゲストの体力、スケーリング、死亡時の腐敗、レベル同期、ボスのドロップ、移動の投票）を推奨値に戻しますか？",
+  "Scaling: {0}. Everything as recommended.": "スケーリング：{0}。すべて推奨どおり。",
+  "Scaling: {0}. {1} of {2} answers differ from the recommended setup.": "スケーリング：{0}。{2} 項目中 {1} 項目が推奨と異なります。"
 }

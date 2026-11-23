@@ -3013,5 +3013,18 @@
   "Launcher size": "Розмір лаунчера",
   "How large the launcher's text and controls are": "Наскільки великими будуть текст і елементи лаунчера",
   "Matches the screen on Linux; 100% on Windows, which scales the launcher itself": "У Linux підлаштовується під екран; у Windows 100%, бо Windows сама масштабує лаунчер",
-  "Your own connection: the router opens the port (UPnP), or play over a LAN or another VPN": "Власне з'єднання: роутер відкриває порт (UPnP), або гра через LAN чи інший VPN"
+  "Your own connection: the router opens the port (UPnP), or play over a LAN or another VPN": "Власне з'єднання: роутер відкриває порт (UPnP), або гра через LAN чи інший VPN",
+  "Rules": "Правила",
+  "Saves": "Збереження",
+  "Difficulty": "Складність",
+  "Travel and lamps": "Подорожі та ліхтарі",
+  "Death and revival": "Смерть і повернення",
+  "PvP": "PvP",
+  "Chat and sharing": "Чат і обмін",
+  "Loading and rejoining": "Завантаження і повернення",
+  "Restore and troubleshoot": "Відновлення та діагностика",
+  "Back to recommended": "Повернути рекомендовані",
+  "Set the setup wizard's rules (guest health, scaling, rot on death, level sync, boss drops, travel votes) back to the recommended values?": "Повернути рекомендовані значення правил майстра налаштування (здоров'я гостей, масштабування, гниль при смерті, синхронізація рівня, здобич з босів, голосування за переміщення)?",
+  "Scaling: {0}. Everything as recommended.": "Масштабування: {0}. Усе як рекомендовано.",
+  "Scaling: {0}. {1} of {2} answers differ from the recommended setup.": "Масштабування: {0}. {1} з {2} відповідей відрізняються від рекомендованих."
 }

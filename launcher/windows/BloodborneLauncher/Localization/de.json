@@ -3013,5 +3013,18 @@
   "Launcher size": "Launchergröße",
   "How large the launcher's text and controls are": "Wie groß Text und Bedienelemente des Launchers sind",
   "Matches the screen on Linux; 100% on Windows, which scales the launcher itself": "Passt sich unter Linux dem Bildschirm an; unter Windows 100 %, da Windows den Launcher selbst skaliert",
-  "Your own connection: the router opens the port (UPnP), or play over a LAN or another VPN": "Eigene Verbindung: Der Router öffnet den Port (UPnP), oder ihr spielt über ein LAN oder ein anderes VPN"
+  "Your own connection: the router opens the port (UPnP), or play over a LAN or another VPN": "Eigene Verbindung: Der Router öffnet den Port (UPnP), oder ihr spielt über ein LAN oder ein anderes VPN",
+  "Rules": "Regeln",
+  "Saves": "Spielstände",
+  "Difficulty": "Schwierigkeit",
+  "Travel and lamps": "Reisen und Laternen",
+  "Death and revival": "Tod und Rückkehr",
+  "PvP": "PvP",
+  "Chat and sharing": "Chat und Teilen",
+  "Loading and rejoining": "Laden und Wiedereinstieg",
+  "Restore and troubleshoot": "Wiederherstellen und Fehlersuche",
+  "Back to recommended": "Zurück zur Empfehlung",
+  "Set the setup wizard's rules (guest health, scaling, rot on death, level sync, boss drops, travel votes) back to the recommended values?": "Die Regeln des Einrichtungsassistenten (Gästegesundheit, Skalierung, Fäulnis beim Tod, Levelangleichung, Bossbeute, Reiseabstimmung) auf die empfohlenen Werte zurücksetzen?",
+  "Scaling: {0}. Everything as recommended.": "Skalierung: {0}. Alles wie empfohlen.",
+  "Scaling: {0}. {1} of {2} answers differ from the recommended setup.": "Skalierung: {0}. {1} von {2} Antworten weichen von der Empfehlung ab."
 }

@@ -3013,5 +3013,18 @@
   "Launcher size": "啟動器大小",
   "How large the launcher's text and controls are": "啟動器文字與控制項的大小",
   "Matches the screen on Linux; 100% on Windows, which scales the launcher itself": "在 Linux 上配合螢幕；在 Windows 上為 100%（Windows 會自行縮放啟動器）",
-  "Your own connection: the router opens the port (UPnP), or play over a LAN or another VPN": "你自己的連線：由路由器開啟連接埠 (UPnP)，或透過區域網路或其他 VPN 遊玩"
+  "Your own connection: the router opens the port (UPnP), or play over a LAN or another VPN": "你自己的連線：由路由器開啟連接埠 (UPnP)，或透過區域網路或其他 VPN 遊玩",
+  "Rules": "規則",
+  "Saves": "存檔",
+  "Difficulty": "難度",
+  "Travel and lamps": "旅行與燈",
+  "Death and revival": "死亡與復活",
+  "PvP": "PvP",
+  "Chat and sharing": "聊天與分享",
+  "Loading and rejoining": "載入與重新加入",
+  "Restore and troubleshoot": "還原與疑難排解",
+  "Back to recommended": "恢復建議設定",
+  "Set the setup wizard's rules (guest health, scaling, rot on death, level sync, boss drops, travel votes) back to the recommended values?": "將設定精靈的規則（訪客生命值、縮放、死亡腐化、等級同步、首領掉落、移動投票）恢復為建議值？",
+  "Scaling: {0}. Everything as recommended.": "縮放：{0}。全部為建議設定。",
+  "Scaling: {0}. {1} of {2} answers differ from the recommended setup.": "縮放：{0}。{2} 項中有 {1} 項與建議設定不同。"
 }

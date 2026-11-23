@@ -17,6 +17,11 @@ public sealed class SeamlessPage : LauncherPage
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
     /// Rows and group headers shown only in some modes ("" single player, "host", "join").
     private readonly List<(UIElement Element, Func<string, bool> When)> _byMode = new();
+    // Party (connect), Rules (host only), My party (in a party), Saves. The tab survives a page reload.
+    private readonly Segmented _tabs;
+    private readonly PageTab[] _tabPages;
+    private static int s_tab;
+    private TextBlock _presetHint = null!;
     private static bool InParty(string mode) => mode.Length > 0;
     private static bool Hosting(string mode) => mode == "host";
     private static bool Joining(string mode) => mode == "join";
@@ -27,6 +32,17 @@ public sealed class SeamlessPage : LauncherPage
         L.T("Play the campaign together with visy's seamless co-op. The host shares a party code; everyone uses the same build, gameplay mods and party size."))
     {
         _previewPublic = previewPublic;
+        _tabs = new Segmented(new[] { new Choice(L.T("Party"), "party"), new Choice(L.T("Rules"), "rules"),
+            new Choice(L.T("My party"), "mine"), new Choice(L.T("Saves"), "saves") })
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 4, 0, 6),
+        };
+        _tabPages = Enumerable.Range(0, 4).Select(i => new PageTab { Open = () => ShowTab(i, scroll: true) }).ToArray();
+        _tabs.Changed += i => ShowTab(i, scroll: true);
+        Body.Children.Add(_tabs);
+        foreach (var tab in _tabPages) Body.Children.Add(tab);
+        Target = _tabPages[0];
         Group(L.T("Party"));
         _mode = SettingCombo(SymbolRegular.People24, L.T("Mode"), L.T("Host starts the party; Join connects to the host."),
             new[] { new Choice(L.T("Single player"), ""), new Choice(L.T("Host"), "host"), new Choice(L.T("Join"), "join") }, "party_mode",
@@ -228,91 +244,113 @@ public sealed class SeamlessPage : LauncherPage
                 } catch (Exception e) { Prompt.Tell(L.T("Party"), e.Message); }
             }), out _), join);
 
-        // Party settings as in the game's System > Party rules / My party pages (visy 0.7.3): the host's
-        // rules for the whole party (the ones most hosts change shown, the rest folded by topic), then what each
-        // player chooses for itself. Joining: the rules are the host's and reach you on connect; the start-up rules
-        // a guest must match are taken from the host's refusal by the main window (SeamlessSettings.TakeHostStartupRules).
-        _byMode.Add((Group(L.T("Party rules")), Hosting));
-        host = Rows(Hosting);
+        // Party rules as in the game's System > Party rules (visy 0.7.3), here by topic. Joining: the rules are the host's and
+        // reach you on connect; the start-up rules a guest must match are taken from the host's refusal by the main window
+        // (SeamlessSettings.TakeHostStartupRules).
+        Target = _tabPages[1];
+        host = Section(L.T("Party rules"), Hosting);
         host.Children.Add(Text(L.T("The host's rules for the whole party. When you join, the host's count and yours are kept for when you host (in the game: System > Party rules)."), "Faint"));
         host.Children.Add(Card(SymbolRegular.Settings24, L.T("Co-op setup"),
-            L.T("A few questions that set the difficulty rules below: guest health, dying, supplies, scaling and rot."),
-            SmallButton(L.T("Run Setup Wizard"), SymbolRegular.Play24, (_, _) => CoopWizard.Open()), out _));
-        IniToggles(host,
-            ("party_kill_record", L.T("Enemies stay dead"), true), ("party_open_world", L.T("Remove multiplayer barriers"), true),
-            // visy 0.7.9 (fc532488) party_open_any_level: open games skip the co-op level range; the host's own setting, read
-            // live, on by default and in the top five (user, 7 Nov).
+            L.T("A few questions that set the difficulty rules below: guest health, dying, supplies, scaling and rot."), Row(
+            SmallButton(L.T("Run Setup Wizard"), SymbolRegular.Play24, (_, _) => CoopWizard.Open()),
+            SmallButton(L.T("Back to recommended"), SymbolRegular.ArrowUndo24, (_, _) => BackToRecommended())), out _presetHint));
+
+        host = Section(L.T("Difficulty"), Hosting);
+        IniToggles(host, ("party_level_sync", L.T("Level sync"), true),
+            // visy 0.7.9 (fc532488) party_open_any_level: open games skip the co-op level range; the host's own setting, read live.
             ("party_open_any_level", L.T("Any level can join my open game"), true),
-            ("party_share_lamps", L.T("Shared lamps"), true), ("party_gather", L.T("Host can gather the party"), true),
-            ("party_guest_gather", L.T("Guests can gather the party"), true), ("party_layer_travel", L.T("Chalice layer travel"), true),
-            ("party_guest_respawn", L.T("Guest respawn"), true), ("party_level_sync", L.T("Level sync"), true),
-            ("party_friendly_fire", L.T("Friendly fire / PvP"), false), ("party_pvp_full_hp", L.T("Full health in PvP"), true));
-        IniToggles(Fold(L.T("World and story"), Hosting),
-            ("party_story_mirror", L.T("Cutscenes for every player"), true), ("party_npc_mirror", L.T("NPCs as in the host's world"), true),
-            ("party_covenant_per_player", L.T("Covenant outcomes per player"), true),
-            ("party_npc_fights", L.T("NPC hunters fight the whole party"), true),
-            ("party_boss_share", L.T("Bosses share attention"), true),
-            ("party_any_kidnap", L.T("Anyone can be abducted"), true),
-            ("party_travel_vote", L.T("Party votes on travel"), false),
-            ("party_guests_bring_lamps", L.T("Guests bring their lamps"), false));
-        IniToggles(Fold(L.T("Guests"), Hosting),
-            ("party_guest_revive_inplace", L.T("Get up without a loading screen"), true),
-            ("party_guest_refill", L.T("Refill guest supplies"), true), ("party_chalice_rejoin", L.T("Stay in Chalice Dungeons"), true),
-            ("party_phantom_hp", L.T("Phantom health cut"), false), ("party_boss_drops", L.T("Boss drops for guests"), true));
+            ("party_phantom_hp", L.T("Phantom health cut"), false));
+        var rot = IniToggles(host, ("party_rot", L.T("Rot on death"), false))[0];
+        IniToggles(Under(rot, host), ("party_rot_cleanse_boss", L.T("Boss kill cleanses rot"), true),
+            ("party_rot_cleanse_killer", L.T("Killing your killer cleanses its rot"), true),
+            ("party_rot_cleanse_echoes", L.T("Retrieving Blood Echoes cleanses its rot"), true),
+            ("party_rot_extra", L.T("Rot: stamina recovery"), false));
         IniNumbers(Fold(L.T("Enemy and boss scaling"), Hosting, L.T("How much tougher enemies and bosses get for each guest.")),
             ("party_boss_hp", L.T("Boss HP per guest (%)"), 150), ("party_boss_damage", L.T("Boss damage per guest (%)"), 10),
             ("party_boss_poise", L.T("Boss poise per guest (%)"), 100), ("party_enemy_hp", L.T("Enemy HP per guest (%)"), 50),
             ("party_enemy_damage", L.T("Enemy damage per guest (%)"), 0), ("party_enemy_poise", L.T("Enemy poise per guest (%)"), 0));
-        IniToggles(Fold(L.T("Rot on death"), Hosting),
-            ("party_rot", L.T("Rot on death"), false), ("party_rot_cleanse_boss", L.T("Boss kill cleanses rot"), true),
-            ("party_rot_cleanse_killer", L.T("Killing your killer cleanses its rot"), true),
-            ("party_rot_cleanse_echoes", L.T("Retrieving Blood Echoes cleanses its rot"), true),
-            ("party_rot_extra", L.T("Rot: stamina recovery"), false));
-        host = Fold(L.T("Start-up rules"), Hosting, L.T("Read when the game starts. A guest with other values is refused and takes the host's."));
+
+        IniToggles(Section(L.T("Travel and lamps"), Hosting),
+            ("party_share_lamps", L.T("Shared lamps"), true), ("party_gather", L.T("Host can gather the party"), true),
+            ("party_guest_gather", L.T("Guests can gather the party"), true), ("party_layer_travel", L.T("Chalice layer travel"), true),
+            ("party_travel_vote", L.T("Party votes on travel"), false), ("party_guests_bring_lamps", L.T("Guests bring their lamps"), false),
+            ("party_chalice_rejoin", L.T("Stay in Chalice Dungeons"), true));
+
+        IniToggles(Section(L.T("Death and revival"), Hosting),
+            ("party_guest_respawn", L.T("Guest respawn"), true), ("party_guest_revive_inplace", L.T("Get up without a loading screen"), true),
+            ("party_guest_refill", L.T("Refill guest supplies"), true));
+
+        IniToggles(Section(L.T("World and story"), Hosting),
+            ("party_kill_record", L.T("Enemies stay dead"), true), ("party_open_world", L.T("Remove multiplayer barriers"), true),
+            ("party_story_mirror", L.T("Cutscenes for every player"), true), ("party_npc_mirror", L.T("NPCs as in the host's world"), true),
+            ("party_covenant_per_player", L.T("Covenant outcomes per player"), true),
+            ("party_npc_fights", L.T("NPC hunters fight the whole party"), true),
+            ("party_boss_share", L.T("Bosses share attention"), true), ("party_any_kidnap", L.T("Anyone can be abducted"), true),
+            ("party_boss_drops", L.T("Boss drops for guests"), true));
+
+        host = Section(L.T("PvP"), Hosting);
+        var pvp = IniToggles(host, ("party_friendly_fire", L.T("Friendly fire / PvP"), false))[0];
+        IniToggles(Under(pvp, host), ("party_pvp_full_hp", L.T("Full health in PvP"), true));
+
+        host = Section(L.T("Start-up rules"), Hosting);
+        host.Children.Add(Text(L.T("Read when the game starts. A guest with other values is refused and takes the host's."), "Faint"));
         StartupRows(host);
         IniToggles(host, ("party_skip_prologue", L.T("Skip the prologue (new characters)"), false));
 
-        _byMode.Add((Group(L.T("My party")), InParty));
-        party = Rows(InParty);
+        // My party: each player's own settings (the game's System > My party), by topic.
+        Target = _tabPages[2];
+        party = Section(L.T("Screen"), InParty);
         party.Children.Add(Text(L.T("Your own party settings: your screen, what you get as a guest, story sync (in the game: System > My party)."), "Faint"));
         IniToggles(party,
             ("party_hud", L.T("Party HUD"), true), ("party_name_tags", L.T("Party name tags"), true), ("party_pings", L.T("Pings"), true),
-            ("party_toasts", L.T("Join, leave and travel notices"), true), ("party_item_notices", L.T("Shared item notices"), true), ("party_npc_talk", L.T("Share NPC dialogue"), true),
-            ("party_chat", L.T("Party chat"), true), ("party_chat_receive", L.T("Show others' chat"), true),
-            ("party_give_items", L.T("Give items to the party"), true),
-            ("party_give_gear", L.T("Give weapons and armor"), true),
-            ("party_hide_bad_names", L.T("Hide offensive names"), true),
-            ("party_look_sync", L.T("Share look changes"), true), ("party_map_marks", L.T("Shared map markers"), true),
-            ("party_glyph_list", L.T("Chalice glyph list"), true),
-            ("chalice_glyphdb", L.T("Community Chalice glyphs (Noxde's list)"), true),
-            ("chalice_glyph_browser", L.T("Chalice Glyph Browser"), true),
-            ("party_guest_altar", L.T("Ritual Altar as a guest"), true),
-            ("party_parallel_follow", L.T("Load with the host"), true), ("party_load_beside", L.T("Arrive beside the host"), true),
-            ("party_quick_rejoin", L.T("Rejoin in place"), true), ("party_settled_drop", L.T("Hold the screen until smooth"), true),
-            ("party_nw_direct", L.T("Allow direct connection (lower ping, party members see your IP)"), false),
-            ("party_stay", L.T("Stay in my world"), false), ("party_splitscreen", L.T("Splitscreen mode"), false));
+            ("party_toasts", L.T("Join, leave and travel notices"), true), ("party_item_notices", L.T("Shared item notices"), true),
+            ("party_hide_bad_names", L.T("Hide offensive names"), true));
         ComboRow(SymbolRegular.Alert24, L.T("Party messages"), PartyInfo("party_messages"),
             new[] { new Choice(L.T("All"), "all"), new Choice(L.T("Errors only"), "errors"), new Choice(L.T("Off"), "off") },
             () => Ini.Get("party_messages", "all"), v => Ini.Set("party_messages", v), party);
-        foreach (var option in SeamlessSettings.Switches)
-        {
-            var key = option.Key;
-            ToggleRow(SymbolRegular.People24, option.Label, PartyInfo(key), () => SeamlessSettings.Flag(S, key), v => S.Set(key, v), party);
-        }
         party = Fold(L.T("Display"), InParty);
         IniToggles(party,
             ("party_hud_ping", L.T("Ping in the party list"), true),
             ("party_conn_warnings", L.T("Connection warnings"), true), ("party_through_walls", L.T("Show party through walls"), false),
             ("party_glow_off", L.T("Companions without glow"), true));
         IniNumbers(party, ("party_overhead", L.T("Name tag detail (0–4)"), 3), ("party_npc_talk_range", L.T("NPC dialogue range (m)"), 25));
+
+        IniToggles(Section(L.T("Chat and sharing"), InParty),
+            ("party_chat", L.T("Party chat"), true), ("party_chat_receive", L.T("Show others' chat"), true),
+            ("party_npc_talk", L.T("Share NPC dialogue"), true), ("party_give_items", L.T("Give items to the party"), true),
+            ("party_give_gear", L.T("Give weapons and armor"), true), ("party_look_sync", L.T("Share look changes"), true),
+            ("party_map_marks", L.T("Shared map markers"), true));
+
+        party = Section(L.T("Loading and rejoining"), InParty);
+        IniToggles(party,
+            ("party_parallel_follow", L.T("Load with the host"), true), ("party_load_beside", L.T("Arrive beside the host"), true),
+            ("party_quick_rejoin", L.T("Rejoin in place"), true), ("party_settled_drop", L.T("Hold the screen until smooth"), true),
+            ("party_stay", L.T("Stay in my world"), false));
+        foreach (var option in SeamlessSettings.Switches)
+        {
+            var key = option.Key;
+            ToggleRow(SymbolRegular.People24, option.Label, PartyInfo(key), () => SeamlessSettings.Flag(S, key), v => S.Set(key, v), party);
+        }
+
+        IniToggles(Section(L.T("Chalice"), InParty),
+            ("party_glyph_list", L.T("Chalice glyph list"), true),
+            ("chalice_glyphdb", L.T("Community Chalice glyphs (Noxde's list)"), true),
+            ("chalice_glyph_browser", L.T("Chalice Glyph Browser"), true),
+            ("party_guest_altar", L.T("Ritual Altar as a guest"), true));
+
+        party = Section(L.T("More"), InParty);
+        IniToggles(party,
+            ("party_nw_direct", L.T("Allow direct connection (lower ping, party members see your IP)"), false),
+            ("party_splitscreen", L.T("Splitscreen mode"), false));
         party = Fold(L.T("Progress and items"), InParty, L.T("What reaches your own save. Takes effect on the next game start."));
         party.Children.Add(Text(L.T("Shared progression and Shared story and endings must match the host's. A guest with a different value is refused."), "Faint"));
         IniToggles(party, SeamlessSettings.GameSwitches.Where(o => SeamlessSettings.OwnSwitches.Contains(o.Key)).Select(o => (o.Key, o.Label, true)).ToArray());
         IniToggles(party,
             ("party_key_view", L.T("Own key items as a guest"), true), ("party_key_items_summoned", L.T("Key items at once"), true));
 
+        Target = _tabPages[3];
         Group(L.T("Party saves"));
-        Body.Children.Add(Text(L.T("Seamless play uses its own savedata_party folder. Automatic snapshots keep single-player and party progress recoverable."), "Faint"));
+        Target.Children.Add(Text(L.T("Seamless play uses its own savedata_party folder. Automatic snapshots keep single-player and party progress recoverable."), "Faint"));
         ComboRow(SymbolRegular.Timer24, L.T("Backup interval"), L.T("Minutes; session-start snapshots are always kept."),
             new[] { new Choice(L.T("5 min"), "5"), new Choice(L.T("10 min"), "10"), new Choice(L.T("30 min"), "30"), new Choice(L.T("At start"), "0") },
             () => S.Str("party_backup_minutes") is { Length: > 0 } n ? n : "10", v => S.Set("party_backup_minutes", v));
@@ -324,6 +362,7 @@ public sealed class SeamlessPage : LauncherPage
                 var folder = GameEnvironment.UserDir(S); Directory.CreateDirectory(folder);
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", folder) { UseShellExecute = true });
             }), out _));
+        Group(L.T("Restore and troubleshoot"));
         Add(Card(SymbolRegular.ArrowImport24, L.T("Import saves"),
             L.T("From shadPS4, another Bloodborne port, or a PS4 save exported decrypted (Apollo Save Tool, Save Wizard). You choose single player, multiplayer or both; saves that are replaced are backed up first."),
             SmallButton(L.T("Import…"), SymbolRegular.FolderArrowRight24, (_, _) => ImportSaves()), out _));
@@ -1544,7 +1583,7 @@ public sealed class SeamlessPage : LauncherPage
     private StackPanel Rows(Func<string, bool> when, Panel? into = null)
     {
         var rows = new StackPanel();
-        (into ?? Body).Children.Add(rows);
+        (into ?? Target).Children.Add(rows);
         _byMode.Add((rows, when));
         return rows;
     }
@@ -1694,6 +1733,10 @@ public sealed class SeamlessPage : LauncherPage
         var mode = S.Str("party_mode");
         foreach (var (element, when) in _byMode)
             element.Visibility = when(mode) ? Visibility.Visible : Visibility.Collapsed;
+        var shown = 0;
+        for (var i = 0; i < _tabPages.Length; i++) { _tabs.SetVisible(i, TabShown(i, mode)); if (TabShown(i, mode)) shown++; }
+        _tabs.Width = shown * 112;
+        ShowTab(s_tab, scroll: false);
         MoveTo(_checkPanel, Joining(mode) ? _joinChecks : _hostChecks);
         SyncSharedRows();
         UpdateRoute();
@@ -1786,14 +1829,66 @@ public sealed class SeamlessPage : LauncherPage
     };
 
     /// Switches kept in bbport.ini like the game's party pages, so both show the same value.
-    private void IniToggles(Panel into, params (string Key, string Label, bool Fallback)[] rows)
-    {
-        foreach (var (key, label, fallback) in rows)
-            ToggleRow(SymbolRegular.People24, label, PartyInfo(key), () => Ini.Get(key, fallback ? "1" : "0") == "1", v =>
+    private ToggleSwitch[] IniToggles(Panel into, params (string Key, string Label, bool Fallback)[] rows) =>
+        rows.Select(row =>
+        {
+            var (key, label, fallback) = row;
+            return ToggleRow(SymbolRegular.People24, label, PartyInfo(key), () => Ini.Get(key, fallback ? "1" : "0") == "1", v =>
             {
                 Ini.Set(key, v ? "1" : "0");
                 if (key == "chalice_glyphdb" && v) ChaliceGlyphDb.StartRefresh(GameEnvironment.UserDir(S), line => Ws.Log(line));
             }, into);
+        }).ToArray();
+
+    /// <summary>A group shown in the modes when accepts; its rows go in the panel returned.</summary>
+    private StackPanel Section(string title, Func<string, bool> when)
+    {
+        _byMode.Add((Group(title), when));
+        return Rows(when);
+    }
+
+    /// <summary>Rows that matter only while a switch is on: indented under it, hidden while it is off.</summary>
+    private StackPanel Under(ToggleSwitch master, Panel into)
+    {
+        var rows = new StackPanel { Margin = new Thickness(28, 0, 0, 0) };
+        into.Children.Add(rows);
+        void Show() => rows.Visibility = master.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        master.Click += (_, _) => Show();
+        Show();
+        return rows;
+    }
+
+    private static bool TabShown(int tab, string mode) => tab switch { 1 => Hosting(mode), 2 => InParty(mode), _ => true };
+
+    private void ShowTab(int tab, bool scroll)
+    {
+        if (!TabShown(tab, S.Str("party_mode"))) tab = 0;
+        s_tab = tab;
+        _tabs.Select(tab, notify: false);
+        for (var i = 0; i < _tabPages.Length; i++) _tabPages[i].Visibility = i == tab ? Visibility.Visible : Visibility.Collapsed;
+        if (tab == 1) ShowPreset();
+        if (scroll) Scroller.ScrollToTop();
+    }
+
+    /// <summary>The setup wizard's answers against the recommended ones, under Co-op setup.</summary>
+    private void ShowPreset()
+    {
+        var pages = CoopPresets.Pages();
+        string? Raw(string key) => Ini.Raw(key);
+        var scaling = pages.First(p => p.Choices.Any(c => c.Values.Any(v => v.Key == "party_boss_hp")));
+        var pick = CoopPresets.Match(scaling, Raw);
+        var name = pick >= 0 ? scaling.Choices[pick].Name : L.T("Custom");
+        var differ = pages.Count(p => CoopPresets.Match(p, Raw) != CoopPresets.Match(p, _ => null));
+        SetHint(_presetHint, differ == 0 ? L.F($"Scaling: {name}. Everything as recommended.")
+            : L.F($"Scaling: {name}. {differ} of {pages.Length} answers differ from the recommended setup."));
+    }
+
+    private void BackToRecommended()
+    {
+        if (!Prompt.Confirm(L.T("Back to recommended"), L.T("Set the setup wizard's rules (guest health, scaling, rot on death, level sync, boss drops, travel votes) back to the recommended values?"), L.T("Reset"))) return;
+        CoopPresets.ApplyRecommended((key, value) => Ini.Set(key, value));
+        Ws.SaveSoon();
+        MainWindow.Instance?.ReloadPages();
     }
     private void IniNumbers(Panel into, params (string Key, string Label, int Value)[] rows)
     {

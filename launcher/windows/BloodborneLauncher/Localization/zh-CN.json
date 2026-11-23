@@ -3014,5 +3014,18 @@
   "Launcher size": "启动器大小",
   "How large the launcher's text and controls are": "启动器文字和控件的大小",
   "Matches the screen on Linux; 100% on Windows, which scales the launcher itself": "在 Linux 上匹配屏幕；在 Windows 上为 100%（Windows 会自行缩放启动器）",
-  "Your own connection: the router opens the port (UPnP), or play over a LAN or another VPN": "你自己的连接：由路由器打开端口 (UPnP)，或通过局域网或其他 VPN 游玩"
+  "Your own connection: the router opens the port (UPnP), or play over a LAN or another VPN": "你自己的连接：由路由器打开端口 (UPnP)，或通过局域网或其他 VPN 游玩",
+  "Rules": "规则",
+  "Saves": "存档",
+  "Difficulty": "难度",
+  "Travel and lamps": "旅行与灯",
+  "Death and revival": "死亡与复活",
+  "PvP": "PvP",
+  "Chat and sharing": "聊天与共享",
+  "Loading and rejoining": "加载与重新加入",
+  "Restore and troubleshoot": "恢复与故障排除",
+  "Back to recommended": "恢复推荐设置",
+  "Set the setup wizard's rules (guest health, scaling, rot on death, level sync, boss drops, travel votes) back to the recommended values?": "将设置向导的规则（访客生命值、缩放、死亡腐化、等级同步、首领掉落、移动投票）恢复为推荐值？",
+  "Scaling: {0}. Everything as recommended.": "缩放：{0}。全部为推荐设置。",
+  "Scaling: {0}. {1} of {2} answers differ from the recommended setup.": "缩放：{0}。{2} 项中有 {1} 项与推荐设置不同。"
 }

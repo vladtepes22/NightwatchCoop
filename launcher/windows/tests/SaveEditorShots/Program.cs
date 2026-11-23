@@ -173,6 +173,19 @@ internal static class Program
                 Require(!Directory.Exists(Path.Combine(output, "fixture-config")), "Preview wrote configuration");
             }
             if (look.Name == looks[0].Name) { settings.Set("party_mode", "host"); settings.Set("party_host_public", "1"); PageShot(output, new SeamlessPage(true), "coop-tall-host", shade); }
+            if (look.Name == looks[0].Name)
+                // Each of the host's Co-op tabs, whole.
+                foreach (var (tab, name) in new[] { (1, "rules"), (2, "my-party"), (3, "saves") })
+                {
+                    var page = new SeamlessPage(true);
+                    typeof(SeamlessPage).GetMethod("ShowTab", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(page, new object[] { tab, false });
+                    if (tab == 2)
+                    {
+                        var hud = Logical((DependencyObject)page.Content).OfType<SettingRow>().Single(r => r.Title == BloodborneLauncher.Core.Localization.T("Party HUD"));
+                        Require(Logical(hud).OfType<Wpf.Ui.Controls.ToggleSwitch>().Single().IsChecked == true, "Party HUD (on by default) shows on");
+                    }
+                    PageShot(output, page, "coop-tab-" + name, shade, 2600);
+                }
             if (look.Name == looks[0].Name) PageShot(output, new ModsPage(), "mods", shade);
             LobbyShot(output, look.Name, settings, shade);
             CheckActionButton("coop " + look.Name);
@@ -413,13 +426,22 @@ internal static class Program
 
     /// <summary>The real lobby rows from fixture games: a public, a private, a full and another build's party.</summary>
     /// <summary>A whole page, tall, without Loaded (Host tab's lower rows, the Mods page).</summary>
-    private static void PageShot(string output, LauncherPage page, string name, Color shade)
+    private static IEnumerable<DependencyObject> Logical(DependencyObject root)
+    {
+        foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
+        {
+            yield return child;
+            foreach (var deeper in Logical(child)) yield return deeper;
+        }
+    }
+
+    private static void PageShot(string output, LauncherPage page, string name, Color shade, int height = 1500)
     {
         typeof(LauncherPage).GetMethod("Sectionize", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(page, null);
         var content = (UIElement)page.Content; page.Content = null;
-        var root = CoopRoot(content, 820, 1500, shade);
-        Layout(root, 820, 1500);
-        Render(root, 820, 1500, 1, Path.Combine(output, name + ".png"));
+        var root = CoopRoot(content, 820, height, shade);
+        Layout(root, 820, height);
+        Render(root, 820, height, 1, Path.Combine(output, name + ".png"));
     }
 
     private static void LobbyShot(string output, string look, LauncherSettings settings, Color shade)
