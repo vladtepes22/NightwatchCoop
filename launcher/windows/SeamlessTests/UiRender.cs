@@ -106,17 +106,6 @@ internal static class UiRender
                     encoder.Frames.Add(BitmapFrame.Create(image));
                     using var output = File.Create(Path.Combine(directory, $"theme-{theme}-{pageType.Name}.png"));
                     encoder.Save(output);
-                    if (theme == "eldritch" && pageType == typeof(PlayPage))
-                    {
-                        // A surprise plays on the stage in front of the panes.
-                        var stage = new Canvas();
-                        surface.Children.Add(stage);
-                        art.Stage = stage;
-                        surface.UpdateLayout();
-                        typeof(EldritchArt).GetMethod("Surprise", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
-                            .Invoke(art, null);
-
-                    }
                     art.Show(false);
                 }
                 settings.Set("ui_theme", "default");

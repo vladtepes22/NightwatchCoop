@@ -342,8 +342,7 @@
                     <RadioButton x:Name="ControlsItem" Style="{StaticResource TabItem}" Content="{loc:Tr &#x27;Controls&#x27;}"
                                  Tag="{x:Type views:ControlsPage}" Checked="SidebarItem_Checked" />
                     <RadioButton x:Name="CoopItem" Style="{StaticResource TabItem}" Content="{loc:Tr &#x27;Co-op&#x27;}"
-                                 Tag="{x:Type views:SeamlessPage}" Checked="SidebarItem_Checked"
-                                 PreviewMouseLeftButtonDown="CoopItem_PreviewMouseLeftButtonDown" />
+                                 Tag="{x:Type views:SeamlessPage}" Checked="SidebarItem_Checked" />
                     <RadioButton x:Name="WorkshopItem" Style="{StaticResource TabItem}" Content="{loc:Tr &#x27;Workshop&#x27;}"
                                  Tag="{x:Type views:WorkshopPage}" Checked="SidebarItem_Checked" />
                     <RadioButton x:Name="SettingsItem" Style="{StaticResource TabItem}" Content="{loc:Tr &#x27;Launcher&#x27;}"
@@ -453,24 +452,5 @@
             <!-- No drop shadow: an effect renders the results' text as a soft bitmap. -->
             <StackPanel x:Name="SearchList" />
         </Border>
-
-        <!-- Eldritch theme: its surprises pass in front of the panes; clicks go through. -->
-        <Canvas x:Name="ArtStage" Grid.RowSpan="4" IsHitTestVisible="False" ClipToBounds="True" />
-
-        <!-- Three clicks on the Co-op tab: the night looks back (MainWindow.ShowWatcher). -->
-        <Grid x:Name="Watcher" Grid.RowSpan="4" Visibility="Collapsed" IsHitTestVisible="False" Opacity="0">
-            <Rectangle x:Name="WatcherScrim" Fill="#D8050303" />
-            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                <Image x:Name="WatcherEye" Width="900" Stretch="Uniform" RenderTransformOrigin="0.5,0.5"
-                       RenderOptions.BitmapScalingMode="HighQuality">
-                    <Image.RenderTransform>
-                        <ScaleTransform x:Name="WatcherZoom" />
-                    </Image.RenderTransform>
-                </Image>
-                <TextBlock x:Name="WatcherText" Margin="0,22,0,0" HorizontalAlignment="Center" FontFamily="Constantia, Georgia"
-                           FontStyle="Italic" FontSize="20" Foreground="#FFE8DFCF" Opacity="0"
-                           Text="{loc:Tr &#x27;The night watches back.&#x27;}" />
-            </StackPanel>
-        </Grid>
     </Grid>
 </ui:FluentWindow>

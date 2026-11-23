@@ -81,7 +81,6 @@ namespace BloodborneLauncher
             ApplyGlass();
             LauncherTheme.Apply(ws.Settings, glass: true);
             Art.Show(LauncherTheme.Eldritch(ws.Settings));
-            Art.Stage = ArtStage;
             // The art moves only while the launcher is in front: a game or anything else gets the GPU.
             void Wake() => Art.Awake(IsActive && WindowState != WindowState.Minimized);
             Activated += (_, _) => Wake();
@@ -665,52 +664,6 @@ namespace BloodborneLauncher
         private void MinimizeWindow_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
         private void MaximizeWindow_Click(object sender, RoutedEventArgs e) =>
             WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
-
-        /// <summary>Three quick clicks on the Co-op tab show the watcher; one click still opens the tab.</summary>
-        private void CoopItem_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            if (e.ClickCount == 3 && LauncherTheme.Eldritch(Workspace.Current.Settings)) ShowWatcher();
-        }
-
-        /// <summary>The easter egg: a huge eye in a wound of flesh, ringed by tentacles, opens over the launcher (Eldritch theme only),
-        /// fixes its pupil on you and shuts again (under three seconds). Clicks go on through it. Plain frame swaps
-        /// and one slow zoom on a dark scrim: no effects, nothing re-rendered underneath.</summary>
-        private void ShowWatcher()
-        {
-            if (Watcher.Visibility == Visibility.Visible) return;
-            var frames = new[] { "closed", "half", "open", "focus" }
-                .Select(f => (ImageSource?)EldritchArt.Picture($"watcher-{f}.png", 1536)).ToArray();
-            if (frames.Any(f => f == null)) return; // not in this build
-            static DoubleAnimationUsingKeyFrames Keys(params (double Value, int Ms)[] keys)
-            {
-                var animation = new DoubleAnimationUsingKeyFrames();
-                foreach (var (value, ms) in keys)
-                    animation.KeyFrames.Add(new EasingDoubleKeyFrame(value, TimeSpan.FromMilliseconds(ms), new SineEase { EasingMode = EasingMode.EaseInOut }));
-                return animation;
-            }
-            WatcherEye.Width = Math.Min(ActualWidth * 0.8, 1100);
-            WatcherEye.Source = frames[0];
-            var fade = Keys((0, 0), (1, 256), (1, 2496), (0, 2816));
-            fade.Completed += (_, _) =>
-            {
-                Watcher.Visibility = Visibility.Collapsed;
-                foreach (var (target, property) in new (System.Windows.Media.Animation.IAnimatable, DependencyProperty)[]
-                         { (Watcher, OpacityProperty), (WatcherText, OpacityProperty), (WatcherZoom, ScaleTransform.ScaleXProperty),
-                           (WatcherZoom, ScaleTransform.ScaleYProperty), (WatcherEye, System.Windows.Controls.Image.SourceProperty) })
-                    target.BeginAnimation(property, null);
-            };
-            Watcher.Visibility = Visibility.Visible;
-            Watcher.BeginAnimation(OpacityProperty, fade);
-            // closed, a flicker, open, then the pupil narrows on you; it holds, half-closes, shuts.
-            var lids = new ObjectAnimationUsingKeyFrames();
-            foreach (var (frame, ms) in new[] { (0, 0), (1, 288), (0, 358), (1, 448), (2, 525), (3, 1216), (2, 2144), (1, 2272), (0, 2368) })
-                lids.KeyFrames.Add(new DiscreteObjectKeyFrame(frames[frame], TimeSpan.FromMilliseconds(ms)));
-            WatcherEye.BeginAnimation(System.Windows.Controls.Image.SourceProperty, lids);
-            var zoom = Keys((0.9, 0), (1.06, 2368));
-            WatcherZoom.BeginAnimation(ScaleTransform.ScaleXProperty, zoom);
-            WatcherZoom.BeginAnimation(ScaleTransform.ScaleYProperty, zoom);
-            WatcherText.BeginAnimation(OpacityProperty, Keys((0, 0), (0, 1216), (1, 1600), (1, 2176), (0, 2432)));
-        }
 
         private DateTime? _inactiveSince;
 
