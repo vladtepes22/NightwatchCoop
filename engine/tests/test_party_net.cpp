@@ -1057,6 +1057,32 @@ static void test_discovery() {
             if (parse_mods(j.data(), j.size(), &q)) CHECK(bbnet::lobby::valid_mods_label(q.label));
         }
     }
+    // Nightwatch start-up rules: a datagram of its own, only when filled; old parsers drop it, its parser is strict
+    {
+        Announce x;
+        x.id = 0x01020304u;
+        CHECK(encode_rules(x).empty());
+        x.startup = true;
+        x.st_lamps = false; x.st_mark = true; x.st_rewards = false; x.st_immediate = true; x.st_insight = 2; x.st_items = true;
+        const auto g = encode_rules(x);
+        CHECK(g.size() == 9 && g[0] == 0xfa && g[1] == 'R' && g[2] == 1 && g[7] == (2 | 8 | 16) && g[8] == 2);
+        AnnounceRules o;
+        CHECK(parse_rules(g.data(), g.size(), &o) && o.id == 0x01020304u && !o.lamps && o.mark && !o.rewards && o.immediate &&
+              o.items && o.insight == 2);
+        Announce parsed;
+        AnnounceExt oe;
+        AnnounceMods om;
+        CHECK(!parse(g.data(), g.size(), &parsed) && !parse_ext(g.data(), g.size(), &oe) && !parse_mods(g.data(), g.size(), &om));
+        const auto pk = encode(x), ek = encode_ext(x);
+        CHECK(!parse_rules(pk.data(), pk.size(), &o) && !parse_rules(ek.data(), ek.size(), &o));
+        x.st_insight = 7;
+        CHECK(encode_rules(x)[8] == 0);  // out of range: the default, never an invalid byte
+        auto bad = g; bad[2] = 2;   CHECK(!parse_rules(bad.data(), bad.size(), &o));  // version
+        bad = g; bad[7] |= 32;      CHECK(!parse_rules(bad.data(), bad.size(), &o));  // unknown flag
+        bad = g; bad[8] = 3;        CHECK(!parse_rules(bad.data(), bad.size(), &o));  // insight out of range
+        bad = g; bad.push_back(0);  CHECK(!parse_rules(bad.data(), bad.size(), &o));  // trailing byte
+        CHECK(!parse_rules(g.data(), 8, &o) && !parse_rules(nullptr, 9, &o) && !parse_rules(g.data(), g.size(), nullptr));
+    }
     std::printf("party discovery: ok\n");
 }
 

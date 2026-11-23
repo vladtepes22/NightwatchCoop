@@ -295,7 +295,7 @@ public sealed class SeamlessPage : LauncherPage
         IniToggles(Under(pvp, host), ("party_pvp_full_hp", L.T("Full health in PvP"), true));
 
         host = Section(L.T("Start-up rules"), Hosting);
-        host.Children.Add(Text(L.T("Read when the game starts. A guest with other values is refused and takes the host's."), "Faint"));
+        host.Children.Add(Text(L.T("Read when the game starts. Every guest needs the host's values: joining a party from the list on your network sets them first; any other join is refused once, takes them and restarts the game."), "Faint"));
         StartupRows(host);
         IniToggles(host, ("party_skip_prologue", L.T("Skip the prologue (new characters)"), false));
 
@@ -346,7 +346,7 @@ public sealed class SeamlessPage : LauncherPage
             ("party_splitscreen", L.T("Splitscreen mode"), false));
 
         // Progress: every switch that reaches your own save (SeamlessSettings.OwnSwitches and the key item rows). Each
-        // player's own choice; read at the next start.
+        // player's own choice, never compared with the host's (Key items for every player is: a start-up rule).
         Target = _tabPages[2];
         party = Section(L.T("Shared with the party"), InParty);
         party.Children.Add(Text(L.T("What reaches your own save from the party. Read at the next game start."), "Faint"));
@@ -354,7 +354,6 @@ public sealed class SeamlessPage : LauncherPage
         IniToggles(Under(progress, party), ("party_progress_npc", L.T("Shared NPC quest choices"), true));
         IniToggles(party, ("party_story", L.T("Shared story and endings"), true));
         party = Section(L.T("What you keep"), InParty);
-        IniToggles(party, ("party_items", L.T("Key items for every player"), true));
         var keyView = IniToggles(party, ("party_key_view", L.T("Own key items as a guest"), true))[0];
         IniToggles(Under(keyView, party), ("party_key_items_summoned", L.T("Key items at once"), true));
         IniToggles(party, ("party_grant_bells", L.T("Grant co-op bells"), true));
@@ -629,7 +628,7 @@ public sealed class SeamlessPage : LauncherPage
         SyncSharedRows();
         _partySignature = "\0";
         RefreshParties();
-        SeamlessSettings.PendingHostOptions = PartyDiscovery.AdoptEnv(party.Info);
+        SeamlessSettings.PendingHostOptions = PartyDiscovery.AdoptEnv(party.Info, party.Rules);
         try { await StartJoin(); }
         finally { SeamlessSettings.PendingHostOptions = null; }
     }
@@ -1588,6 +1587,7 @@ public sealed class SeamlessPage : LauncherPage
         ComboRow(SymbolRegular.Play24, L.T("Party starts"), PartyInfo("party_start"),
             new[] { new Choice(L.T("After the prologue"), "prologue_solo"), new Choice(L.T("Right away"), "immediate") },
             () => SeamlessSettings.StartupValue("party_start", S.Str("party_start")), v => S.Set("party_start", v), into);
+        IniToggles(into, ("party_items", L.T("Key items for every player"), true));
     }
 
     /// A panel for the next rows (in the page, or in a fold), shown in the modes when accepts (ShowMode).

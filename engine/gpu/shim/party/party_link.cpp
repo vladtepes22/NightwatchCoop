@@ -587,7 +587,7 @@ std::string identity_mismatch(const LinkConfig& host, const LinkConfig& guest) {
                    ", yours: " + (mine == guest_join.end() ? std::string("unknown") : mine->second) + ")";
         }
         if (!set.empty())
-            parts.push_back(set + ": the launcher's Party Rules tab or System > Party rules in the game, then "
+            parts.push_back(set + ": the launcher's Co-op > Rules tab or System > Party rules in the game, then "
                                   "restart the game");
         else if (host_join.empty())
             parts.push_back("party rules differ: the host's build has no start-up party rules; install the same "
@@ -625,6 +625,7 @@ std::string hook_option_label(const std::string& name) {
         {"talk IsClientPlayer", "Guest services (BB_PARTY_GUEST_TALK)"},
         {"enemy drop roll", "Shared enemy drop roll (BB_PARTY_SHARED_DROP_ROLL)"},
         {"4p ", "4-player rules (BB_PARTY_FOURP, BB_PARTY_FOURP_SCALING)"},
+        {"item award", "Key items for every player (BB_PARTY_ITEMS)"},
     };
     for (const auto& [frag, label] : kOptions)
         if (name.find(frag) != std::string::npos) return label;

@@ -1009,6 +1009,7 @@ StartupRules StartupSessionRules() {
         const coop::InsightMode m = coop::InsightModeFromString(std::getenv("BB_PARTY_GUEST_INSIGHT"));
         r.guest_insight = m == coop::InsightMode::Full ? 1 : m == coop::InsightMode::Off ? 2 : 0;
         r.start_immediate = coop::ParseStartMode(std::getenv("BB_PARTY_START")) == coop::StartMode::Immediate;
+        r.items = env_on("BB_PARTY_ITEMS");
         return r;
     }();
     return once;

@@ -8,8 +8,10 @@ public sealed record PartyAnnounce(uint Id, int Port, int Level, int Players, in
 
 /// <summary>A party heard on the network: the announcement and the address of the host it came from. Mods: the host's mods
 /// label from its 'M' datagram (<see cref="PartyDiscovery.ParseMods"/>), "" when none was heard (no gameplay mods, or a game
-/// before the label datagram).</summary>
-public sealed record FoundParty(PartyAnnounce Info, string Ip, long SeenMs, string Mods = "")
+/// before the label datagram). Rules: the host's start-up rules from its 'R' datagram as launch variables
+/// (<see cref="PartyDiscovery.ParseRules"/>), null when none was heard.</summary>
+public sealed record FoundParty(PartyAnnounce Info, string Ip, long SeenMs, string Mods = "",
+    IReadOnlyDictionary<string, string>? Rules = null)
 {
     public string Address => NetworkRoute.HostAddress(Ip, Info.Port);
 }
@@ -67,6 +69,27 @@ public static class PartyDiscovery
         return ((uint)d[3] << 24 | (uint)d[4] << 16 | (uint)d[5] << 8 | d[6], System.Text.Encoding.ASCII.GetString(label));
     }
 
+    /// <summary>The host's start-up rules datagram (party_discovery.h, Nightwatch): fa 'R' ver 1, id u32 big endian, flags
+    /// (bit 0 Guests use lamps, 1 Hunter's Mark, 2 Full rewards, 3 Party starts right away, 4 Key items for every player),
+    /// Insight (0 same as the host, 1 full, 2 the game's own); 9 bytes. Strict, as the game's parse_rules. The rules as
+    /// the launch variables the game reads (they win over bbport.ini for that start).</summary>
+    public static (uint Id, Dictionary<string, string> Env)? ParseRules(ReadOnlySpan<byte> d)
+    {
+        if (d.Length != 9 || d[0] != 0xfa || d[1] != (byte)'R' || d[2] != 1 || (d[7] & ~31) != 0 || d[8] > 2) return null;
+        int flags = d[7];
+        string Bit(int bit) => (flags & bit) != 0 ? "1" : "0";
+        var env = new Dictionary<string, string>
+        {
+            ["BB_PARTY_GUEST_LAMPS"] = Bit(1),
+            ["BB_PARTY_GUEST_MARK"] = Bit(2),
+            ["BB_PARTY_FULL_REWARDS"] = Bit(4),
+            ["BB_PARTY_START"] = (flags & 8) != 0 ? "immediate" : "prologue_solo",
+            ["BB_PARTY_ITEMS"] = Bit(16),
+            ["BB_PARTY_GUEST_INSIGHT"] = d[8] switch { 1 => "full", 2 => "0", _ => "parity" },
+        };
+        return ((uint)d[3] << 24 | (uint)d[4] << 16 | (uint)d[5] << 8 | d[6], env);
+    }
+
     private static bool Text(ReadOnlySpan<byte> d, ref int pos, int limit, out string text)
     {
         text = "";
@@ -100,11 +123,13 @@ public static class PartyDiscovery
         savedCode.Trim().Equals(party.Address, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The launcher's Party size choice for a host's announced limit; null when it has no such choice (keep yours).</summary>
-    /// <summary>The host's options an announcement tells (party_options.h), as the variables of a guest's launch.</summary>
-    public static Dictionary<string, string> AdoptEnv(PartyAnnounce info)
+    /// <summary>The host's options an announcement tells (party_options.h), and its start-up rules when heard
+    /// (<see cref="ParseRules"/>), as the variables of a guest's launch: the join is not refused for them.</summary>
+    public static Dictionary<string, string> AdoptEnv(PartyAnnounce info, IReadOnlyDictionary<string, string>? rules = null)
     {
         var env = new Dictionary<string, string>();
         if (PartySize(info.Max) is { } size) env["BB_PARTY_MAX"] = size;
+        foreach (var (key, value) in rules ?? new Dictionary<string, string>()) env[key] = value;
         if ((info.Flags & 0x40) == 0) return env;
         env["BB_PARTY_GUEST_LAMPS"] = (info.Flags & 4) != 0 ? "1" : "0";
         env["BB_PARTY_HEADSTONES"] = (info.Flags & 8) != 0 ? "1" : "0";
@@ -159,8 +184,9 @@ public static class PartyDiscovery
     public sealed class Book
     {
         private readonly Dictionary<uint, FoundParty> _entries = new();
-        // The mods labels heard, by (source, id): a label goes with the announcement of the same game from the same address.
-        private readonly Dictionary<(string Ip, uint Id), (string Label, long SeenMs)> _mods = new();
+        // The mods labels and start-up rules heard, by (source, id): they go with the announcement of the same game from
+        // the same address.
+        private readonly Dictionary<(string Ip, uint Id), (string Label, IReadOnlyDictionary<string, string>? Rules, long SeenMs)> _extra = new();
         private readonly Dictionary<string, (long Second, int Count)> _rate = new();
         private readonly HashSet<string> _own;
         private readonly object _lock = new();
@@ -180,14 +206,18 @@ public static class PartyDiscovery
                 if (_rate.Count > 4 * MaxEntries)
                     foreach (var key in _rate.Where(k => k.Value.Second < second - 1).Select(k => k.Key).ToList()) _rate.Remove(key);
                 if (count >= MaxPerSecond) return false;
-                if (ParseMods(data) is { } mods)
+                var mods = ParseMods(data);
+                var rules = mods == null ? ParseRules(data) : null;
+                if (mods != null || rules != null)
                 {
-                    if (!_mods.ContainsKey((ip, mods.Id)) && _mods.Count >= MaxEntries)
+                    var key = (ip, mods?.Id ?? rules!.Value.Id);
+                    if (!_extra.ContainsKey(key) && _extra.Count >= MaxEntries)
                     {
                         Expire(nowMs);
-                        if (_mods.Count >= MaxEntries) return false;
+                        if (_extra.Count >= MaxEntries) return false;
                     }
-                    _mods[(ip, mods.Id)] = (mods.Label, nowMs);
+                    var old = _extra.TryGetValue(key, out var o) ? o : ("", null, 0);
+                    _extra[key] = (mods?.Label ?? old.Label, rules?.Env ?? old.Rules, nowMs);
                     return true;
                 }
                 if (Parse(data) is not { } info) return false;
@@ -205,21 +235,22 @@ public static class PartyDiscovery
         {
             foreach (var id in _entries.Where(e => nowMs - e.Value.SeenMs > TtlMs).Select(e => e.Key).ToList())
                 _entries.Remove(id);
-            foreach (var key in _mods.Where(e => nowMs - e.Value.SeenMs > TtlMs).Select(e => e.Key).ToList())
-                _mods.Remove(key);
+            foreach (var key in _extra.Where(e => nowMs - e.Value.SeenMs > TtlMs).Select(e => e.Key).ToList())
+                _extra.Remove(key);
         }
 
-        /// <summary>The parties still heard, by name, each with the mods label heard from its address and id ("" none).</summary>
+        /// <summary>The parties still heard, by name, each with the mods label ("" none) and start-up rules (null none)
+        /// heard from its address and id.</summary>
         public List<FoundParty> Snapshot(long nowMs)
         {
             lock (_lock)
             {
                 Expire(nowMs);
-                return _entries.Values.Select(e => _mods.TryGetValue((e.Ip, e.Info.Id), out var m) ? e with { Mods = m.Label } : e).OrderBy(e => e.Info.Name, StringComparer.OrdinalIgnoreCase).ThenBy(e => e.Ip, StringComparer.Ordinal).ToList();
+                return _entries.Values.Select(e => _extra.TryGetValue((e.Ip, e.Info.Id), out var m) ? e with { Mods = m.Label, Rules = m.Rules } : e).OrderBy(e => e.Info.Name, StringComparer.OrdinalIgnoreCase).ThenBy(e => e.Ip, StringComparer.Ordinal).ToList();
             }
         }
 
-        public void Clear() { lock (_lock) { _entries.Clear(); _mods.Clear(); _rate.Clear(); } }
+        public void Clear() { lock (_lock) { _entries.Clear(); _extra.Clear(); _rate.Clear(); } }
     }
 
     /// <summary>Listens on UDP <see cref="Port"/> (shared with other listeners) on its own thread and feeds a Book with

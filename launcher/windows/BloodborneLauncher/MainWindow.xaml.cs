@@ -40,12 +40,14 @@ namespace BloodborneLauncher
             {
                 if (_restarting || !ws.Game.Running) return;
                 var status = SeamlessSession.Read(ws.Settings);
-                if (!SeamlessSettings.TakeHostStartupRules(ws.Settings, ws.Ini, status))
+                var matched = SeamlessSettings.TakeHostStartupRules(ws.Settings, ws.Ini, status);
+                if (matched.Count == 0)
                 {
                     await BuildHostWorldAndRejoin(status);  // refused for mods, and the host's label names a world (WorldRejoin)
                     return;
                 }
-                ws.Log(L.T("Took the host's start-up rules: restarting the game to join."), LogLevel.Step);
+                var names = string.Join(", ", matched.Select(SeamlessSettings.StartupRuleLabel));
+                ws.Log(L.F($"Matched the host's start-up rules ({names}): restarting the game to join."), LogLevel.Step);
                 _restarting = true;
                 try
                 {

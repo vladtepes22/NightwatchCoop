@@ -150,6 +150,7 @@ struct StartupRules {
     bool full_rewards = true;
     int guest_insight = 0;
     bool start_immediate = false;
+    bool items = true;  // BB_PARTY_ITEMS (Key items for every player): its item award hook is in the party identity
 };
 /// The join check's part of the party link's rules text: "join: Guests use lamps=on; ...", each
 /// entry "<the setting's menu name>=<its value as the menu shows it>".
