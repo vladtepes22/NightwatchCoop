@@ -194,6 +194,7 @@ def describe(model, catalogue, icon_paths=lambda ids: {}):
                 level=model.level, echoes=model.echoes, insight=model.insight, ng_cycle=model.ng_cycle),
                 items=rows,
                 flags=flags,
+                moon=flagsdata.moon_phase(model),
                 findings=dict(phantom=bool(model.phantom_mark),
                               duplicate_keys=[catalogue.name(4, n) or str(n) for n in model.duplicate_keys()],
                               world_empty=bool(model.world_empty)))
@@ -278,7 +279,7 @@ def execute(args, edit=None, running=running_games, catalogues=None):
     if edit.get("revision") != revision(model):
         raise store.EditConflict("the save changed on disk; open it again")
     unknown = set(edit) - {"revision", "name", "stats", "echoes", "insight", "ng_cycle", "items", "flags", "repair",
-                           "gems", "add", "copy_gems", "add_gems"}
+                           "moon", "gems", "add", "copy_gems", "add_gems"}
     if unknown:
         raise ValueError("unknown edit fields")
     if "name" in edit:
@@ -288,6 +289,8 @@ def execute(args, edit=None, running=running_games, catalogues=None):
     for field in ("echoes", "insight", "ng_cycle"):
         if field in edit:
             getattr(model, "set_" + field)(edit[field])
+    if edit.get("moon") is not None:
+        flagsdata.set_moon_phase(model, edit["moon"])
     items = {(i.section, i.slot): i for i in model.items()}
     seen = set()
     for change in edit.get("items", []):

@@ -174,6 +174,32 @@ def lamps(cat=None):
     return out
 
 
+# The world's time of day: 9800 evening, 9801 night, 9802 Blood Moon, set together as the story moves on
+# (0 day, 1 evening = 9800, 2 night = 9800 + 9801, 3 Blood Moon = all three; party_story.cpp kTodTable).
+MOON_FLAGS = (9800, 9801, 9802)
+MOON_PHASES = ("Day", "Evening", "Night", "Blood Moon")
+
+
+def moon_phase(model):
+    """0 day .. 3 Blood Moon: the latest phase whose flags are all set (party_story.cpp TodFromFlagValue);
+    None when the save has no room for these flags."""
+    bits = [model.flag(f) for f in MOON_FLAGS]
+    if None in bits:
+        return None
+    phase = 0
+    for i in range(1, 4):
+        if all(bits[:i]):
+            phase = i
+    return phase
+
+
+def set_moon_phase(model, phase):
+    if not isinstance(phase, int) or isinstance(phase, bool) or not 0 <= phase <= 3:
+        raise ValueError("invalid moon phase")
+    for i, f in enumerate(MOON_FLAGS):
+        model.set_flag(f, i < phase)
+
+
 def endings():
     """Only the 'ending seen' records (docs/party/cutscenes_endings.md). 21-23 start an ending's credits and
     NG+ on the next load and 6604 strips the key items on the next load, so the editor never offers them

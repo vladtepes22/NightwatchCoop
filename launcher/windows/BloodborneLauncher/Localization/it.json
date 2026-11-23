@@ -3010,5 +3010,11 @@
   "{0} randomized worlds are on the Randomizer tab.": "{0} mondi casuali sono nella scheda Randomizer.",
   "Code copied": "Codice copiato",
   "Your game is missing files of the 1.09 update, which the randomizer needs. Open the {0} and press \"{1}\" to copy the whole update into the game folder, then generate again.": "Al tuo gioco mancano file dell'aggiornamento 1.09, che servono al randomizzatore. Apri la {0} e premi «{1}» per copiare l'intero aggiornamento nella cartella del gioco, poi genera di nuovo.",
-  "Map: the game's 1.09 update folder could not be linked (it is on another drive than Nightwatch, or the drive has no hard links), so the map leaves out The Old Hunters' areas. To get them, copy the update into the game folder: Setup guide, \"Choose update folder…\".": "Mappa: non è stato possibile collegare la cartella dell'aggiornamento 1.09 (è su un'unità diversa da Nightwatch, oppure l'unità non supporta i collegamenti fisici), quindi la mappa non include le aree di The Old Hunters. Per averle, copia l'aggiornamento nella cartella del gioco: Guida alla configurazione, \"Scegli cartella aggiornamento…\"."
+  "Map: the game's 1.09 update folder could not be linked (it is on another drive than Nightwatch, or the drive has no hard links), so the map leaves out The Old Hunters' areas. To get them, copy the update into the game folder: Setup guide, \"Choose update folder…\".": "Mappa: non è stato possibile collegare la cartella dell'aggiornamento 1.09 (è su un'unità diversa da Nightwatch, oppure l'unità non supporta i collegamenti fisici), quindi la mappa non include le aree di The Old Hunters. Per averle, copia l'aggiornamento nella cartella del gioco: Guida alla configurazione, \"Scegli cartella aggiornamento…\".",
+  "Moon phase": "Fase lunare",
+  "Day": "Giorno",
+  "Evening": "Sera",
+  "Night": "Notte",
+  "Blood Moon": "Luna di sangue",
+  "Takes effect on the next load. Only the time of day changes: bosses, NPCs and story progress stay as they are.": "Ha effetto al prossimo caricamento. Cambia solo l'ora del giorno: boss, PNG e avanzamento della storia restano come sono."
 }

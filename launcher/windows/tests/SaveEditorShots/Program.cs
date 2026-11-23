@@ -667,7 +667,7 @@ internal static class Program
                     new { slot = 2, name = "Ash", level = 116, echoes = 980100 } },
                 "show" => new { revision = "fixture", character = new { name = "Evelyn", level = 82, echoes = 126450, insight = 24, ng_cycle = 1,
                     stats = new { vigor = 28, endurance = 20, strength = 18, skill = 34, bloodtinge = 18, arcane = 14 } },
-                    items = Items(), flags = Flags(), findings = new { phantom = true, duplicate_keys = new[] { "Beckoning Bell" }, world_empty = false } },
+                    items = Items(), flags = Flags(), moon = 2, findings = new { phantom = true, duplicate_keys = new[] { "Beckoning Bell" }, world_empty = false } },
                 "backups" => empty ? Array.Empty<object>() : new object[] {
                     new { name = "20261029-143200-before-edit", path = "fixture", reason = "before-edit" },
                     new { name = "20261028-201500-before-restore", path = "fixture", reason = "before-restore" },

@@ -213,6 +213,16 @@ public sealed partial class SaveEditorWindow
     private UIElement ProgressPage()
     {
         var dock = new DockPanel();
+        foreach (var phase in MoonPhases) _moon.Items.Add(phase);
+        _moon.SelectionChanged += (_, _) => UpdateState();
+        var moonLabel = LauncherPage.Text(L.T("Moon phase"), "RowTitle");
+        moonLabel.VerticalAlignment = VerticalAlignment.Center; moonLabel.Margin = new Thickness(0, 0, 12, 0);
+        var moonNote = LauncherPage.Text(L.T("Takes effect on the next load. Only the time of day changes: bosses, NPCs and story progress stay as they are."), "Muted");
+        moonNote.TextWrapping = TextWrapping.Wrap; moonNote.VerticalAlignment = VerticalAlignment.Center; moonNote.Margin = new Thickness(12, 0, 0, 0);
+        var moonRow = new DockPanel { Margin = new Thickness(0, 0, 0, 14) };
+        DockPanel.SetDock(moonLabel, Dock.Left); DockPanel.SetDock(_moon, Dock.Left);
+        moonRow.Children.Add(moonLabel); moonRow.Children.Add(_moon); moonRow.Children.Add(moonNote);
+        DockPanel.SetDock(moonRow, Dock.Top); dock.Children.Add(moonRow);
         _flagKinds = new Segments(new[] { L.T("Bosses"), L.T("Lamps"), L.T("Endings") }, _ => RefreshFlags(), 6, 8);
         _flagKinds.Select(0); _flagKinds.Panel.Margin = new Thickness(0, 0, 0, 10);
         DockPanel.SetDock(_flagKinds.Panel, Dock.Top); dock.Children.Add(_flagKinds.Panel);

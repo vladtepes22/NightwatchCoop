@@ -135,6 +135,9 @@ public sealed partial class SaveEditorWindow : Window
     private readonly ListBox _itemList = new(), _flagList = new();
     private readonly TextBlock _itemEmpty = LauncherPage.Text(L.T("No items found"), "Muted"), _itemCount = LauncherPage.Text("", "StatLabel");
     private readonly TextBlock _flagEmpty = LauncherPage.Text(L.T("Nothing to show here"), "Muted"), _flagNote = LauncherPage.Text("", "Muted");
+    // The world's time of day (flags 9800..9802): Day, Evening, Night, Blood Moon; off when the save has no room for them.
+    private readonly ComboBox _moon = new() { MinWidth = 160 };
+    private readonly string[] MoonPhases = { L.T("Day"), L.T("Evening"), L.T("Night"), L.T("Blood Moon") };
     private readonly List<Button> _restoreButtons = new();
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly UIElement[] _pages;
@@ -408,6 +411,7 @@ public sealed partial class SaveEditorWindow : Window
             _fields["ng_cycle"].Load(c.NgCycle.ToString(CultureInfo.InvariantCulture));
             _items = data.Items.Select(i => new ItemRow(i, UpdateState, row => _ = Guard(() => EditGem(row)), QueueGemCopy)).ToList();
             _flags = (data.Flags ?? []).Select(f => new FlagRow(f, UpdateState)).ToList();
+            _moon.SelectedIndex = data.Moon ?? -1; _moon.IsEnabled = data.Moon != null;
             _itemList.ItemsSource = null;  // no refilter of the old list on the resets below
             _search.Text = ""; _changedOnly.IsChecked = false; _itemKinds.Select(0); _flagKinds.Select(0);
             BindItems(); ShowItemCount(); BindFlags();
@@ -418,6 +422,7 @@ public sealed partial class SaveEditorWindow : Window
     private void ClearEditors()
     {
         _items = new(); _flags = new(); BindItems(); BindFlags(); RefreshItems();
+        _moon.SelectedIndex = -1; _moon.IsEnabled = false;
     }
     private void ShowHunter()
     {
@@ -460,8 +465,13 @@ public sealed partial class SaveEditorWindow : Window
         {
             lines.Add(row.Label + ": " + (row.On ? L.T("set") : L.T("cleared"))); perTab[ProgressTab]++;
         }
+        if (MoonChanged)
+        {
+            lines.Add(L.T("Moon phase") + ": " + MoonPhases[_snapshot!.Moon!.Value] + " → " + MoonPhases[_moon.SelectedIndex]); perTab[ProgressTab]++;
+        }
         return (lines, perTab);
     }
+    private bool MoonChanged => _snapshot?.Moon is { } moon && _moon.SelectedIndex >= 0 && _moon.SelectedIndex != moon;
     private void UpdateState()
     {
         if (_loading || _apply == null) return;
@@ -512,6 +522,7 @@ public sealed partial class SaveEditorWindow : Window
             Insight = _fields["insight"].Number, NgCycle = _fields["ng_cycle"].Number, Items = items, Gems = gems,
             pending.Add, pending.CopyGems, pending.AddGems,
             Flags = _flags.Where(f => f.Changed).Select(f => new { f.Flag.Id, f.On }).ToArray(),
+            Moon = MoonChanged ? _moon.SelectedIndex : (int?)null,
             Repair = Array.Empty<string>() };
         if (!Prompt.Confirm(L.T("Apply these edits?"), summary + "\n\n" + L.F($"All saves related to {_snapshot.Character.Name} will be backed up first."), L.T("Apply"))) return;
         var result = await Run<SaveEditor.WriteResult>("apply", _selected.SlotNumber, edit);

@@ -39,7 +39,7 @@ internal static class SaveEditor
     internal sealed record Socket(int Shape, string? Gem);
     internal sealed record Flag(int Id, string Kind, string Group, string Label, bool On);
     internal sealed record Findings(bool Phantom, string[] DuplicateKeys, bool WorldEmpty);
-    internal sealed record Snapshot(string Revision, Character Character, Item[] Items, Flag[]? Flags = null, Findings? Findings = null);
+    internal sealed record Snapshot(string Revision, Character Character, Item[] Items, Flag[]? Flags = null, Findings? Findings = null, int? Moon = null);
     internal sealed record Backup(string Name, string Path, string Reason)
     {
         public override string ToString() => Name;

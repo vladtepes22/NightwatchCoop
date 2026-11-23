@@ -3010,5 +3010,11 @@
   "{0} randomized worlds are on the Randomizer tab.": "무작위 월드 {0}개가 무작위화 탭에 있습니다.",
   "Code copied": "코드를 복사했습니다",
   "Your game is missing files of the 1.09 update, which the randomizer needs. Open the {0} and press \"{1}\" to copy the whole update into the game folder, then generate again.": "게임에 랜더마이저가 필요로 하는 1.09 업데이트 파일이 없습니다. {0}를 열고 \"{1}\"을 눌러 업데이트 전체를 게임 폴더에 복사한 다음 다시 생성하세요.",
-  "Map: the game's 1.09 update folder could not be linked (it is on another drive than Nightwatch, or the drive has no hard links), so the map leaves out The Old Hunters' areas. To get them, copy the update into the game folder: Setup guide, \"Choose update folder…\".": "지도: 1.09 업데이트 폴더를 연결할 수 없습니다 (Nightwatch와 다른 드라이브에 있거나, 드라이브가 하드 링크를 지원하지 않습니다). 그래서 지도에 The Old Hunters 지역이 빠집니다. 포함하려면 업데이트를 게임 폴더에 복사하세요: 설정 안내, \"업데이트 폴더 선택…\"."
+  "Map: the game's 1.09 update folder could not be linked (it is on another drive than Nightwatch, or the drive has no hard links), so the map leaves out The Old Hunters' areas. To get them, copy the update into the game folder: Setup guide, \"Choose update folder…\".": "지도: 1.09 업데이트 폴더를 연결할 수 없습니다 (Nightwatch와 다른 드라이브에 있거나, 드라이브가 하드 링크를 지원하지 않습니다). 그래서 지도에 The Old Hunters 지역이 빠집니다. 포함하려면 업데이트를 게임 폴더에 복사하세요: 설정 안내, \"업데이트 폴더 선택…\".",
+  "Moon phase": "달의 위상",
+  "Day": "낮",
+  "Evening": "저녁",
+  "Night": "밤",
+  "Blood Moon": "붉은 달",
+  "Takes effect on the next load. Only the time of day changes: bosses, NPCs and story progress stay as they are.": "다음 로드부터 적용됩니다. 시간대만 바뀌며 보스, NPC, 스토리 진행은 그대로입니다."
 }

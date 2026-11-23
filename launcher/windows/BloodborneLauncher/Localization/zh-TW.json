@@ -3010,5 +3010,11 @@
   "{0} randomized worlds are on the Randomizer tab.": "有 {0} 個隨機世界在「隨機化器」分頁中。",
   "Code copied": "已複製代碼",
   "Your game is missing files of the 1.09 update, which the randomizer needs. Open the {0} and press \"{1}\" to copy the whole update into the game folder, then generate again.": "你的遊戲缺少隨機器需要的 1.09 更新檔案。開啟{0}，按「{1}」把整個更新複製到遊戲資料夾，然後重新產生。",
-  "Map: the game's 1.09 update folder could not be linked (it is on another drive than Nightwatch, or the drive has no hard links), so the map leaves out The Old Hunters' areas. To get them, copy the update into the game folder: Setup guide, \"Choose update folder…\".": "地圖：無法連結 1.09 更新資料夾（它與 Nightwatch 不在同一個磁碟機上，或該磁碟機不支援硬式連結），因此地圖不含 The Old Hunters 的區域。要包含它們，請把更新複製到遊戲資料夾：設定精靈，「選擇更新資料夾…」。"
+  "Map: the game's 1.09 update folder could not be linked (it is on another drive than Nightwatch, or the drive has no hard links), so the map leaves out The Old Hunters' areas. To get them, copy the update into the game folder: Setup guide, \"Choose update folder…\".": "地圖：無法連結 1.09 更新資料夾（它與 Nightwatch 不在同一個磁碟機上，或該磁碟機不支援硬式連結），因此地圖不含 The Old Hunters 的區域。要包含它們，請把更新複製到遊戲資料夾：設定精靈，「選擇更新資料夾…」。",
+  "Moon phase": "月相",
+  "Day": "白天",
+  "Evening": "傍晚",
+  "Night": "夜晚",
+  "Blood Moon": "血月",
+  "Takes effect on the next load. Only the time of day changes: bosses, NPCs and story progress stay as they are.": "下次讀取時生效。只改變時段：頭目、NPC 和劇情進度保持不變。"
 }

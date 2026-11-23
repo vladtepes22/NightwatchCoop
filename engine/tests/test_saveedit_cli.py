@@ -95,6 +95,25 @@ class SaveEditorCliTests(unittest.TestCase):
         self.assertTrue(Path(result["backup"]).is_dir())
         self.assertEqual(self.file.read_bytes(), self.original)
 
+    def test_moon_phase_show_and_apply(self):
+        code, shown = self.call("show")
+        self.assertEqual((code, shown["moon"]), (0, 0))
+        for phase, bits in ((3, (True, True, True)), (1, (True, False, False)), (2, (True, True, False))):
+            with self.subTest(phase=phase):
+                code, result = self.call("apply", dict(revision=self.call("show")[1]["revision"], moon=phase))
+                self.assertEqual(code, 0, result)
+                m = model.SaveModel(self.file.read_bytes())
+                self.assertEqual(tuple(m.flag(f) for f in (9800, 9801, 9802)), bits)
+                self.assertEqual(self.call("show")[1]["moon"], phase)
+        code, result = self.call("apply", dict(revision=self.call("show")[1]["revision"], moon=None, echoes=7))
+        self.assertEqual(code, 0, result)
+        self.assertEqual(self.call("show")[1]["moon"], 2)
+        code, result = self.call("apply", dict(revision=self.call("show")[1]["revision"], moon=4))
+        self.assertNotEqual(code, 0)
+        m = model.SaveModel(self.file.read_bytes())
+        m.set_flag(9801, False); m.set_flag(9802, True)  # a gap: the phase is the last one fully set
+        self.assertEqual(cli.flagsdata.moon_phase(m), 1)
+
     def test_progress_findings_and_repairs(self):
         self.file.write_bytes(make_save(name="Tester", phantom=1))
         catalogue = names.Catalogue({"names": {}, "ids": {"weapon": [22000000, 22000300, 22000500, 22001000]},

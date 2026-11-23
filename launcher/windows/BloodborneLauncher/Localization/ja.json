@@ -3010,5 +3010,11 @@
   "{0} randomized worlds are on the Randomizer tab.": "ランダム化ワールドが {0} 個、ランダマイザータブにあります。",
   "Code copied": "コードをコピーしました",
   "Your game is missing files of the 1.09 update, which the randomizer needs. Open the {0} and press \"{1}\" to copy the whole update into the game folder, then generate again.": "ゲームにランダマイザーが必要とする 1.09 アップデートのファイルがありません。{0}を開いて「{1}」を押し、アップデート全体をゲームフォルダーにコピーしてから、もう一度生成してください。",
-  "Map: the game's 1.09 update folder could not be linked (it is on another drive than Nightwatch, or the drive has no hard links), so the map leaves out The Old Hunters' areas. To get them, copy the update into the game folder: Setup guide, \"Choose update folder…\".": "マップ: 1.09 アップデートのフォルダーをリンクできませんでした (Nightwatch と別のドライブにあるか、ドライブがハードリンクに対応していません)。そのためマップには The Old Hunters のエリアが含まれません。含めるには、アップデートをゲームフォルダーにコピーしてください: セットアップガイド、「更新フォルダーを選択…」。"
+  "Map: the game's 1.09 update folder could not be linked (it is on another drive than Nightwatch, or the drive has no hard links), so the map leaves out The Old Hunters' areas. To get them, copy the update into the game folder: Setup guide, \"Choose update folder…\".": "マップ: 1.09 アップデートのフォルダーをリンクできませんでした (Nightwatch と別のドライブにあるか、ドライブがハードリンクに対応していません)。そのためマップには The Old Hunters のエリアが含まれません。含めるには、アップデートをゲームフォルダーにコピーしてください: セットアップガイド、「更新フォルダーを選択…」。",
+  "Moon phase": "月の満ち欠け",
+  "Day": "昼",
+  "Evening": "夕方",
+  "Night": "夜",
+  "Blood Moon": "赤い月",
+  "Takes effect on the next load. Only the time of day changes: bosses, NPCs and story progress stay as they are.": "次のロードから反映されます。変わるのは時間帯だけで、ボス、NPC、ストーリーの進行はそのままです。"
 }
