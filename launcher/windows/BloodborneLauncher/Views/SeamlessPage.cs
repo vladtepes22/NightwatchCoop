@@ -17,7 +17,8 @@ public sealed class SeamlessPage : LauncherPage
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
     /// Rows and group headers shown only in some modes ("" single player, "host", "join").
     private readonly List<(UIElement Element, Func<string, bool> When)> _byMode = new();
-    // Party (connect), Rules (host only), My party (in a party), Saves. The tab survives a page reload.
+    // Party (connect), Rules (host only), Progress (what reaches your save) and Preferences (in a party), Saves. The tab
+    // survives a page reload.
     private readonly Segmented _tabs;
     private readonly PageTab[] _tabPages;
     private static int s_tab;
@@ -33,12 +34,13 @@ public sealed class SeamlessPage : LauncherPage
     {
         _previewPublic = previewPublic;
         _tabs = new Segmented(new[] { new Choice(L.T("Party"), "party"), new Choice(L.T("Rules"), "rules"),
-            new Choice(L.T("My party"), "mine"), new Choice(L.T("Saves"), "saves") })
+            new Choice(L.T("Progress"), "progress"), new Choice(L.T("Preferences"), "preferences"),
+            new Choice(L.T("Saves"), "saves") })
         {
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, 4, 0, 6),
         };
-        _tabPages = Enumerable.Range(0, 4).Select(i => new PageTab { Open = () => ShowTab(i, scroll: true) }).ToArray();
+        _tabPages = Enumerable.Range(0, 5).Select(i => new PageTab { Open = () => ShowTab(i, scroll: true) }).ToArray();
         _tabs.Changed += i => ShowTab(i, scroll: true);
         Body.Children.Add(_tabs);
         foreach (var tab in _tabPages) Body.Children.Add(tab);
@@ -297,10 +299,10 @@ public sealed class SeamlessPage : LauncherPage
         StartupRows(host);
         IniToggles(host, ("party_skip_prologue", L.T("Skip the prologue (new characters)"), false));
 
-        // My party: each player's own settings (the game's System > My party), by topic.
-        Target = _tabPages[2];
+        // Preferences: each player's own settings that never reach the save (the game's System > My party), by topic.
+        Target = _tabPages[3];
         party = Section(L.T("Screen"), InParty);
-        party.Children.Add(Text(L.T("Your own party settings: your screen, what you get as a guest, story sync (in the game: System > My party)."), "Faint"));
+        party.Children.Add(Text(L.T("Only for you and your screen: nothing here changes your save (in the game: System > My party)."), "Faint"));
         IniToggles(party,
             ("party_hud", L.T("Party HUD"), true), ("party_name_tags", L.T("Party name tags"), true), ("party_pings", L.T("Pings"), true),
             ("party_toasts", L.T("Join, leave and travel notices"), true), ("party_item_notices", L.T("Shared item notices"), true),
@@ -342,13 +344,22 @@ public sealed class SeamlessPage : LauncherPage
         IniToggles(party,
             ("party_nw_direct", L.T("Allow direct connection (lower ping, party members see your IP)"), false),
             ("party_splitscreen", L.T("Splitscreen mode"), false));
-        party = Fold(L.T("Progress and items"), InParty, L.T("What reaches your own save. Takes effect on the next game start."));
-        party.Children.Add(Text(L.T("Shared progression and Shared story and endings must match the host's. A guest with a different value is refused."), "Faint"));
-        IniToggles(party, SeamlessSettings.GameSwitches.Where(o => SeamlessSettings.OwnSwitches.Contains(o.Key)).Select(o => (o.Key, o.Label, true)).ToArray());
-        IniToggles(party,
-            ("party_key_view", L.T("Own key items as a guest"), true), ("party_key_items_summoned", L.T("Key items at once"), true));
 
-        Target = _tabPages[3];
+        // Progress: every switch that reaches your own save (SeamlessSettings.OwnSwitches and the key item rows). Each
+        // player's own choice; read at the next start.
+        Target = _tabPages[2];
+        party = Section(L.T("Shared with the party"), InParty);
+        party.Children.Add(Text(L.T("What reaches your own save from the party. Read at the next game start."), "Faint"));
+        var progress = IniToggles(party, ("party_progress", L.T("Shared progression"), true))[0];
+        IniToggles(Under(progress, party), ("party_progress_npc", L.T("Shared NPC quest choices"), true));
+        IniToggles(party, ("party_story", L.T("Shared story and endings"), true));
+        party = Section(L.T("What you keep"), InParty);
+        IniToggles(party, ("party_items", L.T("Key items for every player"), true));
+        var keyView = IniToggles(party, ("party_key_view", L.T("Own key items as a guest"), true))[0];
+        IniToggles(Under(keyView, party), ("party_key_items_summoned", L.T("Key items at once"), true));
+        IniToggles(party, ("party_grant_bells", L.T("Grant co-op bells"), true));
+
+        Target = _tabPages[4];
         Group(L.T("Party saves"));
         Target.Children.Add(Text(L.T("Seamless play uses its own savedata_party folder. Automatic snapshots keep single-player and party progress recoverable."), "Faint"));
         ComboRow(SymbolRegular.Timer24, L.T("Backup interval"), L.T("Minutes; session-start snapshots are always kept."),
@@ -1858,7 +1869,7 @@ public sealed class SeamlessPage : LauncherPage
         return rows;
     }
 
-    private static bool TabShown(int tab, string mode) => tab switch { 1 => Hosting(mode), 2 => InParty(mode), _ => true };
+    private static bool TabShown(int tab, string mode) => tab switch { 1 => Hosting(mode), 2 or 3 => InParty(mode), _ => true };
 
     private void ShowTab(int tab, bool scroll)
     {

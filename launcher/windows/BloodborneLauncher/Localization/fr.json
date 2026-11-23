@@ -3026,5 +3026,10 @@
   "Back to recommended": "Revenir aux valeurs conseillées",
   "Set the setup wizard's rules (guest health, scaling, rot on death, level sync, boss drops, travel votes) back to the recommended values?": "Remettre aux valeurs conseillées les règles de l'assistant (santé des invités, mise à l'échelle, pourriture à la mort, synchro de niveau, butin des boss, votes de voyage) ?",
   "Scaling: {0}. Everything as recommended.": "Mise à l'échelle : {0}. Tout est comme conseillé.",
-  "Scaling: {0}. {1} of {2} answers differ from the recommended setup.": "Mise à l'échelle : {0}. {1} réponses sur {2} diffèrent des valeurs conseillées."
+  "Scaling: {0}. {1} of {2} answers differ from the recommended setup.": "Mise à l'échelle : {0}. {1} réponses sur {2} diffèrent des valeurs conseillées.",
+  "Preferences": "Préférences",
+  "Shared with the party": "Partagé avec le groupe",
+  "What you keep": "Ce que vous gardez",
+  "Only for you and your screen: nothing here changes your save (in the game: System > My party).": "Pour vous et votre écran uniquement : rien ici ne modifie votre sauvegarde (en jeu : Système > Mon groupe).",
+  "What reaches your own save from the party. Read at the next game start.": "Ce qui passe du groupe dans votre propre sauvegarde. Pris en compte au prochain lancement du jeu."
 }

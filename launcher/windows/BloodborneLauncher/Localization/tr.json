@@ -3026,5 +3026,10 @@
   "Back to recommended": "Önerilene dön",
   "Set the setup wizard's rules (guest health, scaling, rot on death, level sync, boss drops, travel votes) back to the recommended values?": "Kurulum sihirbazının kuralları (misafir sağlığı, ölçekleme, ölümde çürüme, seviye eşitleme, boss ganimetleri, seyahat oylaması) önerilen değerlere dönsün mü?",
   "Scaling: {0}. Everything as recommended.": "Ölçekleme: {0}. Her şey önerildiği gibi.",
-  "Scaling: {0}. {1} of {2} answers differ from the recommended setup.": "Ölçekleme: {0}. {2} yanıttan {1} tanesi önerilenden farklı."
+  "Scaling: {0}. {1} of {2} answers differ from the recommended setup.": "Ölçekleme: {0}. {2} yanıttan {1} tanesi önerilenden farklı.",
+  "Preferences": "Tercihler",
+  "Shared with the party": "Grupla paylaşılan",
+  "What you keep": "Sende kalanlar",
+  "Only for you and your screen: nothing here changes your save (in the game: System > My party).": "Yalnızca sen ve ekranın için: buradaki hiçbir şey kaydını değiştirmez (oyunda: Sistem > Grubum).",
+  "What reaches your own save from the party. Read at the next game start.": "Gruptan kendi kaydına geçenler. Oyunun bir sonraki başlatılışında geçerli olur."
 }

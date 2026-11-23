@@ -3026,5 +3026,10 @@
   "Back to recommended": "恢復建議設定",
   "Set the setup wizard's rules (guest health, scaling, rot on death, level sync, boss drops, travel votes) back to the recommended values?": "將設定精靈的規則（訪客生命值、縮放、死亡腐化、等級同步、首領掉落、移動投票）恢復為建議值？",
   "Scaling: {0}. Everything as recommended.": "縮放：{0}。全部為建議設定。",
-  "Scaling: {0}. {1} of {2} answers differ from the recommended setup.": "縮放：{0}。{2} 項中有 {1} 項與建議設定不同。"
+  "Scaling: {0}. {1} of {2} answers differ from the recommended setup.": "縮放：{0}。{2} 項中有 {1} 項與建議設定不同。",
+  "Preferences": "偏好",
+  "Shared with the party": "與隊伍共享",
+  "What you keep": "你保留的內容",
+  "Only for you and your screen: nothing here changes your save (in the game: System > My party).": "僅影響你和你的畫面：這裡的設定不會改變你的存檔（遊戲內：系統 > 我的隊伍）。",
+  "What reaches your own save from the party. Read at the next game start.": "從隊伍進入你自己存檔的內容。下次啟動遊戲時生效。"
 }

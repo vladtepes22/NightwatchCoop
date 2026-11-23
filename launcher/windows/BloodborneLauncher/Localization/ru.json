@@ -3026,5 +3026,10 @@
   "Back to recommended": "Вернуть рекомендуемые",
   "Set the setup wizard's rules (guest health, scaling, rot on death, level sync, boss drops, travel votes) back to the recommended values?": "Вернуть рекомендуемые значения правил мастера настройки (здоровье гостей, масштабирование, гниль при смерти, синхронизация уровня, добыча с боссов, голосование за перемещение)?",
   "Scaling: {0}. Everything as recommended.": "Масштабирование: {0}. Всё как рекомендуется.",
-  "Scaling: {0}. {1} of {2} answers differ from the recommended setup.": "Масштабирование: {0}. {1} из {2} ответов отличаются от рекомендуемых."
+  "Scaling: {0}. {1} of {2} answers differ from the recommended setup.": "Масштабирование: {0}. {1} из {2} ответов отличаются от рекомендуемых.",
+  "Preferences": "Предпочтения",
+  "Shared with the party": "Общее с группой",
+  "What you keep": "Что остаётся у вас",
+  "Only for you and your screen: nothing here changes your save (in the game: System > My party).": "Только для вас и вашего экрана: здесь ничего не меняет ваше сохранение (в игре: Система > Моя группа).",
+  "What reaches your own save from the party. Read at the next game start.": "Что попадает из группы в ваше сохранение. Применяется при следующем запуске игры."
 }

@@ -3026,5 +3026,10 @@
   "Back to recommended": "推奨に戻す",
   "Set the setup wizard's rules (guest health, scaling, rot on death, level sync, boss drops, travel votes) back to the recommended values?": "セットアップウィザードのルール（ゲストの体力、スケーリング、死亡時の腐敗、レベル同期、ボスのドロップ、移動の投票）を推奨値に戻しますか？",
   "Scaling: {0}. Everything as recommended.": "スケーリング：{0}。すべて推奨どおり。",
-  "Scaling: {0}. {1} of {2} answers differ from the recommended setup.": "スケーリング：{0}。{2} 項目中 {1} 項目が推奨と異なります。"
+  "Scaling: {0}. {1} of {2} answers differ from the recommended setup.": "スケーリング：{0}。{2} 項目中 {1} 項目が推奨と異なります。",
+  "Preferences": "個人設定",
+  "Shared with the party": "パーティと共有",
+  "What you keep": "手元に残るもの",
+  "Only for you and your screen: nothing here changes your save (in the game: System > My party).": "自分と自分の画面だけの設定です。ここではセーブデータは変わりません（ゲーム内：システム > マイパーティ）。",
+  "What reaches your own save from the party. Read at the next game start.": "パーティから自分のセーブデータに入るもの。次回のゲーム起動時に反映されます。"
 }

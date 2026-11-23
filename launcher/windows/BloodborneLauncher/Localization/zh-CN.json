@@ -3027,5 +3027,10 @@
   "Back to recommended": "恢复推荐设置",
   "Set the setup wizard's rules (guest health, scaling, rot on death, level sync, boss drops, travel votes) back to the recommended values?": "将设置向导的规则（访客生命值、缩放、死亡腐化、等级同步、首领掉落、移动投票）恢复为推荐值？",
   "Scaling: {0}. Everything as recommended.": "缩放：{0}。全部为推荐设置。",
-  "Scaling: {0}. {1} of {2} answers differ from the recommended setup.": "缩放：{0}。{2} 项中有 {1} 项与推荐设置不同。"
+  "Scaling: {0}. {1} of {2} answers differ from the recommended setup.": "缩放：{0}。{2} 项中有 {1} 项与推荐设置不同。",
+  "Preferences": "偏好",
+  "Shared with the party": "与队伍共享",
+  "What you keep": "你保留的内容",
+  "Only for you and your screen: nothing here changes your save (in the game: System > My party).": "仅影响你和你的屏幕：这里的设置不会改变你的存档（游戏内：系统 > 我的队伍）。",
+  "What reaches your own save from the party. Read at the next game start.": "从队伍进入你自己存档的内容。下次启动游戏时生效。"
 }

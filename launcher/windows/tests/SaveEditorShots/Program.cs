@@ -175,11 +175,11 @@ internal static class Program
             if (look.Name == looks[0].Name) { settings.Set("party_mode", "host"); settings.Set("party_host_public", "1"); PageShot(output, new SeamlessPage(true), "coop-tall-host", shade); }
             if (look.Name == looks[0].Name)
                 // Each of the host's Co-op tabs, whole.
-                foreach (var (tab, name) in new[] { (1, "rules"), (2, "my-party"), (3, "saves") })
+                foreach (var (tab, name) in new[] { (1, "rules"), (2, "progress"), (3, "preferences"), (4, "saves") })
                 {
                     var page = new SeamlessPage(true);
                     typeof(SeamlessPage).GetMethod("ShowTab", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(page, new object[] { tab, false });
-                    if (tab == 2)
+                    if (tab == 3)
                     {
                         var hud = Logical((DependencyObject)page.Content).OfType<SettingRow>().Single(r => r.Title == BloodborneLauncher.Core.Localization.T("Party HUD"));
                         Require(Logical(hud).OfType<Wpf.Ui.Controls.ToggleSwitch>().Single().IsChecked == true, "Party HUD (on by default) shows on");
