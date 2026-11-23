@@ -585,9 +585,12 @@ class Census:
                        if self._ordinary_reason(next(p for p in stem_enemies[arenas.BY_KEY[key].stem] if p["entity"] == e),
                                                 forced, every_script) in (None, "special")}
         import helpers  # here: helpers needs arenas.PHASES' arena table, gamedata none of helpers at import
-        self.phase_helpers = helpers.phase_helpers(stem_events, {stem: {e["entity"]: e for e in v}
-                                                                 for stem, v in stem_enemies.items()}, self.phases)
-        arenas.set_phases(self.phases, self.phase_helpers)
+        # their helpers and those of the one-body arenas' unlisted bosses (Ebrietas's bullet owner)
+        solo = {b: a.key for a in arenas.ARENAS if a.kind == arenas.SOLO for b in a.bodies if b not in helpers.LISTED}
+        self.found_helpers = helpers.found_helpers(stem_events, {stem: {e["entity"]: e for e in v}
+                                                                 for stem, v in stem_enemies.items()},
+                                                   {**solo, **self.phases})
+        arenas.set_phases(self.phases, self.found_helpers)
         for stem in STEMS:
             enemies = stem_enemies[stem]
             slots = []

@@ -14,6 +14,7 @@ from msb import EVENTS, MODELS, PARTS, Msb, _i32, _i64, _utf16z, sections
 GAME = os.environ.get("BB_GAME", r"C:\Games\CUSA03173")
 needs_game = unittest.skipUnless(os.path.isdir(os.path.join(GAME, "dvdroot_ps4")), "no game files")
 AMELIA, LOGARIUS, NURSE, ORPHAN, ONE_REBORN = 2400800, 2500800, 2600800, 3600800, 2800800
+EBRIETAS = 2420800
 
 
 def stem_of(entity):
@@ -206,6 +207,34 @@ class Fights(unittest.TestCase):
         on = [(e, w) for e in again.event_ids() for b, i, w in again.instructions(e)
               if (b, i) == (2004, 5) and w[0] in (2500801, 2500802) and w[1] == 1]
         self.assertEqual(on, [])
+
+    @needs_game
+    def test_found_helpers_ebrietas_takes_her_bullet_owner_to_amelias_arena(self):
+        """User 23 Nov: "what about Martyr Logarius' helpers? that's another example". The found rule (helpers.found_helpers)
+        over the game: Logarius's are listed (above), and of the unlisted bosses only Ebrietas has one: DATA m24_02 12424990
+        shoots bullet 225100310 from the invisible owner 2420801 (c9010, a bullet owner by event 0) while she has SpEffect
+        5650. Elsewhere it comes along; at home under another boss it is parked."""
+        import arenas
+        import helpers
+        from gamedata import Census
+        census = Census(Game.files())
+        arenas.set_phases(census.phases, census.found_helpers)
+        self.assertEqual(sorted(census.found_helpers), [EBRIETAS])
+        spec = census.found_helpers[EBRIETAS]
+        self.assertEqual((spec["travel"], spec["moved"], spec["init"]), ((2420801,), (12424990,), ((2004, 7, (2420801,)),)))
+        self.assertEqual(helpers.extras_of(census.slots, EBRIETAS), ((2420801,), ("c9010",)))
+        events, vanilla, msbs, report = self._travel(EBRIETAS, AMELIA)
+        (owner,) = (b["entity"] for b in report["bodies"][AMELIA])
+        travelled, = report["travelled"]
+        moved = dict(travelled["events"])
+        self.assertEqual(sorted(moved), [12424990])
+        shot = events.instructions(moved[12424990])
+        self.assertIn((2003, 5, (owner, AMELIA, 6, 225100310, 0, 0, 0)), shot)
+        self.assertEqual(shot[0], (3, 0, (256, 12404800)))  # waits for Amelia's arena's fight
+        self.assertIn((2004, 7, (owner,)), events.instructions(travelled["init"]))
+        self.assertNoDangling(events, vanilla, msbs, EBRIETAS)
+        home = Game.events("m24_02")
+        self.assertEqual(helpers.dismiss(home, "ebrietas")["parked"], [12424990])
 
     @needs_game
     def test_wet_nurse_arena_with_another_boss_has_its_bar_and_end_on_the_body(self):

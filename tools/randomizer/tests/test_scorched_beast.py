@@ -39,7 +39,7 @@ class Inputs:
         if key not in cls._cache:
             from gamedata import Census, GameFiles
             cls._cache[key] = Census(GameFiles(GAME, list(mods)))
-        arenas.set_phases(cls._cache[key].phases, cls._cache[key].phase_helpers)  # another test's census may have read other inputs since
+        arenas.set_phases(cls._cache[key].phases, cls._cache[key].found_helpers)  # another test's census may have read other inputs since
         return cls._cache[key]
 
     @classmethod

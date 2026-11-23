@@ -123,7 +123,7 @@ class Fight:
         # made for their new entity too (co-op: a body without it is not synced to the guests)
         self.authority = authority
         # Moved events that are templates: {event: [(slot, argument words)]}, the home map's runs of each. The copy keeps
-        # its parameters and is run once per home run, with the arguments renamed (a phase body's helpers, phase_helpers)
+        # its parameters and is run once per home run, with the arguments renamed (a phase body's helpers, found_helpers)
         self.runs = dict(runs or {})
         self.as_started = tuple(as_started)  # home flags the copies read as the new arena's started flag
         self.models = dict(models or {})     # {travelling body: model} when the census has no slot for it
@@ -223,18 +223,30 @@ _LESSER_DEMON = Fight("lesser_demon",
                       made=(((4, 0, (0, 2300820, 1)), (2004, 43, (2300821, 1)), (2004, 4, (2300821, 0))),
                             ((4, 2, (0, 2300820, 5, 1056964608)), (2004, 8, (2300821, 5500010, 0)))))
 FIGHTS = dict(sorted({**_BASE_FIGHTS, 2410810: _GASCOIGNE_ONE, 3400800: _LUDWIG_ONE, 2300820: _LESSER_DEMON}.items()))  # {home body: Fight}
-_LISTED = dict(FIGHTS)
+LISTED = dict(FIGHTS)
 
 
-# A phase body's helpers (arenas.PHASE_HELPERS; user 23 Nov: "the Coiled Host's helpers travel with him"). Found, never
-# listed. DATA Nocturne v6.0.0 m27: the Coiled Host's dip (3035) has no hit of its own; at 0.15 s his AI sends message 20,
-# on which 12704813 (run from event 0 once per snake ball 2700803-805, c5033 row 503300) enables a ball with its AI; 12704830
-# (one run per ball) kills the balls once his HP is 0; his pools (the user's "puddles"): 12704851 shoots the pool bullet
-# 2770001 from the invisible producers 2701968-970 (c9010, owner 2701966) once 12704808 is on (the defeat event 12701800
-# sets it as he wakes), 12704852 renews their look (effect 651207, resident) every 5 s while he lives. The
-# rule: every event of the home map but event 0 / 50, the defeat event and the body's hold (2004[01] [body, 0]) that names
-# the body in its own lines and, in its lines or its runs' arguments, an enemy part of the map that is no boss body; those
-# parts travel. A flag of the home block that the defeat event turns on and such an event reads is the fight's start.
+# A boss's map-side helpers (arenas.FOUND_HELPERS; user 23 Nov: "the Coiled Host's helpers travel with him", "what about
+# Martyr Logarius' helpers? that's another example"). Found, never listed, for the phase bodies and the one-body arenas'
+# bosses without a listed Fight (the group fights' adds stay arena parts: arenas.py notes). DATA Nocturne v6.0.0 m27: the
+# Coiled Host's dip (3035) has no hit of its own; at 0.15 s his AI sends message 20, on which 12704813 (run from event 0
+# once per snake ball 2700803-805, c5033 row 503300) enables a ball with its AI; 12704830 (one run per ball) kills the
+# balls once his HP is 0; his pools (the user's "puddles"): 12704851 shoots the pool bullet 2770001 from the invisible
+# producers 2701968-970 (c9010, owner 2701966) once 12704808 is on (the defeat event 12701800 sets it as he wakes),
+# 12704852 renews their look (effect 651207, resident) every 5 s while he lives. DATA m24_02: Ebrietas's 12424990 shoots
+# bullet 225100310 from the invisible owner 2420801 (c9010, made a bullet owner by event 0) every 0.5 s while she has
+# SpEffect 5650; Logarius's enraged bullet (12504807, owner 2500802) is the same shape (listed above). The rule, over every
+# event of the home map but event 0 / 50, the defeat event, the intro and the body's hold (2004[01] [body, 0]) that names
+# the body in its own lines: a helper is an enemy part of the map, no boss body, that such an event makes act (enables,
+# wakes its AI, shoots from or at it; a template's lines with each run's arguments put in). Every such event that names a
+# helper (in its lines or its runs' arguments) travels, with the parts it names; the lines of event 0 that set a helper up
+# (its bullet owner call) run at load in the new arena. A flag of the home block that the defeat event turns on and such
+# an event reads is the fight's start. Its own fight never names a helper it shares with an arena boss: Logarius's sword
+# and owner are his arena's extras, Gehrman's and Maria's swapped-out bodies are only disabled, Rom's spiders and the
+# Cleric Beast's patient never act on the boss's events.
+SHOOT = (2003, 5)  # [owner, source, dummy poly, bullet, ...]
+
+
 def _runs(events):
     """{template: [(slot, argument words)]} of the 2000[00] calls in one map's events (_events format)."""
     out = {}
@@ -245,50 +257,75 @@ def _runs(events):
     return out
 
 
-def phase_helpers(events, enemies, phases):
-    """{phase body: {"travel", "moved", "runs", "as_started", "models"}} for the phase bodies with helpers. events: {stem:
-    {event: (instructions, params)}} (gamedata._events); enemies: {stem: {entity: MSB enemy part}}; phases: {entity:
-    arena key} (arenas.PHASES)."""
+def _acting(lines, params, runs):
+    """The entities lines make act (enable, AI on, shoot from or at), once with the words as written and once per run
+    with its arguments put in (params: {line: {target byte offset: source byte offset}})."""
+    out = set()
+    for args in [None] + [a for _, a in runs]:
+        for i, (bank, iid, words) in enumerate(lines):
+            words = list(words)
+            if args is not None:
+                for target, source in params.get(i, {}).items():
+                    if target % 4 == 0 and source % 4 == 0 and target // 4 < len(words) and source // 4 < len(args):
+                        words[target // 4] = args[source // 4]
+            if (bank, iid) in (ENABLE, AI_SWITCH) and len(words) > 1 and words[1] == 1:
+                out.add(words[0])
+            elif (bank, iid) == SHOOT and len(words) > 1:
+                out.update(words[:2])
+    return out
+
+
+def found_helpers(events, enemies, bodies):
+    """{body: {"travel", "moved", "runs", "as_started", "models", "init"}} for the bodies with helpers (the rule above).
+    events: {stem: {event: (instructions, params)}} (gamedata._events); enemies: {stem: {entity: MSB enemy part}};
+    bodies: {entity: arena key} (the phase bodies, arenas.PHASES, and the one-body arenas' unlisted bosses)."""
     out = {}
-    bosses = set(arenas.BY_ENTITY) | set(phases)
-    for body, key in sorted(phases.items()):
+    bosses = set(arenas.BY_ENTITY) | set(bodies)
+    for body, key in sorted(bodies.items()):
         arena = arenas.BY_KEY[key]
         own, parts = events.get(arena.stem, {}), enemies.get(arena.stem, {})
         runs = _runs(own)
         holds = {e for e, (lines, _) in own.items() if any((b, i) == AI_SWITCH and tuple(w[:2]) == (body, 0) for b, i, w in lines)}
-        skip = {0, 50, arena.flags[0]} | holds
+        skip = {0, 50, arena.flags[0], arena.intro} | holds
+        helper = lambda x: x > 0 and x in parts and x not in bosses
+        naming = [e for e in sorted(own) if e not in skip and any(body in w for _, _, w in own[e][0])]
+        acting = set()
+        for event in naming:
+            acting |= {x for x in _acting(own[event][0], own[event][1], runs.get(event, ())) if helper(x)}
         moved, travel = [], set()
-        for event in sorted(own):
-            if event in skip:
-                continue
-            lines = own[event][0]
-            if not any(body in w for _, _, w in lines):
-                continue
-            named = {x for _, _, w in lines for x in w} | {x for _, args in runs.get(event, ()) for x in args}
-            found = {x for x in named if x in parts and x not in bosses}
-            if found:
+        for event in naming:
+            named = {x for _, _, w in own[event][0] for x in w} | {x for _, args in runs.get(event, ()) for x in args}
+            if named & acting:
                 moved.append(event)
-                travel |= found
+                travel |= {x for x in named if helper(x)}
         if not moved:
             continue
         block = arena.flags[0] // 10000
         read = {x for e in moved for b, _, w in own[e][0] if b in (3, 1003) for x in w}
         starts = sorted({w[0] for b, i, w in own.get(arena.flags[0], ((), {}))[0]
                          if (b, i) == (2003, 2) and len(w) > 1 and w[1] == 1 and w[0] // 10000 == block and w[0] in read})
+        init = tuple((b, i, tuple(w)) for b, i, w in own.get(0, ((), {}))[0]
+                     if b >= 2000 and (b, i) != CALL and any(x in travel for x in w))
         out[body] = {"travel": tuple(sorted(travel)), "moved": tuple(moved),
                      "runs": {e: list(runs[e]) for e in moved if e in runs and own[e][1]},
-                     "as_started": tuple(starts), "models": {e: parts[e]["model"] for e in sorted(travel)}}
+                     "as_started": tuple(starts), "models": {e: parts[e]["model"] for e in sorted(travel)}, "init": init}
     return out
 
 
 def _sync_phase_fights():
-    """FIGHTS and OWNED with the phase bodies' helpers (arenas.PHASE_HELPERS) beside the listed fights: each is a fight of
-    its arena that never dismisses at home (its home arena is the Shadows' own business)."""
+    """FIGHTS, BY_KEY and OWNED with the found helpers (arenas.FOUND_HELPERS) beside the listed fights. A phase body's
+    fight never dismisses at home (its home arena is the Shadows' own business); a one-body arena's boss parks its
+    helper events at home when another boss takes the arena (they would act on that boss's SpEffects and messages)."""
     FIGHTS.clear()
-    FIGHTS.update(_LISTED)
-    for body, spec in sorted(arenas.PHASE_HELPERS.items()):
-        FIGHTS[body] = Fight(arenas.PHASES[body], init=(), moved=spec["moved"], boss=body, travel=spec["travel"],
-                             home=False, runs=spec["runs"], as_started=spec["as_started"], models=spec["models"])
+    FIGHTS.update(LISTED)
+    for body, spec in sorted(arenas.FOUND_HELPERS.items()):
+        phase = body in arenas.PHASES
+        key = arenas.PHASES[body] if phase else arenas.BY_ENTITY[body].key
+        FIGHTS[body] = Fight(key, init=spec["init"], moved=spec["moved"], park=() if phase else spec["moved"], boss=body,
+                             travel=spec["travel"], home=not phase, runs=spec["runs"], as_started=spec["as_started"],
+                             models=spec["models"])
+    BY_KEY.clear()
+    BY_KEY.update({f.key: f for f in FIGHTS.values()})
     OWNED.clear()
     OWNED.update({boss: frozenset(f.moved) | frozenset(f.park) for boss, f in FIGHTS.items()})
 
@@ -867,10 +904,17 @@ def plan(arena, fighter, origin_msb, target_variants, events, taken=()):
         n = next(k for k in range(10000) if "%s_%04d" % (part["model"], k) not in names)
         name = "%s_%04d" % (part["model"], n)
         names.add(name)
+        offset = tuple(p - h for p, h in zip(pos, home_pos))
+        if math.hypot(offset[0], offset[2]) > NEAR:  # far across its home arena: on the boss instead (it may be no
+            offset = (0.0, offset[1], 0.0)            # arena there: Ebrietas's bullet owner stands 31 m from her)
         out.append({"home": home, "entity": entity, "name": name, "model": part["model"], "think": part["think"],
-                    "npc": part["npc"], "talk": part["talk"], "own_row": bool(stage) and home == fight.stage, "offset": tuple(p - h for p, h in zip(pos, home_pos)),
+                    "npc": part["npc"], "talk": part["talk"], "own_row": bool(stage) and home == fight.stage, "offset": offset,
                     "turn": tuple(r - h for r, h in zip(rot, home_rot)), "home_yaw": home_rot[1]})
     return out
+
+
+NEAR = 15.0  # metres: a travelling body farther than this from its boss at home is placed on the boss (its bullets come
+# from the boss's dummy polys, the owner only owns them: DATA 2003[05] [owner, source, dummy poly, bullet])
 
 
 def _place(pos, rot, body):

@@ -44,7 +44,7 @@ class Noc:
         if cls._census is None:
             from gamedata import Census
             cls._census = Census(cls.files())
-        arenas.set_phases(cls._census.phases, cls._census.phase_helpers)  # another module's census may have read the game alone since
+        arenas.set_phases(cls._census.phases, cls._census.found_helpers)  # another module's census may have read the game alone since
         return cls._census
 
     @classmethod
@@ -103,8 +103,8 @@ class Detection(unittest.TestCase):
         own = [(2003, 11, (1, SHADOWS, 0, 1)), (4, 0, (2, SHADOWS, 1)), (2003, 12, (SHADOWS,))]
         self.assertEqual(phase_bodies({"m27_00": {shadows.flags[0]: (own, {})}}, {"m27_00": {SHADOWS: {}}}), {})
 
-    def test_phase_helpers_are_the_parts_his_events_drive(self):
-        """helpers.phase_helpers on a made-up m27: an event naming the body and a part travels with the part; a template
+    def test_found_helpers_are_the_parts_his_events_drive(self):
+        """helpers.found_helpers on a made-up m27: an event naming the body and a part travels with the part; a template
         brings its runs; the defeat event, the hold and an event naming only boss bodies stay; a flag the defeat event
         turns on and a moved event reads is the start."""
         import helpers
@@ -120,12 +120,13 @@ class Detection(unittest.TestCase):
             12704892: ([(4, 0, (1, body, 0)), (2004, 1, (SHADOWS, 1))], {}),          # bosses only: stays
         }
         parts = {e: {"model": "c%04d" % (e % 10000)} for e in (body, ball, ball + 100, owner, SHADOWS)}
-        out = helpers.phase_helpers({"m27_00": own}, {"m27_00": parts}, {body: "shadows"})[body]
+        out = helpers.found_helpers({"m27_00": own}, {"m27_00": parts}, {body: "shadows"})[body]
         self.assertEqual(out["moved"], (12704890, 12704891))
         self.assertEqual(out["travel"], (owner, ball, ball + 100))
         self.assertEqual(out["runs"], {12704890: [(0, (ball, gen)), (1, (ball + 100, gen))]})
         self.assertEqual(out["as_started"], (flag,))
-        self.assertEqual(helpers.phase_helpers({"m27_00": {defeat: own[defeat]}}, {"m27_00": parts}, {body: "shadows"}), {})
+        self.assertEqual(out["init"], ())
+        self.assertEqual(helpers.found_helpers({"m27_00": {defeat: own[defeat]}}, {"m27_00": parts}, {body: "shadows"}), {})
 
     @needs_game
     def test_the_game_alone_has_none_and_the_option_does_nothing(self):
@@ -239,7 +240,7 @@ class OnNocturne(unittest.TestCase):
 
     def test_he_fights_elsewhere_with_nothing_of_his_home_map(self):
         """In another arena he is that arena's boss: its fight can end, its bars show his name (NpcName 503000), and
-        nothing of m27 is named there (his helpers come as copies under new ids: phase_helpers)."""
+        nothing of m27 is named there (his helpers come as copies under new ids: found_helpers)."""
         Noc.census()
         failures = []
         for body in (AMELIA, LOGARIUS, 2200800):
@@ -267,7 +268,7 @@ class OnNocturne(unittest.TestCase):
         nothing). DATA Nocturne v6.0.0 m27: 12704813 (one run per ball), 12704830, 12704851 / 852; flag 12704808."""
         import helpers
         Noc.census()
-        spec = arenas.PHASE_HELPERS.get(HOST)
+        spec = arenas.FOUND_HELPERS.get(HOST)
         self.assertIsNotNone(spec)
         self.assertTrue({2700803, 2700804, 2700805, 2701966} <= set(spec["travel"]), spec["travel"])
         self.assertTrue(not set(spec["travel"]) & set(arenas.BY_ENTITY), spec["travel"])
@@ -278,6 +279,7 @@ class OnNocturne(unittest.TestCase):
         self.assertTrue({12704851, 12704852} <= set(spec["moved"]), spec["moved"])
         self.assertEqual(sorted(slot for slot, _ in spec["runs"][12704813]), [0, 1, 2])
         self.assertIn(12704808, spec["as_started"])
+        self.assertEqual(spec["init"], ((2004, 7, (2701966,)),))  # event 0 makes the owner a bullet owner
         self.assertIs(helpers.FIGHTS[HOST].home, False)  # his own arena under another boss is not dismissed
         body = 2300800  # the Blood-starved Beast's (LIVE 23 Nov)
         arena = arenas.arena_of(body)

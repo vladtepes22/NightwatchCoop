@@ -210,7 +210,7 @@ class ArenaPlan(unittest.TestCase):
             placed = set(result["boss_fighters"].values())
             fighters = result["fighters"]
             # a second body alone brings nothing; Ludwig's own second phase is his model, a stage boss is not
-            placed_with_models += len({k for k in {"gascoigne", "logarius", "orphan", "one_reborn"} & placed
+            placed_with_models += len({k for k in {"gascoigne", "logarius", "orphan", "one_reborn", "ebrietas"} & placed
                                        if not fighters[k].get("alone")} | {k for k in placed if fighters[k].get("stage")})
             for entity, key in result["boss_fighters"].items():
                 fighter = result["fighters"][key]
@@ -226,7 +226,8 @@ class ArenaPlan(unittest.TestCase):
         self.assertEqual(by_key["ludwig"]["extra_models"], [])  # his second body is his own model
         self.assertEqual(by_key["wet_nurse"]["extra_models"], [])  # her clone is her own model
         self.assertEqual(by_key["one_reborn"]["extra_models"], ["c5071", "c5072"])
-        # Gascoigne, Logarius, the Orphan and the One Reborn bring models wherever they fight (not every world has
+        self.assertEqual(by_key["ebrietas"]["extra_models"], ["c9010"])  # her bullet owner (helpers.found_helpers)
+        # Gascoigne, Logarius, the Orphan, the One Reborn and Ebrietas bring models wherever they fight (not every world has
         # every boss: more fighters than draws since the second phases joined, user 8 Nov)
         self.assertEqual(brought, placed_with_models)
         self.assertGreaterEqual(placed_with_models, len(SEEDS))

@@ -143,7 +143,7 @@ def boss_fighters(slots, index, excluded, hard_rows=None, extra=(), phases=(), o
     """The bosses that can fight elsewhere, as fighter dicts (arenas.py contract), in a stable order: the arena table's
     fighters with their slot rows (or their hard copy's) and the bodies that
     travel with them (helpers.extras_of), then the phase bodies `phases` (option coiled_host: "<arena>_phase", with the
-    helpers their attacks need: helpers.phase_helpers), then `extra` (chalice bosses: home None, origin None)."""
+    helpers their attacks need: helpers.found_helpers), then `extra` (chalice bosses: home None, origin None)."""
     hard_rows = hard_rows or {}
     out = []
     for arena in ARENAS:
@@ -165,7 +165,7 @@ def boss_fighters(slots, index, excluded, hard_rows=None, extra=(), phases=(), o
     for entity in phases:
         slot = index[entity][1]
         if slot["model"] not in excluded:
-            extras, extra_models = extras_of(slots, entity)  # its helpers (helpers.phase_helpers), when it has any
+            extras, extra_models = extras_of(slots, entity)  # its helpers (helpers.found_helpers), when it has any
             out.append({"key": "%s_phase" % slot["arena"], "model": slot["model"], "think": slot["think"],
                         "npc": slot["npc"], "origin": entity, "home": slot["arena"], "extras": list(extras),
                         "extra_models": list(extra_models), "needs_end": False})
