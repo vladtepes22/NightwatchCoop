@@ -3012,5 +3012,6 @@
   "Map: the game's 1.09 update folder could not be linked (it is on another drive than Nightwatch, or the drive has no hard links), so the map leaves out The Old Hunters' areas. To get them, copy the update into the game folder: Setup guide, \"Choose update folder…\".": "지도: 1.09 업데이트 폴더를 연결할 수 없습니다 (Nightwatch와 다른 드라이브에 있거나, 드라이브가 하드 링크를 지원하지 않습니다). 그래서 지도에 The Old Hunters 지역이 빠집니다. 포함하려면 업데이트를 게임 폴더에 복사하세요: 설정 안내, \"업데이트 폴더 선택…\".",
   "Launcher size": "런처 크기",
   "How large the launcher's text and controls are": "런처의 글자와 컨트롤 크기",
-  "Matches the screen on Linux; 100% on Windows, which scales the launcher itself": "Linux에서는 화면에 맞춥니다. Windows에서는 100% (Windows가 런처 크기를 직접 조정합니다)"
+  "Matches the screen on Linux; 100% on Windows, which scales the launcher itself": "Linux에서는 화면에 맞춥니다. Windows에서는 100% (Windows가 런처 크기를 직접 조정합니다)",
+  "Your own connection: the router opens the port (UPnP), or play over a LAN or another VPN": "직접 연결: 공유기가 포트를 엽니다 (UPnP). 또는 LAN이나 다른 VPN으로 플레이"
 }

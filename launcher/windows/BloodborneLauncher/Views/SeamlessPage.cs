@@ -56,7 +56,8 @@ public sealed class SeamlessPage : LauncherPage
         _checkPanel.Children.Add(_checkBanner);
         var host = Rows(Hosting);
         _hostMode = (Segmented)ComboRow(SymbolRegular.People24, L.T("Party type"), null,
-            new[] { new Choice(L.T("Nightwatch Online"), "1"), new Choice(L.T("UPnP/VPN/LAN"), "0") },
+            new[] { new Choice(L.T("Nightwatch Online"), "1"), new Choice(L.T("UPnP/VPN/LAN"), "0",
+                L.T("Your own connection: the router opens the port (UPnP), or play over a LAN or another VPN")) },
             () => IsPublic ? "1" : "0", ChangeHostMode, host,
             enabled: c => c.Value != "1" || NightwatchVpn.Shipped != null || _previewPublic != null, buttons: true);
         _hostVpnBar = VpnBar();  // hidden in the UPnP/VPN/LAN type: no Nightwatch VPN controls there (user, 2 Nov)

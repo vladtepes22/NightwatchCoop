@@ -3013,5 +3013,6 @@
   "Map: the game's 1.09 update folder could not be linked (it is on another drive than Nightwatch, or the drive has no hard links), so the map leaves out The Old Hunters' areas. To get them, copy the update into the game folder: Setup guide, \"Choose update folder…\".": "地图：无法链接 1.09 更新文件夹（它与 Nightwatch 不在同一个驱动器上，或该驱动器不支持硬链接），因此地图不含 The Old Hunters 的区域。要包含它们，请把更新复制到游戏文件夹：设置向导，“选择更新文件夹…”。",
   "Launcher size": "启动器大小",
   "How large the launcher's text and controls are": "启动器文字和控件的大小",
-  "Matches the screen on Linux; 100% on Windows, which scales the launcher itself": "在 Linux 上匹配屏幕；在 Windows 上为 100%（Windows 会自行缩放启动器）"
+  "Matches the screen on Linux; 100% on Windows, which scales the launcher itself": "在 Linux 上匹配屏幕；在 Windows 上为 100%（Windows 会自行缩放启动器）",
+  "Your own connection: the router opens the port (UPnP), or play over a LAN or another VPN": "你自己的连接：由路由器打开端口 (UPnP)，或通过局域网或其他 VPN 游玩"
 }

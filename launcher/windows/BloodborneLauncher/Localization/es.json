@@ -3012,5 +3012,6 @@
   "Map: the game's 1.09 update folder could not be linked (it is on another drive than Nightwatch, or the drive has no hard links), so the map leaves out The Old Hunters' areas. To get them, copy the update into the game folder: Setup guide, \"Choose update folder…\".": "Mapa: no se pudo enlazar la carpeta de la actualización 1.09 (está en otra unidad que Nightwatch, o la unidad no admite enlaces duros), así que el mapa no incluye las zonas de The Old Hunters. Para tenerlas, copia la actualización en la carpeta del juego: Guía de configuración, \"Elegir carpeta de actualización…\".",
   "Launcher size": "Tamaño del launcher",
   "How large the launcher's text and controls are": "Qué tamaño tienen el texto y los controles del launcher",
-  "Matches the screen on Linux; 100% on Windows, which scales the launcher itself": "Se ajusta a la pantalla en Linux; 100 % en Windows, que ya escala el launcher"
+  "Matches the screen on Linux; 100% on Windows, which scales the launcher itself": "Se ajusta a la pantalla en Linux; 100 % en Windows, que ya escala el launcher",
+  "Your own connection: the router opens the port (UPnP), or play over a LAN or another VPN": "Tu propia conexión: el router abre el puerto (UPnP), o se juega por LAN u otra VPN"
 }

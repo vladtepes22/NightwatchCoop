@@ -256,11 +256,11 @@ internal static class Program
             {
                 foreach (var section in Descendants(root).OfType<AdvancedSection>().ToList())
                     section.IsOpen = Descendants(section).OfType<SettingRow>().Any(r => r.Title == BloodborneLauncher.Core.Localization.T("Randomize bosses"));
-                Descendants(Descendants(root).OfType<SettingRow>().Single(r => r.Title == BloodborneLauncher.Core.Localization.T("Randomize bosses"))).OfType<ComboBox>().Single().SelectedIndex = 1;
+                Option("Randomize bosses").SelectedIndex = 1;
                 Layout(root, 860, (int)root.Height);
             }
             SettingRow OptionRow(string title) => Descendants(root).OfType<SettingRow>().Single(r => r.Title == BloodborneLauncher.Core.Localization.T(title));
-            ComboBox Option(string title) => Descendants(OptionRow(title)).OfType<ComboBox>().Single();
+            OptionControl Option(string title) => new(Descendants(OptionRow(title)).OfType<Control>().Single(c => c is ComboBox or ChoiceSwitch));
             var arenaDependents = new[] { "Witch of Hemwick", "Shadows of Yharnam", "Celestial Emissary", "Living Failures", "Randomize second phase", "Randomize bell maidens", "Include chalice dungeon bosses" };
             if (state == "bosses-stay")
             {
@@ -276,7 +276,7 @@ internal static class Program
                 Option("Randomize bosses").SelectedIndex = 0;
                 Layout(root, 860, (int)root.Height);
             }
-            var rows = Descendants(root).OfType<ComboBox>().Where(c => c.Visibility == Visibility.Visible && c.ActualWidth > 0).ToList();
+            var rows = Descendants(root).OfType<Control>().Where(c => c is ComboBox or ChoiceSwitch && c.Visibility == Visibility.Visible && c.ActualWidth > 0).ToList();
             // The rows shown locked are exactly those whose option is off in these options: with Enemies open, what needs bosses as
             // enemies; with Bosses open, the Nocturne bosses (no Nocturne v2 / v5 in the fixture) and, while bosses stay home,
             // what needs randomized bosses; with every section open also what needs the gem roulette.
@@ -300,7 +300,7 @@ internal static class Program
             void LockedAsExpected(int minimum)
             {
                 var locked = Descendants(root).OfType<SettingRow>()
-                    .Where(r => Descendants(r).OfType<ComboBox>().Any(c => !c.IsEnabled && OnScreen(c))).Select(r => r.Title).ToHashSet();
+                    .Where(r => Descendants(r).OfType<Control>().Any(c => c is ComboBox or ChoiceSwitch && !c.IsEnabled && OnScreen(c))).Select(r => r.Title).ToHashSet();
                 Require(rows.Count >= minimum && locked.SetEquals(expectedLocked),
                     "exactly the dependent options are locked: " + state + ": " + string.Join(" | ", locked.Except(expectedLocked).Concat(expectedLocked.Except(locked))));
             }
@@ -677,5 +677,16 @@ internal static class Program
             };
             return Task.FromResult(JsonSerializer.Serialize(result));
         }
+    }
+}
+
+/// <summary>A randomizer option row's control, drop-down or switch, read and set by choice index.</summary>
+internal readonly struct OptionControl(Control control)
+{
+    public bool IsEnabled => control.IsEnabled;
+    public int SelectedIndex
+    {
+        get => control is ChoiceSwitch toggle ? toggle.SelectedIndex : ((ComboBox)control).SelectedIndex;
+        set { if (control is ChoiceSwitch toggle) toggle.Select(value, notify: true); else ((ComboBox)control).SelectedIndex = value; }
     }
 }

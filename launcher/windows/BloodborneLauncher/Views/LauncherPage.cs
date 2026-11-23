@@ -169,6 +169,43 @@ namespace BloodborneLauncher.Views
     }
 
     /// <summary>A row of options where one is chosen, like the PS4/macOS segmented control.</summary>
+    /// <summary>A setting whose only two choices are On and Off: a switch, not a drop-down. Select and Changed
+    /// work by choice index, as on Segmented, so a page treats both alike.</summary>
+    public sealed class ChoiceSwitch : ToggleSwitch
+    {
+        private readonly int _on;
+        public IReadOnlyList<Choice> Choices { get; }
+        public event Action<int>? Changed;
+
+        private ChoiceSwitch(IReadOnlyList<Choice> choices, int on)
+        {
+            Choices = choices;
+            _on = on;
+            // A subclass gets no implicit style of its own: take the switch's.
+            SetResourceReference(StyleProperty, typeof(ToggleSwitch));
+            VerticalAlignment = VerticalAlignment.Center;
+            Click += (_, _) => Changed?.Invoke(SelectedIndex);
+        }
+
+        /// <summary>A switch for these choices, or null when they are not exactly On and Off.</summary>
+        public static ChoiceSwitch? For(IReadOnlyList<Choice> choices)
+        {
+            if (choices.Count != 2) return null;
+            string on = L.T("On"), off = L.T("Off");
+            if (choices[0].Label == on && choices[1].Label == off) return new ChoiceSwitch(choices, 0);
+            if (choices[0].Label == off && choices[1].Label == on) return new ChoiceSwitch(choices, 1);
+            return null;
+        }
+
+        public int SelectedIndex => IsChecked == true ? _on : 1 - _on;
+
+        public void Select(int index, bool notify)
+        {
+            IsChecked = index == _on;
+            if (notify) Changed?.Invoke(SelectedIndex);
+        }
+    }
+
     public sealed class Segmented : Border
     {
         private readonly List<Border> _items = new();
@@ -603,6 +640,13 @@ namespace BloodborneLauncher.Views
             button.Foreground = Brushes.White;
         }
 
+        /// <summary>Gives a button a tooltip and returns it, for use inline.</summary>
+        public static Button Tip(Button button, string tooltip)
+        {
+            button.ToolTip = tooltip;
+            return button;
+        }
+
         public static Button IconButton(SymbolRegular icon, string tooltip, RoutedEventHandler click)
         {
             var button = new Button
@@ -662,6 +706,17 @@ namespace BloodborneLauncher.Views
                 segmented.Changed += Picked;
                 row.Tag = note;
                 return segmented;
+            }
+
+            if (!buttons && ChoiceSwitch.For(choices) is { } toggle)
+            {
+                var row = Add(Card(icon, title, hint, toggle, out note), into);
+                row.Choices = options;
+                toggle.Select(Choices.IndexOf(choices, get()), notify: false);
+                ShowNote(toggle.SelectedIndex);
+                toggle.Changed += Picked;
+                row.Tag = note;
+                return toggle;
             }
 
             var box = new ComboBox { Width = width, VerticalAlignment = VerticalAlignment.Center };
