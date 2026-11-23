@@ -2343,6 +2343,8 @@ bool OnNpcOff(int slot, const std::string& json) {
     return true;
 }
 
+bool ApplySpEffectToChr(u64 chr, int id) { return ApplyEffect(chr, id); }
+
 bool ApplySpEffectToEntity(int entity, int id, std::string* what) {
     const u64 chr = ChrByEntity(entity);
     if (!chr || !ApplyEffect(chr, id)) return false;

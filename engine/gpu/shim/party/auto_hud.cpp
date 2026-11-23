@@ -231,7 +231,7 @@ bool ReadInputs(Inputs* in) {
 }
 
 void ParseScript() {
-    // BB_AUTO_HUD_TEST="S:hp=40,S:hp=100,S:stam=20,S:echoes=+500,S:peek": S seconds after the world is up.
+    // BB_AUTO_HUD_TEST="S:hp=40,S:hp=100,S:stam=20,S:echoes=+500,S:sp=2120,S:peek": S seconds after the world is up.
     const char* e = std::getenv("BB_AUTO_HUD_TEST");
     if (!e || !*e) return;
     g_test = e;
@@ -270,6 +270,9 @@ void RunScript(double since) {
             QuickItemId(slot, &selected);
             const bool ok = id && SetQuickItem(slot, id, true);
             Log("test: quick slot %d holds goods %u (was selected %d), select %s", slot, id, selected ? 1 : 0, ok ? "ok" : "failed");
+        } else if (a.rfind("sp=", 0) == 0) {  // SpEffect on the player (status buildup: 2120 slow poison, 5716 frenzy)
+            const bool ok = balance::ApplySpEffectToChr(player, std::atoi(a.c_str() + 3));
+            if (!ok) Log("test: %s failed", a.c_str());
         } else if (a == "peek") {
             g_machine.Peek(Now(), 3.0);
         }
