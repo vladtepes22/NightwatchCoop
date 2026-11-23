@@ -76,18 +76,22 @@ public static class PartyDiscovery
     public static (uint Id, Dictionary<string, string> Env)? ParseRules(ReadOnlySpan<byte> d)
     {
         if (d.Length != 9 || d[0] != 0xfa || d[1] != (byte)'R' || d[2] != 1 || (d[7] & ~31) != 0 || d[8] > 2) return null;
-        int flags = d[7];
+        return ((uint)d[3] << 24 | (uint)d[4] << 16 | (uint)d[5] << 8 | d[6], RulesEnv(d[7], d[8]));
+    }
+
+    /// <summary>The start-up rule bits (discovery 'R', the lobby's type 15) as the launch variables of a guest.</summary>
+    public static Dictionary<string, string> RulesEnv(int flags, int insight)
+    {
         string Bit(int bit) => (flags & bit) != 0 ? "1" : "0";
-        var env = new Dictionary<string, string>
+        return new Dictionary<string, string>
         {
             ["BB_PARTY_GUEST_LAMPS"] = Bit(1),
             ["BB_PARTY_GUEST_MARK"] = Bit(2),
             ["BB_PARTY_FULL_REWARDS"] = Bit(4),
             ["BB_PARTY_START"] = (flags & 8) != 0 ? "immediate" : "prologue_solo",
             ["BB_PARTY_ITEMS"] = Bit(16),
-            ["BB_PARTY_GUEST_INSIGHT"] = d[8] switch { 1 => "full", 2 => "0", _ => "parity" },
+            ["BB_PARTY_GUEST_INSIGHT"] = insight switch { 1 => "full", 2 => "0", _ => "parity" },
         };
-        return ((uint)d[3] << 24 | (uint)d[4] << 16 | (uint)d[5] << 8 | d[6], env);
     }
 
     private static bool Text(ReadOnlySpan<byte> d, ref int pos, int limit, out string text)

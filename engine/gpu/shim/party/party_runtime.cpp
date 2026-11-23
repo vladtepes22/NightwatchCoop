@@ -2090,6 +2090,14 @@ void start_host(LinkConfig cfg) {
             a.phase = w.phase;
             a.ng = w.ng;
         }
+        {  // the start-up rules a guest must match (party_vpnlobby.h type 13; the same bits as discovery's 'R')
+            const coop::balance::StartupRules st = coop::balance::StartupSessionRules();
+            a.rules = true;
+            a.rules_flags = static_cast<std::uint8_t>((st.guest_lamps ? 1 : 0) | (st.guest_mark ? 2 : 0) |
+                                                      (st.full_rewards ? 4 : 0) | (st.start_immediate ? 8 : 0) |
+                                                      (st.items ? 16 : 0));
+            a.rules_insight = static_cast<std::uint8_t>(std::clamp(st.guest_insight, 0, 2));
+        }
         *out = a;
         return true;
     });

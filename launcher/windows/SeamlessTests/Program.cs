@@ -705,6 +705,18 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
         "A label outside a-z 0-9 @ . _ : + - or missing refuses the page");
     Check(VpnLobby.ParseReply(Labelled(new string('a', 255))) is { } l4 && l4.Games[0].Mods.Length == 255, "A 255-character label (a world code) parses");
     Check(VpnLobby.ParseReply(Reply(9, 1, 1, true)) is { } l3 && l3.Games[0].Mods == "", "The type 9 reply has no label");
+    // Type 15 (nwlobby types 13-15): type 12's rows plus the host's start-up rules (bit 7 known, bits 0-4, Insight 0..2).
+    static byte[] WithRules(byte flags, byte insight) =>
+        Reply(15, 1, 1, true).Concat(new byte[] { 4 }).Concat(System.Text.Encoding.ASCII.GetBytes("a.b1")).Concat(new[] { flags, insight }).ToArray();
+    Check(VpnLobby.ListRequest(0, 4)[3] == 14, "The list with start-up rules is asked with type 14");
+    Check(VpnLobby.ParseReply(WithRules(0x80 | 16 | 8, 1)) is { } r1 && r1.Games[0].Mods == "a.b1" && r1.Games[0].Rules is { } rr &&
+          rr["BB_PARTY_ITEMS"] == "1" && rr["BB_PARTY_START"] == "immediate" && rr["BB_PARTY_GUEST_INSIGHT"] == "full" && rr["BB_PARTY_GUEST_LAMPS"] == "0",
+          "The type 15 reply does not carry the host's start-up rules");
+    Check(VpnLobby.ParseReply(WithRules(0, 0)) is { } r2 && r2.Games[0].Rules == null, "A host without start-up rules got some");
+    Check(VpnLobby.ParseReply(WithRules(0x40, 0)) == null && VpnLobby.ParseReply(WithRules(0x80, 3)) == null &&
+          VpnLobby.ParseReply(WithRules(0x01, 0)) == null && VpnLobby.ParseReply(WithRules(0x80, 0)[..^1]) == null &&
+          VpnLobby.ParseReply(Reply(12, 1, 1, true).Concat(new byte[] { 0 }).ToArray()) is { } r3 && r3.Games[0].Rules == null,
+          "A bad rules pair was accepted, or a type 12 reply got rules");
     // An Invade start: BB_PARTY_INVADE for that start only, and never the password.
     var invader = new LauncherSettings();
     invader.Set("party_mode", "join");

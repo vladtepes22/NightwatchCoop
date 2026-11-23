@@ -1123,6 +1123,15 @@ static void test_vpnlobby() {
         CHECK(encode_announce_mods(x).empty());
         x.mods = std::string(255, 'a');
         CHECK(encode_announce_mods(x).size() == 5 + 255);
+        // the start-up rules (type 13), the same bytes as tests/test_nwlobby.py's encode_announce_rules
+        CHECK(encode_announce_rules(x).empty());  // not filled: nothing sent
+        x.rules = true;
+        x.rules_flags = 2 | 8 | 16;
+        x.rules_insight = 1;
+        CHECK((encode_announce_rules(x) == std::vector<std::uint8_t>{0xfa, 0x4c, 0x01, 0x0d, 0x1a, 0x01}));
+        x.rules_flags = 0xff;
+        x.rules_insight = 9;
+        CHECK((encode_announce_rules(x) == std::vector<std::uint8_t>{0xfa, 0x4c, 0x01, 0x0d, 0x1f, 0x00}));
         CHECK(valid_mods_label("mods:3f9a12c0") && valid_mods_label("a-b_c.d+e:f@0"));
         std::array<std::uint8_t, 32> h{};
         h[0] = 0x3f; h[1] = 0x9a; h[2] = 0x12; h[3] = 0xc0; h[4] = 0xff;

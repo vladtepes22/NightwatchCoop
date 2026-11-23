@@ -1067,8 +1067,10 @@ public sealed class SeamlessPage : LauncherPage
         }
         SeamlessSettings.PendingJoin = (game.JoinCode, password);
         SeamlessSettings.PendingInvade = invade;
-        if (PartyDiscovery.PartySize(game.Max) is { } size)
-            SeamlessSettings.PendingHostOptions = new() { ["BB_PARTY_MAX"] = size };  // the lobby tells only the slots
+        // The lobby tells the slots, and the host's start-up rules when it relays them (type 15): the join is not refused for them.
+        var hostOptions = new Dictionary<string, string>(game.Rules ?? new Dictionary<string, string>());
+        if (PartyDiscovery.PartySize(game.Max) is { } size) hostOptions["BB_PARTY_MAX"] = size;
+        if (hostOptions.Count > 0) SeamlessSettings.PendingHostOptions = hostOptions;
         try { await MainWindow.Instance!.PlayOrStopAsync(); }
         finally { SeamlessSettings.PendingJoin = null; SeamlessSettings.PendingInvade = false; SeamlessSettings.PendingHostOptions = null; }
     }

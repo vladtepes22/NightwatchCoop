@@ -23,6 +23,9 @@ public sealed class LobbyGame
     /// <summary>The host's mods label (type 12): "" none, "nocturne@1.0", "mods:3f9a12c0"; parts may be joined by '+'. Only
     /// ever a key (CuratedMods.JoinAdvice), never a path or an address.</summary>
     public string Mods { get; init; } = "";
+    /// <summary>The host's start-up rules as launch variables (type 15, <see cref="PartyDiscovery.RulesEnv"/>); null when the
+    /// host or the lobby sent none.</summary>
+    public IReadOnlyDictionary<string, string>? Rules { get; init; }
     /// <summary>An invader can be let in: the host allows it and has a free slot.</summary>
     public bool Invadable => Invaders && Players < Max;
     public string JoinCode => NetworkRoute.HostAddress(NetworkRoute.Text(Ip), Port);
@@ -39,11 +42,12 @@ public static class VpnLobby
     public const int Port = 9310, PollMs = 5000, TimeoutMs = 1000, MaxPages = 20;
     public const string Address = "10.8.0.1";
     private const int FlagPassword = 1, FlagOwn = 2, FlagInvaders = 4, FlagBoss = 8;
-    private const byte TypeReply = 3, TypeList2 = 8, TypeReply2 = 9, TypeList3 = 11, TypeReply3 = 12;
+    private const byte TypeReply = 3, TypeList2 = 8, TypeReply2 = 9, TypeList3 = 11, TypeReply3 = 12, TypeList4 = 14, TypeReply4 = 15;
+    private const int RulesKnown = 0x80;   // type 15: the host sent its start-up rules
     public const int MaxModsLabel = 255;   // the length is one byte
     /// <summary>When the lobby last ignored the extended list (an older lobby): the plain list is asked instead for a while.</summary>
     private static long _capUntil;
-    private static int _cap = 3;  // the newest list the lobby answered (3, 2 or 1), kept for five minutes
+    private static int _cap = 4;  // the newest list the lobby answered (4, 3, 2 or 1), kept for five minutes
 
     /// <summary>A player address of the tunnel: 10.8.0.0/22 minus the network, the server (10.8.0.1) and the broadcast address,
     /// i.e. 10.8.0.2 to 10.8.3.254 (visy 0.7.8: room for 1021 players once the server widens its pool from /24; a /24 server
@@ -59,9 +63,11 @@ public static class VpnLobby
     public static IPEndPoint? TestTarget() =>
         Environment.GetEnvironmentVariable("BB_PARTY_VPNLOBBY_ADDR") is { Length: > 0 } text && IPEndPoint.TryParse(text, out var target) ? target : null;
 
-    /// <summary>level 3: the list with mods labels (type 11), 2: with invaders (type 8), 1: the plain list (type 2).</summary>
+    /// <summary>level 4: the list with mods labels and the hosts' start-up rules (type 14), 3: with mods labels (type 11),
+    /// 2: with invaders (type 8), 1: the plain list (type 2).</summary>
     public static byte[] ListRequest(int offset, int level = 1) =>
-        new byte[] { 0xfa, (byte)'L', 1, level >= 3 ? TypeList3 : level == 2 ? TypeList2 : (byte)2, (byte)(offset >> 8), (byte)offset };
+        new byte[] { 0xfa, (byte)'L', 1, level >= 4 ? TypeList4 : level == 3 ? TypeList3 : level == 2 ? TypeList2 : (byte)2,
+            (byte)(offset >> 8), (byte)offset };
 
     /// <summary>The lobby's label rule: 1..32 of a-z 0-9 @ . _ : + -.</summary>
     public static bool ValidModsLabel(ReadOnlySpan<byte> label)
@@ -77,11 +83,15 @@ public static class VpnLobby
     /// <summary>Strict, untrusted input: anything malformed gives null. Reply: fa 'L' 1 3, total u16, offset u16, count u8, then
     /// ipv4, port u16, flags u8, players u8, max u8, name (u8 len + UTF-8), build (u8 len + printable ASCII). The extended
     /// reply (type 9, visy 0.7.8 nwlobby) has flags bit 2 (allows invaders) and bit 3 (boss fight), and after max: area u32,
-    /// phase u8, ng u8. The labelled reply (type 12) is type 9 with a mods label (u8 len + ASCII, 0 = none) after each build.</summary>
+    /// phase u8, ng u8. The labelled reply (type 12) is type 9 with a mods label (u8 len + ASCII, 0 = none) after each build;
+    /// type 15 adds the host's start-up rules after the label: flags u8 (bit 7 known, bits 0-4 as discovery's 'R'), insight
+    /// u8 (0..2), both 0 when the host sent none.</summary>
     public static (int Total, int Offset, List<LobbyGame> Games)? ParseReply(ReadOnlySpan<byte> d)
     {
-        if (d.Length is < 9 or > 1024 || d[0] != 0xfa || d[1] != (byte)'L' || d[2] != 1 || d[3] is not (TypeReply or TypeReply2 or TypeReply3)) return null;
-        var labelled = d[3] == TypeReply3;
+        if (d.Length is < 9 or > 1024 || d[0] != 0xfa || d[1] != (byte)'L' || d[2] != 1 ||
+            d[3] is not (TypeReply or TypeReply2 or TypeReply3 or TypeReply4)) return null;
+        var withRules = d[3] == TypeReply4;
+        var labelled = d[3] is TypeReply3 or TypeReply4;
         var extended = d[3] != TypeReply;
         int total = d[4] << 8 | d[5], offset = d[6] << 8 | d[7], count = d[8], pos = 9;
         var games = new List<LobbyGame>();
@@ -121,10 +131,19 @@ public static class VpnLobby
                 mods = Encoding.ASCII.GetString(d.Slice(pos, m));
                 pos += m;
             }
+            Dictionary<string, string>? rules = null;
+            if (withRules)
+            {
+                if (pos + 2 > d.Length) return null;
+                int rf = d[pos], ri = d[pos + 1];
+                pos += 2;
+                if ((rf & 0x60) != 0 || ri > 2 || ((rf & RulesKnown) == 0 && (rf | ri) != 0)) return null;
+                if ((rf & RulesKnown) != 0) rules = PartyDiscovery.RulesEnv(rf, ri);
+            }
             games.Add(new LobbyGame
             {
                 Name = name, Players = players, Max = max, Password = (flags & FlagPassword) != 0, Own = (flags & FlagOwn) != 0,
-                Build = build, Ip = ip, Port = port, Invaders = (flags & FlagInvaders) != 0, Mods = mods,
+                Build = build, Ip = ip, Port = port, Invaders = (flags & FlagInvaders) != 0, Mods = mods, Rules = rules,
             });
         }
         return pos == d.Length ? (total, offset, games) : null;
@@ -174,9 +193,9 @@ public static class VpnLobby
             var games = new List<LobbyGame>();
             var buffer = new byte[2048];
             var offset = 0;
-            // The newest list first (11: mods labels, 8: Allow invaders); a lobby that does not answer it is an older one: ask
-            // the next older list, and keep asking that one for five minutes.
-            var level = Environment.TickCount64 >= Interlocked.Read(ref _capUntil) ? 3 : Volatile.Read(ref _cap);
+            // The newest list first (14: start-up rules, 11: mods labels, 8: Allow invaders); a lobby that does not answer it
+            // is an older one: ask the next older list, and keep asking that one for five minutes.
+            var level = Environment.TickCount64 >= Interlocked.Read(ref _capUntil) ? 4 : Volatile.Read(ref _cap);
             for (var page = 0; page < MaxPages; page++)
             {
                 // The lobby answers 8 requests at once, then 2 a second (nwlobby RATE_BURST / RATE_PER_SEC): long mods labels
