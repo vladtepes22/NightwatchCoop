@@ -2269,9 +2269,12 @@ void TestAidTick(Test& t, Clock::time_point now) {
     }
 }
 
+#include "party_enemy_trace.inc"
+
 void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::time_point now) {
     Test& t = st.test;
     TargetAnimTick(t, now);
+    EnemyTraceTick(t);
     TestAidTick(t, now);
     // BB_PARTY_TEST_GUARD=1 (test aid, smoke rt): invincible from each revive until the next die /
     // chr step (deathrules::TestGuard); set every tick (the revive and the stain warp reset it).
