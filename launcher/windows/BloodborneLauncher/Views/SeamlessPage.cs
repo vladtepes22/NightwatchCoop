@@ -92,14 +92,18 @@ public sealed class SeamlessPage : LauncherPage
         var modRows = new StackPanel();
         Grid.SetColumn(modRows, 1);
         invadeMods.Children.Add(invadeRows); invadeMods.Children.Add(modRows);
-        ToggleRow(SymbolRegular.Shield24, L.T("Allow invasions"),
+        System.Windows.Controls.ComboBox maxInvaders = null!;
+        var invasions = ToggleRow(SymbolRegular.Shield24, L.T("Allow invasions"),
             L.T("Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it."),
-            () => Ini.Get("party_invaders", "0") == "1", v => Ini.Set("party_invaders", v ? "1" : "0"), invadeRows);
+            () => Ini.Get("party_invaders", "0") == "1", v => Ini.Set("party_invaders", v ? "1" : "0"), invadeRows,
+            () => maxInvaders.IsEnabled = Ini.Get("party_invaders", "0") == "1");
         // visy 0.7.9 (CL-7e748c): how many invaders at once, 1 or 2; the host's value, read live. Both count against Max players.
-        ComboRow(SymbolRegular.PeopleTeam24, L.T("Max invaders"),
+        // Narrow like Player limit, so the title is not cut in the half-width column; only with invasions on.
+        maxInvaders = (System.Windows.Controls.ComboBox)ComboRow(SymbolRegular.PeopleTeam24, L.T("Max invaders"),
             L.T("How many invaders can be in your world at once. They count against Max players and the game's four slots."),
             new[] { new Choice("1", "1"), new Choice("2", "2") },
-            () => Ini.Get("party_max_invaders", "1") == "2" ? "2" : "1", v => Ini.Set("party_max_invaders", v), invadeRows);
+            () => Ini.Get("party_max_invaders", "1") == "2" ? "2" : "1", v => Ini.Set("party_max_invaders", v), invadeRows, width: 90);
+        maxInvaders.IsEnabled = invasions.IsChecked == true;
         // Load mods (Workshop > Mods): which mods the game loads; read-only here.
         Add(Card(SymbolRegular.PuzzlePiece24, L.T("Mods"), null,
             SmallButton(L.T("Change"), SymbolRegular.Open24, (_, _) => OpenModsPage()), out _gameModeHint), modRows);

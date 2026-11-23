@@ -470,9 +470,10 @@ namespace BloodborneLauncher.Views
                 summary = Randomizer.Summary(options, hidden) + " ";
             }
             var note = (inUse ? L.T("In use.") : L.T("Not in use.")) + " " + summary + Randomizer.BuiltOnText(builtOn) +
-                       (builtOn != null && !shareable ? " " + L.T("Friends can't join it from the Join list: one of the mods it is built on is missing, can't be read or has the same files as another.") : "") +
-                       (byContent.Count > 0 ? " " + L.F($"Friends who join it from the Join list need the same files of: {string.Join(", ", byContent)} (any folder name).") : "") +
-                       (stale ? " " + L.T("The mods ticked under Create world are not the ones this world was made on: make it again on them, with a new character.") : "");
+                       (byContent.Count > 0 ? " " + L.F($"Friends who join it from the Join list need the same files of: {string.Join(", ", byContent)} (any folder name).") : "");
+            // Problems get their own line in the warning colour, not the end of the grey summary.
+            var warning = ((builtOn != null && !shareable ? L.T("Friends can't join it from the Join list: one of the mods it is built on is missing, can't be read or has the same files as another.") + " " : "") +
+                           (stale ? L.T("The mods ticked under Create world are not the ones this world was made on: make it again on them, with a new character.") : "")).Trim();
             var buttons = Row(
                 inUse ? SmallButton(L.T("Stop using"), SymbolRegular.Power24, (_, _) => StopUsing())
                       : SmallButton(L.T("Load"), SymbolRegular.Play24, (_, _) => Load(name)),
@@ -488,6 +489,7 @@ namespace BloodborneLauncher.Views
             if (saves != null) note = L.F($"Code {world.Code}.") + " " + note;
             var card = Card(SymbolRegular.Globe24, saves?.Name ?? world.Code, null, buttons, out var line, wide: true);
             SetHint(line, note);
+            SetHint(card.Warning, warning);
             return card;
         }
 

@@ -13,12 +13,14 @@ namespace BloodborneLauncher.Views
     /// <summary>
     /// One setting: its title on the left (descriptions in an ⓘ tooltip), its control on the right,
     /// or below it for wide controls such as segmented buttons. Hint is a line under the title for
-    /// live status (a path, "not available on this GPU"); it stays hidden until something is set.
+    /// live status (a path, "not available on this GPU"); it stays hidden until something is set. Warning is a
+    /// line under it in the warning colour, for a problem the player must act on.
     /// </summary>
     public sealed class SettingRow : Border
     {
         public SymbolIcon Icon { get; }
         public TextBlock Hint { get; }
+        public TextBlock Warning { get; }
         public string Title { get; }
         /// <summary>The description (the ⓘ tooltip).</summary>
         public string? Info { get; }
@@ -63,6 +65,11 @@ namespace BloodborneLauncher.Views
 
             Hint = new TextBlock { FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0), Visibility = Visibility.Collapsed };
             Hint.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorTertiaryBrush");
+            Warning = new TextBlock { FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0), Visibility = Visibility.Collapsed };
+            Warning.SetResourceReference(TextBlock.ForegroundProperty, "WarningTextBrush");
+            var notes = new StackPanel();
+            notes.Children.Add(Hint);
+            notes.Children.Add(Warning);
 
             var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             text.Children.Add(titleLine);
@@ -88,21 +95,21 @@ namespace BloodborneLauncher.Views
                     Grid.SetColumnSpan(element, 2);
                     grid.Children.Add(element);
                     grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                    Grid.SetRow(Hint, 2);
-                    Grid.SetColumn(Hint, 1);
-                    Grid.SetColumnSpan(Hint, 2);
-                    grid.Children.Add(Hint);
+                    Grid.SetRow(notes, 2);
+                    Grid.SetColumn(notes, 1);
+                    Grid.SetColumnSpan(notes, 2);
+                    grid.Children.Add(notes);
                 }
                 else
                 {
-                    text.Children.Add(Hint);
+                    text.Children.Add(notes);
                     if (element is FrameworkElement fe) fe.Margin = new Thickness(12, 0, 0, 0);
                     Grid.SetColumn(element, 2);
                     grid.Children.Add(element);
                 }
             }
             else
-                text.Children.Add(Hint);
+                text.Children.Add(notes);
 
             Child = grid;
         }

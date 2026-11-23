@@ -14,6 +14,8 @@ internal static class UiRender
         {
             try
             {
+                // Async work a page starts resumes on this thread (as in the launcher), not on a pool thread.
+                SynchronizationContext.SetSynchronizationContext(new System.Windows.Threading.DispatcherSynchronizationContext());
                 Directory.CreateDirectory(directory);
                 var app = new BloodborneLauncher.App();
                 app.InitializeComponent();
