@@ -53,6 +53,11 @@ vk::UniqueDebugUtilsMessengerEXT CreateAddressReport(vk::Instance instance);
 /// bbport: an image's or view's debug name (SetObjectName), for the device-lost report: images
 /// are named after their memory is bound, so the bind report alone has no name.
 void NameObject(VkObjectType type, u64 handle, std::string_view name);
+/// bbport: GPU address ranges an owner names itself (ray tracing's BLAS and buffers), so a device
+/// fault names them even when VK_EXT_device_address_binding_report is off (NVIDIA by default).
+/// ForgetRange is called when the memory is really freed; the range is then kept as freed.
+void NoteRange(u64 base, u64 size, VkObjectType type, std::string_view name);
+void ForgetRange(u64 base);
 /// The same report, once, while the GPU has not finished submitted work for a long time (no
 /// device lost yet: a reset may never come, or the waiting thread would not see it).
 void ReportStuck(const char* where);

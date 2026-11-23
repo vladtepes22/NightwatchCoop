@@ -365,6 +365,9 @@ private:
         u64 added = 0, added_max = 0, gone = 0, far_away = 0, capped = 0, boxes = 0, no_box = 0, kept_static = 0,
             stale = 0, flushes = 0;
     } scene_window;
+    // bbport: scene (TLAS) builds and builds left out for want of instance room (diag window).
+    u64 scene_builds = 0, scenes_reused = 0;
+    u32 instances_used = 0;
     struct DiagWindow {
         u64 frames = 0, prepares = 0, prepare_ns = 0, prepare_max_ns = 0, makes = 0,
             make_ns = 0, make_max_ns = 0, built = 0, refit = 0, evicted = 0, capture_ns = 0,

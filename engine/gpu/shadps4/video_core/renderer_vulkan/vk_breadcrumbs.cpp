@@ -86,6 +86,10 @@ std::mutex address_mutex;
 std::map<u64, AddressBinding> address_bound;
 FreedRing freed_images{.capacity = 32768};
 FreedRing freed_others{.capacity = 65536};
+/// NoteRange / ForgetRange (under address_mutex): kept apart from the bind report's map, since a
+/// noted range can start where its buffer does.
+std::map<u64, AddressBinding> noted_ranges;
+FreedRing freed_noted{.capacity = 16384};
 /// Image view names (under address_mutex; NameObject); emptied when it reaches ViewNamesMax.
 constexpr size_t ViewNamesMax = 1u << 16;
 std::unordered_map<u64, std::string> view_names;
@@ -183,6 +187,20 @@ void DescribeRing(const char* what, const FreedRing& ring, std::chrono::steady_c
 
 void DescribeFaultAddress(u64 address) {
     std::scoped_lock lock{address_mutex};
+    const auto noted_now = std::chrono::steady_clock::now();
+    if (auto noted = noted_ranges.upper_bound(address); noted != noted_ranges.begin()) {
+        const auto& range = std::prev(noted)->second;
+        if (address < range.base + range.size) {
+            std::printf("    in a live %s %#llx [%#llx, +%#llx) %s\n", ObjectTypeName(range.type),
+                        static_cast<unsigned long long>(range.handle),
+                        static_cast<unsigned long long>(range.base),
+                        static_cast<unsigned long long>(range.size), range.name);
+            return;
+        }
+    }
+    if (freed_noted.entries && FindFreed(freed_noted, address, noted_now)) {
+        return;
+    }
     auto it = address_bound.upper_bound(address);
     if (it != address_bound.begin()) {
         const auto& bound = std::prev(it)->second;
@@ -524,6 +542,27 @@ vk::UniqueDebugUtilsMessengerEXT CreateAddressReport(vk::Instance instance) {
     }
     std::printf("GPU fault reports: memory binds are tracked (VK_EXT_device_address_binding_report)\n");
     return std::move(messenger);
+}
+
+void NoteRange(u64 base, u64 size, VkObjectType type, std::string_view name) {
+    if (base == 0 || size == 0) {
+        return;
+    }
+    AddressBinding entry{.base = base, .size = size, .handle = base, .type = type, .name = {}};
+    std::snprintf(entry.name, sizeof(entry.name), "%.*s", int(name.size()), name.data());
+    std::scoped_lock lock{address_mutex};
+    noted_ranges[base] = entry;
+}
+
+void ForgetRange(u64 base) {
+    std::scoped_lock lock{address_mutex};
+    const auto it = noted_ranges.find(base);
+    if (it == noted_ranges.end()) {
+        return;
+    }
+    it->second.freed = std::chrono::steady_clock::now();
+    freed_noted.Push(it->second);
+    noted_ranges.erase(it);
 }
 
 void NameObject(VkObjectType type, u64 handle, std::string_view name) {
