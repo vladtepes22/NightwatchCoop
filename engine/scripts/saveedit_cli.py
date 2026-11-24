@@ -204,10 +204,12 @@ REPAIRS = ("phantom", "duplicate_keys")
 
 
 def mods_stamp(args):
-    """What says the enabled mods may have changed: the mods config file and the Mods folder (a mod added, removed or
-    renamed), by modification time and size."""
+    """What says the enabled mods may have changed: the mods config file, the Mods folder (a mod added, removed or
+    renamed) and the files the editor reads from the enabled mods (a mod updated in place), by modification time and
+    size."""
     stamp = []
-    for path in (args.mods_config, args.mods):
+    sources = names.mod_source_files(args.mods, args.mods_config) if args.mods else []
+    for path in (args.mods_config, args.mods, *sources):
         try:
             st = os.stat(path) if path else None
             stamp.append((str(path), st.st_mtime_ns, st.st_size) if st else (str(path), None))

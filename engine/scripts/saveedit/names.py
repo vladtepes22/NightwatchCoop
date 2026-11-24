@@ -168,6 +168,27 @@ def read_game(game_dir, lang="engus"):
 MOD_PREFIX = "Nocturne"  # the mod folders whose new items the editor's Nocturne list offers
 
 
+def mod_source_files(mods_dir, config, lang="engus"):
+    """The files read_mod_items and read_mod_bosses read from the enabled Nocturne mods (gameparam, item names, every
+    event file), so a caller can tell an in-place mod update (same folder, new files) by their times and sizes."""
+    import mods
+    out = []
+    try:
+        for name in mods.selected(mods_dir, config):
+            if not name.casefold().startswith(MOD_PREFIX.casefold()):
+                continue
+            base, prefix = mods.content_root(Path(mods_dir) / name)
+            root = mods.child(base, "dvdroot_ps4") if not prefix else base
+            out.append(mods.child(mods.child(mods.child(root, "param"), "gameparam"), "gameparam.parambnd.dcx"))
+            out.append(mods.child(mods.child(mods.child(root, "msg"), lang), "item.msgbnd.dcx"))
+            event = mods.child(root, "event")
+            if event.is_dir():
+                out.extend(sorted(f for f in event.iterdir() if f.is_file()))
+    except (OSError, ValueError):
+        pass
+    return out
+
+
 def read_mod_items(game_dir, mods_dir, config, lang="engus"):
     """{(category, id): [name, sortId or None, icon id or None]} the installed, enabled Nocturne mod adds: goods (4),
     weapons (0, the +0 rows) and armour (1) whose rows the game folder does not have. Empty when no such mod, no game
