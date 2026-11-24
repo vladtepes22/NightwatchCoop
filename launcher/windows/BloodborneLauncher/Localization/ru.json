@@ -2651,7 +2651,6 @@
   "\n\nWhat is replaced is backed up first (single player: Save backups › Restore…; multiplayer: the save_backups folder).": "\n\nЗаменяемое сохраняется в резервную копию заранее (одиночная игра: Резервные копии сохранений › Восстановить…; мультиплеер: папка save_backups).",
   "  ·  while playing": "  ·  во время игры",
   "1 (standard)": "1 (стандартно)",
-  "100 % (as the game ships)": "100 % (как в игре)",
   "2 (standard)": "2 (стандартно)",
   "25 % (standard)": "25 % (стандартно)",
   "3 (standard)": "3 (стандартно)",
@@ -2727,8 +2726,6 @@
   "Enemies the game scripts an animation on (eating, sleeping, sitting, appearing, ambush attacks) can become any enemy. If the new one lacks that animation, it just stands there instead.": "Враги, для которых игра задаёт анимацию (еда, сон, сидение, появление, засады), могут стать любым врагом. Если у нового такой анимации нет, он просто стоит на месте.",
   "Enemies the randomizer will never place anywhere.": "Враги, которых рандомизатор никогда никуда не ставит.",
   "Enemy scaling": "Масштабирование врагов",
-  "Enemy variety": "Разнообразие врагов",
-  "Every area has a memory limit: how much the game loads there as it ships. A replacement has to fit under that limit, and this setting raises it, along with how many kinds of enemies an area can hold. 100 % keeps the limit as it is: the fewest crashes, but less variety. 150 % and 200 % give you more kinds of enemies, but can crash weaker PCs when memory runs out. 100 to 150 % crashes the least.": "У каждой области есть лимит памяти: сколько игра загружает там в исходном виде. Замена должна уместиться в этот лимит, а эта настройка его повышает, вместе с ним повышая и число видов врагов в области. 100 % оставляет лимит как есть: меньше всего вылетов, но меньше разнообразия. 150 % и 200 % дают больше видов врагов, но могут вызвать вылеты на слабых ПК, когда память заканчивается. От 100 до 150 % вылетов меньше всего.",
   "Every blood gem lying in the world, half of the small Blood Vial and Quicksilver Bullet pickups, and every blood gem enemies drop become droplet gems with three random effects. Droplet gems fit any slot of any weapon. Gems get stronger the later the area. The effects are fixed by the world code, so everyone in the world finds the same gems, and the spoiler lists them.": "Каждый кровавый камень, лежащий в мире, половина мелких находок (флаконов крови и ртутных пуль) и каждый кровавый камень, выпавший из врага, становятся камнями-каплями с тремя случайными эффектами. Камни-капли подходят к любому гнезду любого оружия. Чем позже область, тем сильнее камни. Эффекты фиксируются кодом мира, поэтому все в мире находят одинаковые камни, а спойлер их перечисляет.",
   "Every enemy can appear.": "Появиться может любой враг.",
   "Every shop item changes except Blood Vials and Quicksilver Bullets. Weapons and armor swap places with one-of-a-kind items found in the world, so a shop weapon can become a pickup and a world-only weapon can be bought; the rest are shuffled within their shop. Consumables are shuffled between the shops. Prices fit the new item. Keys and boss drops stay where they are.": "Меняется каждый товар магазинов, кроме флаконов крови и ртутных пуль. Оружие и броня меняются местами с уникальными предметами, найденными в мире: оружие из магазина может стать находкой, а оружие только из мира можно купить; остальное перемешивается внутри своего магазина. Расходники перемешиваются между магазинами. Цены подходят новому предмету. Ключи и награды боссов остаются на месте.",
@@ -2890,7 +2887,6 @@
   "Tone mapper": "Тональное отображение",
   "Treasure": "Сокровища",
   "Two base mods have the same files.": "Два базовых мода имеют одинаковые файлы.",
-  "Variety {0} %.": "Разнообразие {0} %.",
   "Was": "Было",
   "Weapons with weapons, armour with armour, etc.": "Оружие с оружием, броня с бронёй и т. д.",
   "What a pickup item can swap with. Only matters when pickup items are randomized.": "С чем может меняться предмет на земле. Важно, только когда предметы на земле рандомизированы.",
@@ -3038,5 +3034,12 @@
   "What reaches your own save from the party. Read at the next game start.": "Что попадает из группы в ваше сохранение. Применяется при следующем запуске игры.",
   "In use": "Используется",
   "Other mods now": "Сейчас другие моды",
-  "Friends can't join": "Друзья не смогут присоединиться"
+  "Friends can't join": "Друзья не смогут присоединиться",
+  "Enemy kinds per area": "Видов врагов на зону",
+  "How many different enemy kinds one area can hold. More kinds use more of the game's memory and can crash weaker PCs. Standard is the safest.": "Сколько разных видов врагов может быть в одной зоне. Больше видов занимают больше памяти игры и могут вызвать вылет на слабых ПК. Стандарт надёжнее всего.",
+  "Standard (safest)": "Стандарт (надёжнее всего)",
+  "More (can crash weaker PCs)": "Больше (может вылетать на слабых ПК)",
+  "Most (crashes weaker PCs more often)": "Максимум (чаще вылетает на слабых ПК)",
+  "More enemy kinds per area.": "Больше видов врагов на зону.",
+  "Most enemy kinds per area.": "Максимум видов врагов на зону."
 }

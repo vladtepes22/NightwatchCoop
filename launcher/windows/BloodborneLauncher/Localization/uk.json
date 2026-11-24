@@ -2643,7 +2643,6 @@
   "\n\nWhat is replaced is backed up first (single player: Save backups › Restore…; multiplayer: the save_backups folder).": "\n\nПеред заміною заміна спершу копіюється в резерв (одиночна гра: Резервні копії збережень › Відновити…; багатокористувацька гра: тека save_backups).",
   "  ·  while playing": "  ·  під час гри",
   "1 (standard)": "1 (стандартно)",
-  "100 % (as the game ships)": "100 % (як у грі)",
   "2 (standard)": "2 (стандартно)",
   "25 % (standard)": "25 % (стандартно)",
   "3 (standard)": "3 (стандартно)",
@@ -2721,8 +2720,6 @@
   "Enemies the game scripts an animation on (eating, sleeping, sitting, appearing, ambush attacks) can become any enemy. If the new one lacks that animation, it just stands there instead.": "Вороги, для яких гра має скриптову анімацію (їжа, сон, сидіння, поява, засідки), можуть стати будь-яким ворогом. Якщо в нового немає такої анімації, він просто стоятиме на місці.",
   "Enemies the randomizer will never place anywhere.": "Вороги, яких рандомізатор ніколи не розміщуватиме.",
   "Enemy scaling": "Масштабування ворогів",
-  "Enemy variety": "Різноманітність ворогів",
-  "Every area has a memory limit: how much the game loads there as it ships. A replacement has to fit under that limit, and this setting raises it, along with how many kinds of enemies an area can hold. 100 % keeps the limit as it is: the fewest crashes, but less variety. 150 % and 200 % give you more kinds of enemies, but can crash weaker PCs when memory runs out. 100 to 150 % crashes the least.": "Кожна область має ліміт пам’яті: скільки гра завантажує там у стандартному вигляді. Заміна має вміщуватися в цей ліміт, а цей параметр його піднімає разом із кількістю видів ворогів в одній області. 100 % лишає ліміт як є: найменше вильотів, але менше різноманітності. 150 % і 200 % дають більше видів ворогів, але можуть спричинити вильоти на слабших ПК, коли закінчується пам’ять. 100–150 % дає найменше вильотів.",
   "Every blood gem lying in the world, half of the small Blood Vial and Quicksilver Bullet pickups, and every blood gem enemies drop become droplet gems with three random effects. Droplet gems fit any slot of any weapon. Gems get stronger the later the area. The effects are fixed by the world code, so everyone in the world finds the same gems, and the spoiler lists them.": "Кожен кривавий самоцвіт, що лежить у світі, половина дрібних підбирань флакона крові та ртутних куль, і кожен кривавий самоцвіт, що випадає з ворогів, стають самоцвітами-краплями з трьома випадковими ефектами. Самоцвіти-краплі підходять до будь-якого гнізда будь-якої зброї. Самоцвіти сильнішають ближче до пізніх областей. Ефекти фіксуються кодом світу, тож усі в світі знаходять ті самі самоцвіти, а спойлер їх перелічує.",
   "Every enemy can appear.": "Кожен ворог може з’явитися.",
   "Every shop item changes except Blood Vials and Quicksilver Bullets. Weapons and armor swap places with one-of-a-kind items found in the world, so a shop weapon can become a pickup and a world-only weapon can be bought; the rest are shuffled within their shop. Consumables are shuffled between the shops. Prices fit the new item. Keys and boss drops stay where they are.": "Змінюється кожен товар у крамницях, крім флаконів крові та ртутних куль. Зброя та броня міняються місцями з унікальними предметами, знайденими у світі, тож зброя з крамниці може стати підбиранням, а зброю, що є лише у світі, можна купити; решта перемішується в межах своєї крамниці. Витратні предмети перемішуються між крамницями. Ціни відповідають новому предмету. Ключі та здобич босів лишаються на місці.",
@@ -2890,7 +2887,6 @@
   "Tone mapper": "Тональне відображення",
   "Treasure": "Скарби",
   "Two base mods have the same files.": "Два базові моди мають ті самі файли.",
-  "Variety {0} %.": "Різноманітність {0} %.",
   "Was": "Було",
   "Weapons with weapons, armour with armour, etc.": "Зброя із зброєю, броня з бронею тощо.",
   "What a pickup item can swap with. Only matters when pickup items are randomized.": "З чим може мінятися підбирений предмет. Має значення лише тоді, коли підбирані предмети рандомізовані.",
@@ -3038,5 +3034,12 @@
   "What reaches your own save from the party. Read at the next game start.": "Що потрапляє з групи у ваше збереження. Діє з наступного запуску гри.",
   "In use": "Використовується",
   "Other mods now": "Тепер інші моди",
-  "Friends can't join": "Друзі не зможуть приєднатися"
+  "Friends can't join": "Друзі не зможуть приєднатися",
+  "Enemy kinds per area": "Видів ворогів на зону",
+  "How many different enemy kinds one area can hold. More kinds use more of the game's memory and can crash weaker PCs. Standard is the safest.": "Скільки різних видів ворогів може бути в одній зоні. Більше видів займають більше пам'яті гри і можуть спричинити виліт на слабких ПК. Стандарт найнадійніший.",
+  "Standard (safest)": "Стандарт (найнадійніший)",
+  "More (can crash weaker PCs)": "Більше (може вилітати на слабких ПК)",
+  "Most (crashes weaker PCs more often)": "Максимум (частіше вилітає на слабких ПК)",
+  "More enemy kinds per area.": "Більше видів ворогів на зону.",
+  "Most enemy kinds per area.": "Максимум видів ворогів на зону."
 }

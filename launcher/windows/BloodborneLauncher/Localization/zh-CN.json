@@ -2687,7 +2687,6 @@
   "This ends the connection, removes the Nightwatch connection from NetworkManager and deletes the key files in ~/.local/share/nightwatch-vpn. NetworkManager's OpenVPN plugin stays. Your personal VPN key stays in the launcher for a later setup.": "这将结束连接，从 NetworkManager 中移除 Nightwatch 连接，并删除 ~/.local/share/nightwatch-vpn 中的密钥文件。NetworkManager 的 OpenVPN 插件保留。你的个人 VPN 密钥会保留在启动器中，供以后设置时使用。",
   "  ·  while playing": "  ·  游玩时",
   "1 (standard)": "1（标准）",
-  "100 % (as the game ships)": "100 %（游戏原样）",
   "2 (standard)": "2（标准）",
   "25 % (standard)": "25 %（标准）",
   "3 (standard)": "3（标准）",
@@ -2758,8 +2757,6 @@
   "Enemies the game scripts an animation on (eating, sleeping, sitting, appearing, ambush attacks) can become any enemy. If the new one lacks that animation, it just stands there instead.": "游戏为其设定了专属动画的敌人（进食、睡眠、坐下、现身、伏击攻击）也可以变成任意敌人。若新敌人没有该动画，它就只会站在那里。",
   "Enemies the randomizer will never place anywhere.": "随机化器永远不会放置在任何地方的敌人。",
   "Enemy scaling": "敌人难度缩放",
-  "Enemy variety": "敌人多样性",
-  "Every area has a memory limit: how much the game loads there as it ships. A replacement has to fit under that limit, and this setting raises it, along with how many kinds of enemies an area can hold. 100 % keeps the limit as it is: the fewest crashes, but less variety. 150 % and 200 % give you more kinds of enemies, but can crash weaker PCs when memory runs out. 100 to 150 % crashes the least.": "每个区域都有内存上限：即游戏原版加载该区域时所用的内存量。替换后的敌人必须在此上限内，而此设置会提高该上限，并增加区域可容纳的敌人种类数。100 % 保持原有上限：崩溃最少，但多样性较低。150 % 和 200 % 可提供更多种类的敌人，但在内存不足时可能导致较弱的电脑崩溃。100 至 150 % 最不容易崩溃。",
   "Every blood gem lying in the world, half of the small Blood Vial and Quicksilver Bullet pickups, and every blood gem enemies drop become droplet gems with three random effects. Droplet gems fit any slot of any weapon. Gems get stronger the later the area. The effects are fixed by the world code, so everyone in the world finds the same gems, and the spoiler lists them.": "世界中散落的每颗血宝石、一半的小型采血瓶和水银子弹拾取物，以及敌人掉落的每颗血宝石，都会变成具有三种随机效果的水滴形宝石。水滴形宝石可装入任意武器的任意槽位。区域越靠后，宝石越强。效果由世界代码固定，因此世界中的所有人都会找到相同的宝石，剧透清单中会列出它们。",
   "Every enemy can appear.": "所有敌人都可能出现。",
   "Every shop item changes except Blood Vials and Quicksilver Bullets. Weapons and armor swap places with one-of-a-kind items found in the world, so a shop weapon can become a pickup and a world-only weapon can be bought; the rest are shuffled within their shop. Consumables are shuffled between the shops. Prices fit the new item. Keys and boss drops stay where they are.": "除采血瓶和水银子弹外，所有商店物品都会改变。武器和防具会与世界中发现的独一无二的物品互换位置，因此商店武器可能变成拾取物，而仅在世界中出现的武器也可能在商店购买；其余物品在各自商店内打乱。消耗品在各商店之间打乱。价格会与新物品匹配。钥匙和首领掉落物保持不变。",
@@ -2900,7 +2897,6 @@
   "Tone mapper": "色调映射",
   "Treasure": "宝物",
   "Two base mods have the same files.": "两个基础模组含有相同的文件。",
-  "Variety {0} %.": "多样性 {0} %。",
   "Was": "原为",
   "Weapons with weapons, armour with armour, etc.": "武器与武器、护甲与护甲等互换。",
   "What a pickup item can swap with. Only matters when pickup items are randomized.": "拾取物品可与什么互换。仅在拾取物品随机化时有效。",
@@ -3039,5 +3035,12 @@
   "What reaches your own save from the party. Read at the next game start.": "从队伍进入你自己存档的内容。下次启动游戏时生效。",
   "In use": "使用中",
   "Other mods now": "现在是其他模组",
-  "Friends can't join": "好友无法加入"
+  "Friends can't join": "好友无法加入",
+  "Enemy kinds per area": "每个区域的敌人种类",
+  "How many different enemy kinds one area can hold. More kinds use more of the game's memory and can crash weaker PCs. Standard is the safest.": "一个区域能容纳多少种不同的敌人。种类越多，占用的游戏内存越多，配置较低的电脑可能崩溃。标准最安全。",
+  "Standard (safest)": "标准（最安全）",
+  "More (can crash weaker PCs)": "更多（低配电脑可能崩溃）",
+  "Most (crashes weaker PCs more often)": "最多（低配电脑更常崩溃）",
+  "More enemy kinds per area.": "每个区域的敌人种类更多。",
+  "Most enemy kinds per area.": "每个区域的敌人种类最多。"
 }

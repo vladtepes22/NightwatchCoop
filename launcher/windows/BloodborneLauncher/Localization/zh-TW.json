@@ -2658,7 +2658,6 @@
   "\n\nWhat is replaced is backed up first (single player: Save backups › Restore…; multiplayer: the save_backups folder).": "\n\n被取代的內容會先備份（單人：存檔備份 › 還原…；多人：save_backups 資料夾）。",
   "  ·  while playing": "  ·  遊玩中",
   "1 (standard)": "1（標準）",
-  "100 % (as the game ships)": "100 %（與遊戲出廠時相同）",
   "2 (standard)": "2（標準）",
   "25 % (standard)": "25 %（標準）",
   "3 (standard)": "3（標準）",
@@ -2736,8 +2735,6 @@
   "Enemies the game scripts an animation on (eating, sleeping, sitting, appearing, ambush attacks) can become any enemy. If the new one lacks that animation, it just stands there instead.": "遊戲為其編排動畫的敵人（進食、睡覺、坐下、出現、伏擊攻擊）可變成任何敵人。若新敵人沒有該動畫，它便會改為站在原地。",
   "Enemies the randomizer will never place anywhere.": "隨機化器絕不會放置於任何地方的敵人。",
   "Enemy scaling": "敵人難度調整",
-  "Enemy variety": "敵人多樣性",
-  "Every area has a memory limit: how much the game loads there as it ships. A replacement has to fit under that limit, and this setting raises it, along with how many kinds of enemies an area can hold. 100 % keeps the limit as it is: the fewest crashes, but less variety. 150 % and 200 % give you more kinds of enemies, but can crash weaker PCs when memory runs out. 100 to 150 % crashes the least.": "每個區域都有記憶體上限，即遊戲出廠時在該處載入的量。替換內容必須符合此上限；此設定會提高上限，以及區域可容納的敵人種類數。100 % 維持原本上限：當機最少，但多樣性較低。150 % 與 200 % 能提供更多種類的敵人，但在記憶體用盡時可能使較弱的電腦當機。100 至 150 % 最不容易當機。",
   "Every blood gem lying in the world, half of the small Blood Vial and Quicksilver Bullet pickups, and every blood gem enemies drop become droplet gems with three random effects. Droplet gems fit any slot of any weapon. Gems get stronger the later the area. The effects are fixed by the world code, so everyone in the world finds the same gems, and the spoiler lists them.": "世界中所有血寶石、半數的小型採血瓶與水銀子彈拾取物，以及敵人掉落的所有血寶石，都會變成具有三種隨機效果的水滴寶石。水滴寶石可嵌入任何武器的任何插槽。越後期的區域，寶石越強。效果由世界代碼固定，因此世界中的每位玩家都會找到相同的寶石，劇透中也會列出。",
   "Every enemy can appear.": "每種敵人都可能出現。",
   "Every shop item changes except Blood Vials and Quicksilver Bullets. Weapons and armor swap places with one-of-a-kind items found in the world, so a shop weapon can become a pickup and a world-only weapon can be bought; the rest are shuffled within their shop. Consumables are shuffled between the shops. Prices fit the new item. Keys and boss drops stay where they are.": "除採血瓶與水銀子彈外，所有商店商品都會變動。武器與護甲會與世界中找到的獨一無二物品互換位置，因此商店的武器可能變成拾取物，而只存在於世界中的武器也可能在商店買到；其餘商品則在各自的商店內互換。消耗品在各商店之間互換。價格會依新物品調整。鑰匙與首領掉落物維持原位。",
@@ -2894,7 +2891,6 @@
   "Tone mapper": "色調映射",
   "Treasure": "寶物",
   "Two base mods have the same files.": "兩個基礎模組有相同的檔案。",
-  "Variety {0} %.": "多樣性 {0} %。",
   "Was": "原本",
   "Weapons with weapons, armour with armour, etc.": "武器與武器互換，護甲與護甲互換，依此類推。",
   "What a pickup item can swap with. Only matters when pickup items are randomized.": "拾取物可與何者互換。僅在拾取物隨機化時有效。",
@@ -3038,5 +3034,12 @@
   "What reaches your own save from the party. Read at the next game start.": "從隊伍進入你自己存檔的內容。下次啟動遊戲時生效。",
   "In use": "使用中",
   "Other mods now": "現在是其他模組",
-  "Friends can't join": "好友無法加入"
+  "Friends can't join": "好友無法加入",
+  "Enemy kinds per area": "每個區域的敵人種類",
+  "How many different enemy kinds one area can hold. More kinds use more of the game's memory and can crash weaker PCs. Standard is the safest.": "一個區域能容納多少種不同的敵人。種類越多，佔用的遊戲記憶體越多，配置較低的電腦可能當機。標準最安全。",
+  "Standard (safest)": "標準（最安全）",
+  "More (can crash weaker PCs)": "更多（低配電腦可能當機）",
+  "Most (crashes weaker PCs more often)": "最多（低配電腦更常當機）",
+  "More enemy kinds per area.": "每個區域的敵人種類更多。",
+  "Most enemy kinds per area.": "每個區域的敵人種類最多。"
 }

@@ -368,7 +368,7 @@ namespace BloodborneLauncher.Core
             if (o.Starters) parts.Add(L.T("starting weapons"));
             if (o.ChaliceMaterials) parts.Add(L.T("chalice materials"));
             var text = L.T("Shuffled: ") + string.Join(", ", parts) + ".";
-            if (o.Headroom != 100) text += " " + L.F($"Variety {o.Headroom} %.");
+            if (o.Headroom != 100) text += " " + (o.Headroom > 150 ? L.T("Most enemy kinds per area.") : L.T("More enemy kinds per area."));
             var mixed = new List<string>();
             if (o.WitchMix) mixed.Add(L.T("Witch of Hemwick"));
             if (o.ShadowsMix) mixed.Add(L.T("Shadows of Yharnam"));

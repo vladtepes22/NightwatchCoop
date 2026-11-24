@@ -2643,7 +2643,6 @@
   "\n\nWhat is replaced is backed up first (single player: Save backups › Restore…; multiplayer: the save_backups folder).": "\n\n교체되는 파일은 먼저 백업됩니다(싱글 플레이: 세이브 백업 › 복원…, 멀티플레이: save_backups 폴더).",
   "  ·  while playing": "  ·  플레이 중",
   "1 (standard)": "1 (표준)",
-  "100 % (as the game ships)": "100 % (게임 출시 기본값)",
   "2 (standard)": "2 (표준)",
   "25 % (standard)": "25 % (표준)",
   "3 (standard)": "3 (표준)",
@@ -2721,8 +2720,6 @@
   "Enemies the game scripts an animation on (eating, sleeping, sitting, appearing, ambush attacks) can become any enemy. If the new one lacks that animation, it just stands there instead.": "게임이 애니메이션을 연출하는 적(먹기, 자기, 앉기, 나타나기, 매복 공격)은 어떤 적으로든 바뀔 수 있습니다. 새 적에게 그 애니메이션이 없으면 그냥 서 있게 됩니다.",
   "Enemies the randomizer will never place anywhere.": "무작위화가 어디에도 배치하지 않을 적.",
   "Enemy scaling": "적 난이도 보정",
-  "Enemy variety": "적 다양성",
-  "Every area has a memory limit: how much the game loads there as it ships. A replacement has to fit under that limit, and this setting raises it, along with how many kinds of enemies an area can hold. 100 % keeps the limit as it is: the fewest crashes, but less variety. 150 % and 200 % give you more kinds of enemies, but can crash weaker PCs when memory runs out. 100 to 150 % crashes the least.": "모든 지역에는 메모리 한도가 있습니다. 출시 상태에서 게임이 그 지역에 불러오는 양입니다. 교체 대상은 이 한도 안에 들어가야 하며, 이 설정은 한도와 지역에 들어갈 수 있는 적 종류 수를 함께 늘립니다. 100 %는 한도를 그대로 둡니다. 충돌이 가장 적지만 다양성이 낮습니다. 150 %와 200 %는 적 종류를 더 늘리지만, 메모리가 부족해지면 사양이 낮은 PC가 충돌할 수 있습니다. 100~150 %가 가장 덜 충돌합니다.",
   "Every blood gem lying in the world, half of the small Blood Vial and Quicksilver Bullet pickups, and every blood gem enemies drop become droplet gems with three random effects. Droplet gems fit any slot of any weapon. Gems get stronger the later the area. The effects are fixed by the world code, so everyone in the world finds the same gems, and the spoiler lists them.": "세계에 놓인 모든 혈액 보석, 작은 수혈액과 수은탄 픽업의 절반, 적이 떨어뜨리는 모든 혈액 보석은 무작위 효과 3개를 가진 방울 보석이 됩니다. 방울 보석은 모든 무기의 모든 슬롯에 맞습니다. 뒤 지역일수록 보석이 강해집니다. 효과는 세계 코드로 고정되므로 세계의 모든 사람이 같은 보석을 찾으며, 스포일러 목록에 나옵니다.",
   "Every enemy can appear.": "모든 적이 나타날 수 있습니다.",
   "Every shop item changes except Blood Vials and Quicksilver Bullets. Weapons and armor swap places with one-of-a-kind items found in the world, so a shop weapon can become a pickup and a world-only weapon can be bought; the rest are shuffled within their shop. Consumables are shuffled between the shops. Prices fit the new item. Keys and boss drops stay where they are.": "수혈액과 수은탄을 제외한 모든 상점 품목이 바뀝니다. 무기와 방어구는 세계에서 찾는 유일 아이템과 자리를 바꾸므로, 상점 무기가 픽업이 되고 세계에만 있던 무기를 살 수 있게 됩니다. 나머지는 같은 상점 안에서 섞입니다. 소모품은 상점들 사이에서 섞입니다. 가격은 새 아이템에 맞춰집니다. 열쇠와 보스 드롭은 그대로 둡니다.",
@@ -2890,7 +2887,6 @@
   "Tone mapper": "톤 매퍼",
   "Treasure": "보물",
   "Two base mods have the same files.": "기반 모드 두 개가 같은 파일을 가지고 있습니다.",
-  "Variety {0} %.": "다양성 {0} %.",
   "Was": "이전",
   "Weapons with weapons, armour with armour, etc.": "무기는 무기와, 방어구는 방어구와 등.",
   "What a pickup item can swap with. Only matters when pickup items are randomized.": "픽업 아이템이 교환될 대상입니다. 픽업 아이템이 무작위화되었을 때만 의미가 있습니다.",
@@ -3038,5 +3034,12 @@
   "What reaches your own save from the party. Read at the next game start.": "파티에서 내 저장 데이터로 들어오는 것. 다음 게임 시작 때 적용됩니다.",
   "In use": "사용 중",
   "Other mods now": "지금은 다른 모드",
-  "Friends can't join": "친구가 참가할 수 없음"
+  "Friends can't join": "친구가 참가할 수 없음",
+  "Enemy kinds per area": "지역당 적 종류",
+  "How many different enemy kinds one area can hold. More kinds use more of the game's memory and can crash weaker PCs. Standard is the safest.": "한 지역에 나올 수 있는 적 종류의 수입니다. 종류가 많을수록 게임 메모리를 더 쓰며 사양이 낮은 PC에서 튕길 수 있습니다. 표준이 가장 안전합니다.",
+  "Standard (safest)": "표준 (가장 안전)",
+  "More (can crash weaker PCs)": "많이 (저사양 PC에서 튕길 수 있음)",
+  "Most (crashes weaker PCs more often)": "최대 (저사양 PC에서 더 자주 튕김)",
+  "More enemy kinds per area.": "지역당 적 종류: 많이.",
+  "Most enemy kinds per area.": "지역당 적 종류: 최대."
 }

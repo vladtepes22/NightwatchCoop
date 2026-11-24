@@ -115,8 +115,9 @@ namespace BloodborneLauncher.Views
             var only = SmallButton(L.T("Any"), SymbolRegular.Filter24, (_, _) => PickOnly());
             Add(Card(SymbolRegular.Filter24, L.T("Only use these enemies"), L.T("Replacements come only from the enemies you tick here; tick none to allow every enemy. Never use these enemies still wins. An enemy the game scripts an animation on stays as it is when none of your picks has that animation, and an area keeps its own enemies where your picks don't fit its memory. Bosses are not affected."), only, out _), enemies);
             _rows.Add((only, () => only.Content = _o.IncludeOnly is { Count: > 0 } picks ? ExcludeSummary(picks) : L.T("Any"), null));
-            Bind(ComboRow(SymbolRegular.ArrowShuffle24, L.T("Enemy variety"), L.T("Every area has a memory limit: how much the game loads there as it ships. A replacement has to fit under that limit, and this setting raises it, along with how many kinds of enemies an area can hold. 100 % keeps the limit as it is: the fewest crashes, but less variety. 150 % and 200 % give you more kinds of enemies, but can crash weaker PCs when memory runs out. 100 to 150 % crashes the least."),
-                new[] { new Choice(L.T("100 % (as the game ships)"), "100"), new Choice("150 %", "150"), new Choice("200 %", "200") },
+            Bind(ComboRow(SymbolRegular.ArrowShuffle24, L.T("Enemy kinds per area"), L.T("How many different enemy kinds one area can hold. More kinds use more of the game's memory and can crash weaker PCs. Standard is the safest."),
+                // The world code keeps the memory budget in percent (100/150/200); the player sees what it does.
+                new[] { new Choice(L.T("Standard (safest)"), "100"), new Choice(L.T("More (can crash weaker PCs)"), "150"), new Choice(L.T("Most (crashes weaker PCs more often)"), "200") },
                 () => _o.Headroom.ToString(), v => Set(_o with { Headroom = int.Parse(v) }), enemies, changed: Changed), () => _o.Headroom.ToString());
             Bool(enemies, SymbolRegular.Dumbbell24, L.T("Difficult enemies"), L.T("Replacements come from the toughest enemies in the game, as long as the area has the memory for them."),
                 o => o.DifficultEnemies, (o, b) => o with { DifficultEnemies = b });

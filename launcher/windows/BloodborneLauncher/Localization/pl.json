@@ -2643,7 +2643,6 @@
   "\n\nWhat is replaced is backed up first (single player: Save backups › Restore…; multiplayer: the save_backups folder).": "\n\nZamieniane zapisy są najpierw kopiowane (gra pojedyncza: Kopie zapasowe › Przywróć…; wieloosobowa: folder save_backups).",
   "  ·  while playing": "  ·  podczas gry",
   "1 (standard)": "1 (standardowo)",
-  "100 % (as the game ships)": "100 % (jak w grze)",
   "2 (standard)": "2 (standardowo)",
   "25 % (standard)": "25 % (standardowo)",
   "3 (standard)": "3 (standardowo)",
@@ -2721,8 +2720,6 @@
   "Enemies the game scripts an animation on (eating, sleeping, sitting, appearing, ambush attacks) can become any enemy. If the new one lacks that animation, it just stands there instead.": "Wrogowie, dla których gra ma zaprogramowaną animację (jedzenie, spanie, siedzenie, pojawianie się, ataki z zasadzki), mogą zostać zamienieni w dowolnego wroga. Jeśli nowy nie ma tej animacji, po prostu stoi.",
   "Enemies the randomizer will never place anywhere.": "Wrogowie, których randomizer nigdzie nie umieści.",
   "Enemy scaling": "Skalowanie wrogów",
-  "Enemy variety": "Różnorodność wrogów",
-  "Every area has a memory limit: how much the game loads there as it ships. A replacement has to fit under that limit, and this setting raises it, along with how many kinds of enemies an area can hold. 100 % keeps the limit as it is: the fewest crashes, but less variety. 150 % and 200 % give you more kinds of enemies, but can crash weaker PCs when memory runs out. 100 to 150 % crashes the least.": "Każdy obszar ma limit pamięci: tyle, ile gra wczytuje tam w wersji oryginalnej. Zamiennik musi się w nim zmieścić, a to ustawienie go podnosi, wraz z liczbą rodzajów wrogów, jakie obszar może pomieścić. 100 % zachowuje limit bez zmian: najmniej awarii, ale mniej różnorodności. 150 % i 200 % dają więcej rodzajów wrogów, ale mogą wywołać awarię słabszych komputerów, gdy zabraknie pamięci. 100–150 % daje najmniej awarii.",
   "Every blood gem lying in the world, half of the small Blood Vial and Quicksilver Bullet pickups, and every blood gem enemies drop become droplet gems with three random effects. Droplet gems fit any slot of any weapon. Gems get stronger the later the area. The effects are fixed by the world code, so everyone in the world finds the same gems, and the spoiler lists them.": "Każdy klejnot krwi leżący w świecie, połowa małych Fiolek Krwi i znajdziek Quicksilver Bullet oraz każdy klejnot krwi upuszczany przez wrogów zamieniają się w kropelkowe klejnoty z trzema losowymi efektami. Kropelkowe klejnoty pasują do każdego gniazda każdej broni. Klejnoty są silniejsze, im dalej w grze. Efekty są ustalone przez kod świata, więc wszyscy w świecie znajdują te same klejnoty, a spoiler je wymienia.",
   "Every enemy can appear.": "Każdy wróg może się pojawić.",
   "Every shop item changes except Blood Vials and Quicksilver Bullets. Weapons and armor swap places with one-of-a-kind items found in the world, so a shop weapon can become a pickup and a world-only weapon can be bought; the rest are shuffled within their shop. Consumables are shuffled between the shops. Prices fit the new item. Keys and boss drops stay where they are.": "Zmienia się każdy przedmiot w sklepach oprócz Fiolek Krwi i Quicksilver Bullets. Broń i zbroje zamieniają się miejscami z unikatowymi przedmiotami znalezionymi w świecie, więc broń ze sklepu może stać się znajdźką, a broń znaleziona tylko w świecie da się kupić; reszta jest tasowana w obrębie swojego sklepu. Materiały zużywalne są tasowane między sklepami. Ceny pasują do nowego przedmiotu. Klucze i łupy z bossów zostają na miejscu.",
@@ -2890,7 +2887,6 @@
   "Tone mapper": "Mapowanie tonów",
   "Treasure": "Skarby",
   "Two base mods have the same files.": "Dwa mody bazowe mają te same pliki.",
-  "Variety {0} %.": "Różnorodność {0} %.",
   "Was": "Było",
   "Weapons with weapons, armour with armour, etc.": "Broń z bronią, zbroja ze zbroją itd.",
   "What a pickup item can swap with. Only matters when pickup items are randomized.": "Z czym znajdźka może się zamienić. Ma znaczenie tylko przy losowanych znajdźkach.",
@@ -3038,5 +3034,12 @@
   "What reaches your own save from the party. Read at the next game start.": "Co z drużyny trafia do twojego zapisu. Działa od następnego uruchomienia gry.",
   "In use": "W użyciu",
   "Other mods now": "Teraz inne mody",
-  "Friends can't join": "Znajomi nie mogą dołączyć"
+  "Friends can't join": "Znajomi nie mogą dołączyć",
+  "Enemy kinds per area": "Rodzaje wrogów na obszar",
+  "How many different enemy kinds one area can hold. More kinds use more of the game's memory and can crash weaker PCs. Standard is the safest.": "Ile różnych rodzajów wrogów może mieć jeden obszar. Więcej rodzajów zużywa więcej pamięci gry i może powodować awarie słabszych PC. Standard jest najbezpieczniejszy.",
+  "Standard (safest)": "Standard (najbezpieczniejszy)",
+  "More (can crash weaker PCs)": "Więcej (może psuć słabsze PC)",
+  "Most (crashes weaker PCs more often)": "Najwięcej (częściej psuje słabsze PC)",
+  "More enemy kinds per area.": "Więcej rodzajów wrogów na obszar.",
+  "Most enemy kinds per area.": "Najwięcej rodzajów wrogów na obszar."
 }

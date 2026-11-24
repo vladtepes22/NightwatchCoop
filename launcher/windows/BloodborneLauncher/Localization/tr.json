@@ -2643,7 +2643,6 @@
   "\n\nWhat is replaced is backed up first (single player: Save backups › Restore…; multiplayer: the save_backups folder).": "\n\nDeğiştirilecek olan şey önce yedeklenir (tek oyuncu: Kayıt yedekleri › Geri yükle…; çok oyunculu: save_backups klasörü).",
   "  ·  while playing": "  ·  oynarken",
   "1 (standard)": "1 (standart)",
-  "100 % (as the game ships)": "100 % (oyunun çıktığı gibi)",
   "2 (standard)": "2 (standart)",
   "25 % (standard)": "25 % (standart)",
   "3 (standard)": "3 (standart)",
@@ -2721,8 +2720,6 @@
   "Enemies the game scripts an animation on (eating, sleeping, sitting, appearing, ambush attacks) can become any enemy. If the new one lacks that animation, it just stands there instead.": "Oyunun bir animasyonu komutlandığı düşmanlar (yemek, uyku, oturma, belirme, pusu saldırıları) herhangi bir düşman olabilir. Yeni düşmanda o animasyon yoksa bunun yerine orada sadece ayakta durur.",
   "Enemies the randomizer will never place anywhere.": "Rastgeleleştiricinin hiçbir yere koymayacağı düşmanlar.",
   "Enemy scaling": "Düşman ölçeklemesi",
-  "Enemy variety": "Düşman çeşitliliği",
-  "Every area has a memory limit: how much the game loads there as it ships. A replacement has to fit under that limit, and this setting raises it, along with how many kinds of enemies an area can hold. 100 % keeps the limit as it is: the fewest crashes, but less variety. 150 % and 200 % give you more kinds of enemies, but can crash weaker PCs when memory runs out. 100 to 150 % crashes the least.": "Her bölgenin bir bellek sınırı vardır: oyunun çıkışta orada yüklediği miktar. Bir değiştirme bu sınıra sığmak zorunda ve bu ayar sınırı, bir bölgenin barındırabileceği düşman türü sayısıyla birlikte yükseltir. 100 % sınırı olduğu gibi tutar: en az çökme, ama en az çeşitlilik. 150 % ve 200 % daha fazla düşman türü verir, ancak bellek tükendiğinde daha zayıf PC'leri çökertebilir. 100 ile 150 % arası en az çökertir.",
   "Every blood gem lying in the world, half of the small Blood Vial and Quicksilver Bullet pickups, and every blood gem enemies drop become droplet gems with three random effects. Droplet gems fit any slot of any weapon. Gems get stronger the later the area. The effects are fixed by the world code, so everyone in the world finds the same gems, and the spoiler lists them.": "Dünyada yatan her kan taşı, küçük Blood Vial ve Quicksilver Bullet toplanabilirlerin yarısı ve düşmanların düşürdüğü her kan taşı, üç rastgele etkili damla taşlarına dönüşür. Damla taşları her silahın her yuvasına uyar. Taşlar, bölge ilerledikçe güçlenir. Etkiler dünya koduyla sabitlenir; böylece dünyadaki herkes aynı taşları bulur ve spoiler dosyası bunları listeler.",
   "Every enemy can appear.": "Her düşman görünebilir.",
   "Every shop item changes except Blood Vials and Quicksilver Bullets. Weapons and armor swap places with one-of-a-kind items found in the world, so a shop weapon can become a pickup and a world-only weapon can be bought; the rest are shuffled within their shop. Consumables are shuffled between the shops. Prices fit the new item. Keys and boss drops stay where they are.": "Blood Vials ve Quicksilver Bullets dışında her mağaza eşyası değişir. Silahlar ve zırhlar, dünyada bulunan eşsiz eşyalarla yer değiştirir; böylece bir mağaza silahı toplanabilir olabilir ve yalnızca dünyada bulunan bir silah satın alınabilir. Geri kalanlar kendi mağazaları içinde karıştırılır. Sarf malzemeleri mağazalar arasında karıştırılır. Fiyatlar yeni eşyaya uyar. Anahtarlar ve patron düşürdükleri yerlerinde kalır.",
@@ -2890,7 +2887,6 @@
   "Tone mapper": "Tone mapper",
   "Treasure": "Hazine",
   "Two base mods have the same files.": "İki temel modun dosyaları aynı.",
-  "Variety {0} %.": "Çeşitlilik {0} %.",
   "Was": "Önceki",
   "Weapons with weapons, armour with armour, etc.": "Silah silahla, zırh zırhla, vb.",
   "What a pickup item can swap with. Only matters when pickup items are randomized.": "Toplanabilir bir eşyanın neyle yer değiştirebileceği. Yalnızca toplanabilir eşyalar rastgeleleştirildiğinde önemlidir.",
@@ -3038,5 +3034,12 @@
   "What reaches your own save from the party. Read at the next game start.": "Gruptan kendi kaydına geçenler. Oyunun bir sonraki başlatılışında geçerli olur.",
   "In use": "Kullanımda",
   "Other mods now": "Artık başka modlar",
-  "Friends can't join": "Arkadaşlar katılamaz"
+  "Friends can't join": "Arkadaşlar katılamaz",
+  "Enemy kinds per area": "Bölge başına düşman türü",
+  "How many different enemy kinds one area can hold. More kinds use more of the game's memory and can crash weaker PCs. Standard is the safest.": "Bir bölgede kaç farklı düşman türü olabileceği. Daha fazla tür oyunun belleğini daha çok kullanır ve zayıf bilgisayarlarda çökmeye yol açabilir. Standart en güvenlisidir.",
+  "Standard (safest)": "Standart (en güvenli)",
+  "More (can crash weaker PCs)": "Daha fazla (zayıf bilgisayarlarda çökebilir)",
+  "Most (crashes weaker PCs more often)": "En fazla (zayıf bilgisayarlarda daha sık çöker)",
+  "More enemy kinds per area.": "Bölge başına daha fazla düşman türü.",
+  "Most enemy kinds per area.": "Bölge başına en fazla düşman türü."
 }

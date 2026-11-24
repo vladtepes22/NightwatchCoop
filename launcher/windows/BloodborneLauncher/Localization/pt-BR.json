@@ -2643,7 +2643,6 @@
   "\n\nWhat is replaced is backed up first (single player: Save backups › Restore…; multiplayer: the save_backups folder).": "\n\nO que for substituído recebe backup antes (um jogador: Backups de saves › Restaurar…; multijogador: a pasta save_backups).",
   "  ·  while playing": "  ·  durante o jogo",
   "1 (standard)": "1 (padrão)",
-  "100 % (as the game ships)": "100 % (como o jogo traz)",
   "2 (standard)": "2 (padrão)",
   "25 % (standard)": "25 % (padrão)",
   "3 (standard)": "3 (padrão)",
@@ -2721,8 +2720,6 @@
   "Enemies the game scripts an animation on (eating, sleeping, sitting, appearing, ambush attacks) can become any enemy. If the new one lacks that animation, it just stands there instead.": "Inimigos com animação roteirizada pelo jogo (comer, dormir, sentar, aparecer, ataques de emboscada) podem virar qualquer inimigo. Se o novo não tiver essa animação, ele apenas fica parado.",
   "Enemies the randomizer will never place anywhere.": "Inimigos que o randomizador nunca coloca em lugar nenhum.",
   "Enemy scaling": "Escalonamento de inimigos",
-  "Enemy variety": "Variedade de inimigos",
-  "Every area has a memory limit: how much the game loads there as it ships. A replacement has to fit under that limit, and this setting raises it, along with how many kinds of enemies an area can hold. 100 % keeps the limit as it is: the fewest crashes, but less variety. 150 % and 200 % give you more kinds of enemies, but can crash weaker PCs when memory runs out. 100 to 150 % crashes the least.": "Cada área tem um limite de memória: quanto o jogo carrega ali como vem de fábrica. Uma substituição precisa caber nesse limite, e esta opção aumenta o limite, junto com quantos tipos de inimigos uma área pode ter. 100 % mantém o limite como está: menos travamentos, mas menos variedade. 150 % e 200 % dão mais tipos de inimigos, mas podem travar PCs mais fracos quando a memória acaba. De 100 a 150 % trava menos.",
   "Every blood gem lying in the world, half of the small Blood Vial and Quicksilver Bullet pickups, and every blood gem enemies drop become droplet gems with three random effects. Droplet gems fit any slot of any weapon. Gems get stronger the later the area. The effects are fixed by the world code, so everyone in the world finds the same gems, and the spoiler lists them.": "Toda gema de sangue no mundo, metade dos pequenos Frascos de Sangue e Balas de Mercúrio do chão, e toda gema de sangue que os inimigos deixam cair viram gemas de gota com três efeitos aleatórios. Gemas de gota cabem em qualquer slot de qualquer arma. As gemas ficam mais fortes conforme a área avança. Os efeitos são fixados pelo código do mundo, então todos encontram as mesmas gemas, e o spoiler as lista.",
   "Every enemy can appear.": "Qualquer inimigo pode aparecer.",
   "Every shop item changes except Blood Vials and Quicksilver Bullets. Weapons and armor swap places with one-of-a-kind items found in the world, so a shop weapon can become a pickup and a world-only weapon can be bought; the rest are shuffled within their shop. Consumables are shuffled between the shops. Prices fit the new item. Keys and boss drops stay where they are.": "Todo item de loja muda, exceto Frascos de Sangue e Balas de Mercúrio. Armas e armaduras trocam de lugar com itens únicos encontrados no mundo, então uma arma de loja pode virar item do chão e uma arma exclusiva do mundo pode ser comprada; o resto é embaralhado dentro da própria loja. Consumíveis são embaralhados entre as lojas. Os preços se ajustam ao novo item. Chaves e itens deixados por chefes continuam onde estão.",
@@ -2890,7 +2887,6 @@
   "Tone mapper": "Mapeamento de tons",
   "Treasure": "Tesouros",
   "Two base mods have the same files.": "Dois mods base têm os mesmos arquivos.",
-  "Variety {0} %.": "Variedade {0} %.",
   "Was": "Era",
   "Weapons with weapons, armour with armour, etc.": "Armas com armas, armaduras com armaduras, etc.",
   "What a pickup item can swap with. Only matters when pickup items are randomized.": "Com o que um item do chão pode trocar. Só importa quando os itens do chão são randomizados.",
@@ -3038,5 +3034,12 @@
   "What reaches your own save from the party. Read at the next game start.": "O que chega do grupo ao seu próprio save. Vale a partir do próximo início do jogo.",
   "In use": "Em uso",
   "Other mods now": "Agora outros mods",
-  "Friends can't join": "Amigos não podem entrar"
+  "Friends can't join": "Amigos não podem entrar",
+  "Enemy kinds per area": "Tipos de inimigos por área",
+  "How many different enemy kinds one area can hold. More kinds use more of the game's memory and can crash weaker PCs. Standard is the safest.": "Quantos tipos diferentes de inimigos uma área pode ter. Mais tipos usam mais memória do jogo e podem travar PCs mais fracos. Padrão é o mais seguro.",
+  "Standard (safest)": "Padrão (mais seguro)",
+  "More (can crash weaker PCs)": "Mais (pode travar PCs fracos)",
+  "Most (crashes weaker PCs more often)": "Máximo (trava PCs fracos com mais frequência)",
+  "More enemy kinds per area.": "Mais tipos de inimigos por área.",
+  "Most enemy kinds per area.": "Máximo de tipos de inimigos por área."
 }
