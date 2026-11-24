@@ -132,6 +132,8 @@ std::atomic<int> g_logged_target{-1};
 std::atomic<u64> g_steps{0};
 std::atomic<double> g_game_seconds{0.0};
 std::atomic<float> g_last_dt{0.0f};
+/// Nightwatch (diagnostics, judder report 24 Nov): steps whose time is more than a tenth off the target (target set).
+std::atomic<u64> g_off_target{0};
 float g_banked30 = 0.0f, g_banked30x = 0.0f;  // game time not yet closed into a whole 1/30 s (the step thread's)
 std::atomic<bool> g_whole30{true}, g_whole30x{true};
 // The steep-ground slide's gain and decay (0x5128370, 0x5128374; SlopeGain / SlopeDecay): null while off.
@@ -273,6 +275,7 @@ __attribute__((sysv_abi)) void LiveClockTick(u8* pacer, float* out) {
     std::memcpy(reinterpret_cast<u8*>(g_base + kGlobalDt), &dt, 4);
     *out = dt;
     g_last_dt.store(dt, std::memory_order_relaxed);
+    if (target > 0 && std::fabs(dt * float(target) - 1.0f) > 0.1f) g_off_target.fetch_add(1, std::memory_order_relaxed);
     g_whole30.store(Step30Gate(g_banked30, dt), std::memory_order_relaxed);
     const bool whole30x = Step30Gate(g_banked30x, dt, 0.98f);
     g_whole30x.store(whole30x, std::memory_order_relaxed);
@@ -454,6 +457,7 @@ bool Active() { return g_active.load(std::memory_order_relaxed); }
 std::uint64_t Steps() { return g_steps.load(std::memory_order_relaxed); }
 double GameSeconds() { return g_game_seconds.load(std::memory_order_relaxed); }
 float LastDt() { return g_last_dt.load(std::memory_order_relaxed); }
+std::uint64_t OffTargetSteps() { return g_off_target.load(std::memory_order_relaxed); }
 bool WholeStep30() { return !Active() || g_whole30.load(std::memory_order_relaxed); }
 bool WholeStep30Exact() { return !Active() || g_whole30x.load(std::memory_order_relaxed); }
 } // namespace BbEngine::LiveClock

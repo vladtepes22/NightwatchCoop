@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "lantern_pacing.h"
 #include "lantern_vblank_watch.h"
+#include "sdl_window.h"
 
 #include <algorithm>
 #include <array>
@@ -205,16 +206,28 @@ void WatchVblanks() {
         failures = 0;
         const double now = double(Clock::now().time_since_epoch().count());
         auto event = learner.Wake(now);
-        if (event != LanternVblankWatch::Event::None && refresh_reports < 8) {
+        const bool any_event = event != LanternVblankWatch::Event::None;
+        if (any_event && refresh_reports < 8) {
             ++refresh_reports;
         } else {
             event = LanternVblankWatch::Event::None;
         }
         if (event == LanternVblankWatch::Event::Varies) {
+            // Nightwatch (judder report, 24 Nov): which wakes were off since the last report. Late ones only, none
+            // early, on a fixed refresh display = this thread woke late under load and the lock was dropped for a
+            // display that never varied; early ones (a refresh sooner than the period) are a variable refresh.
             std::printf("VideoOut: the display's refresh varies (G-Sync, FreeSync or a mode "
-                        "change): flips are not locked to its vblanks\n");
+                        "change): flips are not locked to its vblanks (%d wakes late, up to %.1f ms; %d early; "
+                        "display mode %u Hz)\n",
+                        learner.late_offs, learner.worst_late / 1e6, learner.early_offs,
+                        unsigned(Frontend::DisplayRefreshHz()));
         } else if (event == LanternVblankWatch::Event::SteadyAgain) {
-            std::printf("VideoOut: the display's refresh is steady again (%.3f Hz)\n", 1e9 / learner.period);
+            std::printf("VideoOut: the display's refresh is steady again (%.3f Hz; display mode %u Hz)\n",
+                        1e9 / learner.period, unsigned(Frontend::DisplayRefreshHz()));
+        }
+        if (any_event) {
+            learner.late_offs = learner.early_offs = 0;
+            learner.worst_late = 0;
         }
         if (!learner.measured) {
             continue;
@@ -251,6 +264,16 @@ void WatchVblank(const wchar_t* device) {
 #else
     (void)device;
 #endif
+}
+
+std::optional<VblankTime> VblankAny() {
+    const auto& w = Watch();
+    const std::int64_t period = w.period_ns.load(std::memory_order_relaxed);
+    if (period <= 0) {
+        return std::nullopt;
+    }
+    return VblankTime{Clock::time_point(Clock::duration(w.last_ns.load(std::memory_order_relaxed))),
+                      std::chrono::nanoseconds(period)};
 }
 
 std::optional<VblankTime> Vblank() {

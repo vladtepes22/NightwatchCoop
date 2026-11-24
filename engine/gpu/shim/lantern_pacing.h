@@ -16,6 +16,9 @@ struct VblankTime {
     std::chrono::nanoseconds period;
 };
 std::optional<VblankTime> Vblank();
+/// Nightwatch (diagnostics): the watch's last predicted vblank and period even while it judges the
+/// refresh variable or is still learning (Vblank() returns only a steady one); nullopt before any.
+std::optional<VblankTime> VblankAny();
 
 bool Enabled();
 

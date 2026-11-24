@@ -69,7 +69,12 @@ void UpdateDisplayRefresh(SDL_Window* window) {
     const SDL_DisplayID display = SDL_GetDisplayForWindow(window);
     const SDL_DisplayMode* mode = display ? SDL_GetCurrentDisplayMode(display) : nullptr;
     if (mode && mode->refresh_rate > 1.0f) {
-        display_refresh_hz.store(u32(mode->refresh_rate + 0.5f), std::memory_order_relaxed);
+        const u32 hz = u32(mode->refresh_rate + 0.5f);
+        // Nightwatch: logged on a change (judder reports need the display's refresh against the FPS preset).
+        if (display_refresh_hz.exchange(hz, std::memory_order_relaxed) != hz) {
+            std::printf("Display: %dx%d at %.3f Hz (the window's monitor)\n", mode->w, mode->h,
+                        double(mode->refresh_rate));
+        }
     }
 #ifdef _WIN32
     const HWND hwnd = static_cast<HWND>(

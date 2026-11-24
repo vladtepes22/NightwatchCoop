@@ -19,6 +19,7 @@
 #include "common/assert.h"
 #include "bbport_platform.h"
 #include "lantern_pacing.h"
+#include "engine/live_clock.h"
 #include "bbport_toggles.h"
 #include "bbport_heap_sites.h"
 #include "bbport_wait_trace.h"
@@ -1288,35 +1289,72 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
                                   EmulatorSettings.GetPresentMode() != "Immediate";
         bool locked = false;
         int lock_reports = 0;
+        // Nightwatch (judder report, 24 Nov: judder with a steady FPS counter): why flips are not
+        // locked, logged when the reason changes (the first decision too; before, only a lock
+        // and a lock lost were logged, so a session that never locked said nothing).
+        enum class Unlocked { No, FrameGen, NotAllowed, NoLimit, NoSteadyVblank, NotDisplayMode, NotAShare };
+        Unlocked unlocked_reason = Unlocked::No;
+        bool reason_logged = false;
         const auto lock_to_vblank = [&] {
             std::optional<LanternPacing::VblankTime> vblank;
-            if (lock_allowed && frame_limit &&
-                !BbSettings::Get().frame_gen_active.load(std::memory_order_relaxed)) {
+            const bool frame_gen = BbSettings::Get().frame_gen_active.load(std::memory_order_relaxed);
+            if (lock_allowed && frame_limit && !frame_gen) {
                 vblank = LanternPacing::Vblank();
             }
             u32 refreshes = 0;
             double hz = 0;
+            const double nominal = Frontend::DisplayRefreshHz();
+            Unlocked reason = !lock_allowed ? Unlocked::NotAllowed
+                              : !frame_limit ? Unlocked::NoLimit
+                              : frame_gen    ? Unlocked::FrameGen
+                                             : Unlocked::NoSteadyVblank;
             if (vblank && vblank->period.count() > 0) {
                 hz = 1e9 / double(vblank->period.count());
-                const double nominal = Frontend::DisplayRefreshHz();
                 const double ratio = hz / double(frame_limit);
                 const double n = std::round(ratio);
                 // The display's own mode (not a variable refresh that happens to sit still), and
                 // the limit a whole share of it.
-                if (nominal > 0 && std::abs(hz - nominal) < nominal * 0.005 && n >= 1 &&
-                    std::abs(ratio - n) < n * 0.01) {
+                const bool display_mode = nominal > 0 && std::abs(hz - nominal) < nominal * 0.005;
+                const bool share = n >= 1 && std::abs(ratio - n) < n * 0.01;
+                if (display_mode && share) {
                     refreshes = u32(n);
+                    reason = Unlocked::No;
+                } else {
+                    reason = !display_mode ? Unlocked::NotDisplayMode : Unlocked::NotAShare;
                 }
             }
-            if ((refreshes != 0) != locked && lock_reports < 8) {
+            if ((!reason_logged || reason != unlocked_reason) && lock_reports < 12) {
                 ++lock_reports;
-                if (refreshes) {
+                reason_logged = true;
+                switch (reason) {
+                case Unlocked::No:
                     std::printf("VideoOut: flips locked to the display's vblanks (%.3f Hz, %u "
                                 "refresh%s a frame)\n", hz, refreshes, refreshes == 1 ? "" : "es");
-                } else {
-                    std::printf("VideoOut: flips keep their own clock (no steady vblanks to lock to)\n");
+                    break;
+                case Unlocked::NotAShare:
+                    std::printf("VideoOut: flips keep their own clock: a %u FPS limit is not a whole share of "
+                                "the display's %.3f Hz, so frames stay on screen for uneven numbers of refreshes "
+                                "(judder without a variable refresh display)\n", frame_limit, hz);
+                    break;
+                case Unlocked::NotDisplayMode:
+                    std::printf("VideoOut: flips keep their own clock: vblanks at %.3f Hz against a %.0f Hz "
+                                "display mode (a variable refresh display following the flips)\n", hz, nominal);
+                    break;
+                case Unlocked::NoSteadyVblank:
+                    std::printf("VideoOut: flips keep their own clock: no steady vblanks to lock to "
+                                "(display mode %.0f Hz)\n", nominal);
+                    break;
+                case Unlocked::FrameGen:
+                    std::printf("VideoOut: flips keep their own clock: frame generation paces them\n");
+                    break;
+                case Unlocked::NotAllowed:
+                case Unlocked::NoLimit:
+                    std::printf("VideoOut: flips keep their own clock (%s)\n",
+                                reason == Unlocked::NoLimit ? "no frame limit" : "Immediate or BB_VBLANK_PACING=0");
+                    break;
                 }
             }
+            unlocked_reason = reason;
             if (!refreshes) {
                 if (locked) {
                     flips.SetPeriod(pace_of());
@@ -1332,9 +1370,63 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
                 flips.Period() / 16 + std::chrono::microseconds(300), vblank->period / 2);
             flips.Align(vblank->last, vblank->period, offset);
         };
+        // Nightwatch (judder report, 24 Nov): the FPS counter is a slow average of present calls,
+        // blind to a frame shown a refresh too long and the next one too short. Once a minute:
+        // how the flips sat against the display's refreshes. "Late" / "early": a flip more than a
+        // quarter period after / before its pace; "at a refresh": taken in the last 1 ms (or
+        // sixteenth of a refresh) before one, where Mailbox shows it a refresh later or drops it.
+        // Game steps off target: the live clock stepped more than a tenth away from its target.
+        struct PacingStats {
+            Clock::time_point last{}, window_start = Clock::now();
+            u64 flips = 0, locked = 0, late = 0, early = 0, at_refresh = 0, phased = 0;
+            u64 off_target_at_start = BbEngine::LiveClock::OffTargetSteps();
+            u64 steps_at_start = BbEngine::LiveClock::Steps();
+            double worst_ms = 0;
+        } pacing;
+        const auto note_pacing = [&](Clock::time_point now) {
+            const double pace_ms = std::chrono::duration<double, std::milli>(flips.Period()).count();
+            if (pacing.last != Clock::time_point{} && pace_ms > 0) {
+                const double ms = std::chrono::duration<double, std::milli>(now - pacing.last).count();
+                pacing.late += ms > pace_ms * 1.25;
+                pacing.early += ms < pace_ms * 0.75;
+                pacing.worst_ms = std::max(pacing.worst_ms, ms);
+            }
+            pacing.last = now;
+            ++pacing.flips;
+            pacing.locked += locked;
+            if (const auto vblank = LanternPacing::VblankAny(); vblank && vblank->period.count() > 0) {
+                const std::int64_t period = vblank->period.count();
+                std::int64_t since = (now - vblank->last).count() % period;
+                if (since < 0) since += period;
+                const std::int64_t edge = std::max<std::int64_t>(1000000, period / 16);
+                ++pacing.phased;
+                pacing.at_refresh += period - since < edge;
+            }
+            if (now - pacing.window_start < std::chrono::seconds(60)) return;
+            const u64 off = BbEngine::LiveClock::OffTargetSteps(), steps = BbEngine::LiveClock::Steps();
+            const auto vblank = LanternPacing::VblankAny();
+            std::printf("Pacing: %llu flips (pace %.2f ms), %llu locked to vblanks; %llu late, %llu early, "
+                        "worst %.1f ms; %llu of %llu at a refresh (watch %.2f Hz, display mode %u Hz); "
+                        "game steps off target %llu of %llu\n",
+                        static_cast<unsigned long long>(pacing.flips), pace_ms,
+                        static_cast<unsigned long long>(pacing.locked),
+                        static_cast<unsigned long long>(pacing.late), static_cast<unsigned long long>(pacing.early),
+                        pacing.worst_ms, static_cast<unsigned long long>(pacing.at_refresh),
+                        static_cast<unsigned long long>(pacing.phased),
+                        vblank && vblank->period.count() > 0 ? 1e9 / double(vblank->period.count()) : 0.0,
+                        Frontend::DisplayRefreshHz(),
+                        static_cast<unsigned long long>(off - pacing.off_target_at_start),
+                        static_cast<unsigned long long>(steps - pacing.steps_at_start));
+            pacing.window_start = now;
+            pacing.flips = pacing.locked = pacing.late = pacing.early = pacing.at_refresh = pacing.phased = 0;
+            pacing.worst_ms = 0;
+            pacing.off_target_at_start = off;
+            pacing.steps_at_start = steps;
+        };
         const auto take_flip = [&](const Request& request, Clock::time_point now) {
             flips.Taken(now);
             lock_to_vblank();
+            note_pacing(now);
             Flip(request);
             FRAME_END;
         };
