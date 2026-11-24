@@ -1918,8 +1918,10 @@ void TemporalUpscaler::OnDraw(u64 vs_hash, VideoCore::ImageId color,
     }
 }
 
+// Asked only for a frame the upscaler did not compose (the presenter shows the game's own buffer): with the upscaler
+// off, and with it on before its first composed frame (about 0.7 s of grey bands at start before).
 bool TemporalUpscaler::WantsGuestBars() const {
-    return !enabled && UiComposition::StageInset(UiComposition::UiSize()) &&
+    return UiComposition::StageInset(UiComposition::UiSize()) &&
            (BbEngine::Loading::Requested() || !BbEngine::Loading::WorldShown());
 }
 

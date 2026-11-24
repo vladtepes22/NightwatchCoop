@@ -247,6 +247,12 @@ struct LinkConfig {
     std::array<std::uint8_t, 32> params_sha256{};
     std::array<std::uint8_t, 32> hooks_hash{};
     std::vector<std::string> hook_names;
+    // The game dump's Chalice Dungeon data (party_runtime chalice_hash: m29 layouts and events; zeros: not read).
+    // CUSA03173 and CUSA00900 + 1.09 differ there (76 layout files, 296 event files), so a mixed party would load
+    // different dungeons. Not a join refusal (the rest of the game matches): the host is told through
+    // chalice_differs with the member's name.
+    std::array<std::uint8_t, 32> chalice_sha256{};
+    std::function<void(const std::string& name)> chalice_differs;
     bool check_build = true;            // host: compare build_id (BB_PARTY_CHECK_BUILD=0: not)
     std::string password;               // BB_PARTY_PASSWORD (optional)
     std::array<std::uint8_t, 8> secret{};  // the party code's secret (zeros for plain host:port)

@@ -1562,6 +1562,8 @@ struct PartyLink::Impl {
             if (r.ok && r.n) role = r.u8();
             std::uint16_t hello_level = 0;  // 0.7.9: an invader's Blood Echoes level (absent from older builds)
             if (r.ok && r.n) hello_level = r.u16();
+            std::array<std::uint8_t, 32> their_chalice{};
+            if (r.ok && r.n >= 32) r.bytes(their_chalice.data(), 32);
             if (!r.ok) return lose(c, "short HELLO");
             c->invader_level = hello_level;
             if (role > 1) return lose(c, "unknown HELLO role");
@@ -1573,6 +1575,9 @@ struct PartyLink::Impl {
                     cfg.mods_hash != theirs.mods_hash ? reject_with_mods(mismatch, cfg.mods_label) : mismatch;
                 return reject_conn(c, RejectCode::Mismatch, have ? reject_with_options(why, ho) : why);
             }
+            if (!all_zero(cfg.chalice_sha256) && !all_zero(their_chalice) && their_chalice != cfg.chalice_sha256 &&
+                role != 1 && cfg.chalice_differs)
+                cfg.chalice_differs(c->name);
             if (!valid_member_name(c->name))
                 return reject_conn(c, RejectCode::Name, "invalid name (1-16 of A-Z a-z 0-9 _ -)");
             if (role == 1) {
@@ -2228,10 +2233,11 @@ struct PartyLink::Impl {
         w.str16(cfg.build_id).bytes(cfg.params_sha256.data(), 32).bytes(cfg.hooks_hash.data(), 32);
         w.str16(join_names(cfg.hook_names));
         w.u8(cfg.invader ? 1 : 0);  // 0.7.8: the role (1 = invader); an older host reads no more than the names
-        if (cfg.own_level) {  // 0.7.9: the member's level (self-reported; the host rechecks it from the vitals)
+        {  // 0.7.9: the member's level (self-reported; the host rechecks it from the vitals; 0 unknown)
             const int lv = cfg.own_level ? cfg.own_level() : 0;
             w.u16(static_cast<std::uint16_t>(lv < 0 ? 0 : lv > 999 ? 999 : lv));
         }
+        w.bytes(cfg.chalice_sha256.data(), 32);  // the Chalice Dungeon data (absent from older builds)
         send(c, kHello, w);
     }
 

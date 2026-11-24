@@ -346,6 +346,45 @@ std::array<std::uint8_t, 32> params_hash() {
     return std::array<std::uint8_t, 32>{};
 }
 
+// The game dump's Chalice Dungeon data: every file under dvdroot_ps4/map/m29 and dvdroot_ps4/event/m29_*, by relative
+// path and contents, the update folder's copy first (bb-start lays it over the game). CUSA03173 and CUSA00900 + 1.09
+// differ here, so a mixed party would load different dungeons (LinkConfig::chalice_sha256). Zeros when none found.
+std::array<std::uint8_t, 32> chalice_hash() {
+    std::vector<fs::path> roots;
+    if (env("BB_GAME_UPDATE_DIR") && *env("BB_GAME_UPDATE_DIR")) roots.push_back(fs::path(env("BB_GAME_UPDATE_DIR")) / "dvdroot_ps4");
+    if (env("BB_GAME_DIR") && *env("BB_GAME_DIR")) roots.push_back(fs::path(env("BB_GAME_DIR")) / "dvdroot_ps4");
+    else if (!bbnet::settings().app0.empty()) roots.push_back(fs::path(bbnet::settings().app0) / "dvdroot_ps4");
+    std::map<std::string, fs::path> files;  // relative path (lower case, '/') -> the first root's file
+    const auto lower = [](std::string s) {
+        for (char& ch : s) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        return s;
+    };
+    for (const fs::path& root : roots) {
+        std::error_code ec;
+        for (fs::recursive_directory_iterator it(root / "map" / "m29", ec), end; !ec && it != end; it.increment(ec))
+            if (it->is_regular_file(ec))
+                files.emplace(lower(fs::relative(it->path(), root, ec).generic_string()), it->path());
+        for (fs::directory_iterator it(root / "event", ec), end; !ec && it != end; it.increment(ec))
+            if (it->is_regular_file(ec) && lower(it->path().filename().string()).rfind("m29_", 0) == 0)
+                files.emplace(lower(fs::relative(it->path(), root, ec).generic_string()), it->path());
+    }
+    std::array<std::uint8_t, 32> h{};
+    if (files.empty()) {
+        plog("chalice data: no m29 files found (not compared)");
+        return h;
+    }
+    Sha256 all;
+    for (const auto& [rel, path] : files) {
+        std::array<std::uint8_t, 32> one{};
+        if (!sha256_file(path, &one)) continue;
+        all.update(rel.data(), rel.size() + 1);
+        all.update(one.data(), one.size());
+    }
+    h = all.finish();
+    plog("chalice data: %zu files, sha256 %s...", files.size(), hex_prefix(h).c_str());
+    return h;
+}
+
 // A9: this game's full version-check identity in <user dir>/party_identity.txt (what HELLO
 // carries), for tools/party/simguest.py --identity: a simulated member that joins this host
 // (or this guest's host) with the same identity. Never holds the password or the party secret.
@@ -3143,6 +3182,11 @@ void startup_main() {
     cfg.build_id = bbport_build_id();
     cfg.check_build = !(env("BB_PARTY_CHECK_BUILD") && !env_on("BB_PARTY_CHECK_BUILD"));
     cfg.params_sha256 = params_hash();
+    cfg.chalice_sha256 = chalice_hash();
+    cfg.chalice_differs = [](const std::string& name) {
+        plog("chalice data: %s has other Chalice Dungeon files (another game edition): dungeons would differ", name.c_str());
+        coop::PartyDropNotice(name + ": other Chalice Dungeon files (another game edition). Don't enter Chalice Dungeons together");
+    };
     // The hook set only once the image's hooks are in (a fast boot started the link 0.1 s before).
     {
         const auto w0 = std::chrono::steady_clock::now();

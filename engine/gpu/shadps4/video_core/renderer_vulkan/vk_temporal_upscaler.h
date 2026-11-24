@@ -159,7 +159,7 @@ public:
         vk::Format guest_format = vk::Format::eUndefined;
     };
     bool DisplayOverride(VAddr address, Display& display);
-    /// bbport: with the upscaler off nothing is composed: the presenter blacks the bands beside the stage on
+    /// bbport: on a frame the upscaler did not compose: the presenter blacks the bands beside the stage on
     /// the game's own display buffer (in TransferDstOptimal) while no world is shown or a loading screen is up.
     bool WantsGuestBars() const;
     void GuestBars(vk::Image image, u32 w, u32 h) { BlackBars(image, vk::ImageLayout::eTransferDstOptimal, w, h); }
