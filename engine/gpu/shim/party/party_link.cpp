@@ -533,10 +533,20 @@ std::string identity_mismatch(const LinkConfig& host, const LinkConfig& guest) {
                             "choosing the game folder by hand), else another game version or edited params; use the "
                             "same game dump (1.09) as the host");
     }
-    if (host.patches_hash != guest.patches_hash)
+    if (host.patches_hash != guest.patches_hash) {
+        // Free camera and the debug menu are launcher Graphics switches, not Patches tab entries.
+        auto differs = [&](const char* name) {
+            const bool h = std::find(host.patch_names.begin(), host.patch_names.end(), name) != host.patch_names.end();
+            const bool g = std::find(guest.patch_names.begin(), guest.patch_names.end(), name) != guest.patch_names.end();
+            return h != g;
+        };
+        const bool debug = differs("Restore Debug Camera") || differs("Restore Debug Menu (READ NOTES)");
         parts.push_back(set_clause("gameplay patches", host.patches_hash, host.patch_names, guest.patches_hash,
                                    guest.patch_names) +
-                        ": turn on the same patches as the host (launcher Patches tab)");
+                        (debug ? ": Free camera and Debug menu (launcher Graphics tab) need the same setting for every "
+                                 "player; turn on the same patches as the host"
+                               : ": turn on the same patches as the host (launcher Patches tab)"));
+    }
     if (host.hooks_hash != guest.hooks_hash) {
         // 0.7.8: name each differing option in plain words when every differing hook belongs to a known one.
         std::vector<std::string> host_only, guest_only;

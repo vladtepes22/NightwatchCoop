@@ -932,14 +932,11 @@ PatchResult CompilePatches(const PatchRequest& request) {
         names.erase(std::remove_if(names.begin(), names.end(),
                                    [](const std::string& n) { return n == kDisableHttp || n == kSkipNetworkChoice; }),
                     names.end());
-        // The debug camera and menu patches count in the party patch hash (party.cpp kCosmetic), so a
-        // player with one on could not join the others: they stay off in co-op.
-        for (const char* debug : {"Restore Debug Camera", "Restore Debug Menu (READ NOTES)"}) {
-            const auto it = std::find(names.begin(), names.end(), debug);
-            if (it == names.end()) continue;
-            names.erase(it);
-            Log("Patches: \"%s\" left out: off in co-op (every player would need the same setting)", debug);
-        }
+        // The debug camera and menu patches count in the party patch hash (party.cpp kCosmetic): in co-op
+        // every player needs the same setting, and a join with a different one is refused naming them.
+        for (const char* debug : {"Restore Debug Camera", "Restore Debug Menu (READ NOTES)"})
+            if (std::find(names.begin(), names.end(), debug) != names.end())
+                Log("Patches: \"%s\" on in co-op: every player in the party needs it on too", debug);
         std::vector<std::string> party = PartyPatchNames();
         party.push_back(kSkipNetworkChoiceOnline);
         for (const std::string& n : party)

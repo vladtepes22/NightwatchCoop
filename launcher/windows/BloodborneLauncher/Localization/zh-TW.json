@@ -2994,7 +2994,7 @@
   "Keeps the sunlight fog's color steady: it ignores the game's default white light and fades to new colors, so it does not flicker as the camera moves. Off: the original color, which can flip to white and back. Needs Volumetric sunlight on": "讓陽光霧的顏色保持穩定：忽略遊戲預設的白光，並漸變到新的顏色，因此移動鏡頭時不會閃爍。關閉：使用原始顏色，它可能跳到白色再跳回。需要開啟體積陽光",
   "Steady lamp fog": "穩定的燈光霧",
   "Keeps each lamp's fog on after the game stops listing the lamp, with slow fades, so it does not flicker as the camera moves. Can leave fog showing through a wall. Off: the original fog, from the first 64 lights the game lists. Needs Fog around lamps on": "遊戲不再列出某盞燈後，仍透過緩慢淡出保持該燈的霧，因此移動鏡頭時不會閃爍。霧可能會穿透牆壁顯示。關閉：使用原始的霧，來自遊戲列出的前 64 個光源。需要開啟燈光周圍的霧",
-  "Off while co-op is on: every player in a party would need the same setting": "合作模式開啟時關閉：隊伍中的每位玩家都需要相同的設定",
+  "Co-op: every player in the party needs the same setting, else joins are refused": "連線合作：隊伍中的每位玩家都需要相同的設定，否則加入會被拒絕",
   "Create world": "建立世界",
   "Your worlds": "您的世界",
   "Friends don't need to make your world. Their launcher builds it when they join you, as long as they have the same Nightwatch version and the mods the world was built on.": "好友不需要自己建立您的世界。他們加入您時，其啟動器會自動製作該世界，只要他們使用相同版本的 Nightwatch，並擁有該世界所依據的模組。",

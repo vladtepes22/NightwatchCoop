@@ -186,16 +186,13 @@ namespace BloodborneLauncher.Views
 
         public override void OnShown() { UpdateUpscaler(); UpdateGlowSize(); UpdateCoopOff(); }
 
-        // Free camera and the debug menu are game patches that count in the party patch hash: the engine
-        // leaves them out in co-op (start/patches.cpp), and the rows say so.
+        // Free camera and the debug menu are game patches that count in the party patch hash: in co-op every
+        // player needs the same setting (a join with another one is refused naming them), and the rows say so.
         private void UpdateCoopOff()
         {
             var coop = SeamlessSettings.Enabled(S);
-            foreach (var (toggle, hint, text) in _coopOff)
-            {
-                toggle.IsEnabled = !coop;
-                SetHint(hint, coop ? L.T("Off while co-op is on: every player in a party would need the same setting") : text);
-            }
+            foreach (var (_, hint, text) in _coopOff)
+                SetHint(hint, coop ? L.T("Co-op: every player in the party needs the same setting, else joins are refused") : text);
         }
 
         private static bool DlssFound() =>
