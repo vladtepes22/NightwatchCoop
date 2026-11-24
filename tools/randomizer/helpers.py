@@ -71,6 +71,7 @@ INVINCIBLE = (2004, 15)
 GENERATOR = (2003, 3)  # [generator, 1 on / 0 off]
 KILL = (2004, 4)       # [character, 0]
 AUTHORITY = (2004, 28)  # [entity, 4095]: the body's state is synced to the guests (every set-up event of a Nocturne boss makes it)
+FORCE_ANIMATION = (2003, 18)  # [entity, animation, loop | wait << 8]
 
 
 class Fight:
@@ -79,7 +80,7 @@ class Fight:
 
     def __init__(self, key, init, moved, park=(), repoint=(), labels=(), disable=(), bar=None, end_with=None, warps=(),
                  same_hp=(), wake=(), hold=None, home=True, boss=None, travel=None, stage=None,
-                 stage_events=(), stage_extra=(), stage_labels=(), stage_bar_after=None, handover=None, made=(), authority=(),
+                 stage_events=(), stage_extra=(), stage_labels=(), stage_bar_after=None, handover=None, made=(),
                  runs=None, as_started=(), models=None):
         arena = arenas.BY_KEY[key]
         self.key, self.stem = key, arena.stem
@@ -119,9 +120,6 @@ class Fight:
         # Events the home map holds only as lines of a longer event (so they cannot be copied whole): written here with the
         # home entities and made events of their own in the new arena, each waiting for the started flag first.
         self.made = made
-        # Travelling bodies whose network authority call (2004[28]) the home hold event makes once the fight starts: it is
-        # made for their new entity too (co-op: a body without it is not synced to the guests)
-        self.authority = authority
         # Moved events that are templates: {event: [(slot, argument words)]}, the home map's runs of each. The copy keeps
         # its parameters and is run once per home run, with the arguments renamed (a phase body's helpers, found_helpers)
         self.runs = dict(runs or {})
@@ -219,7 +217,7 @@ _LESSER_DEMON = Fight("lesser_demon",
                             (2004, 12, (2300821, 1)), (2004, 33, (2300821, 2300820)), (2004, 11, (2300821, 2300820))),
                       moved=(12304823,),
                       park=(12304823,),
-                      disable=(2300821,), hold=12304822, wake=(2300821,), authority=(2300821,),
+                      disable=(2300821,), hold=12304822, wake=(2300821,),
                       made=(((4, 0, (0, 2300820, 1)), (2004, 43, (2300821, 1)), (2004, 4, (2300821, 0))),
                             ((4, 2, (0, 2300820, 5, 1056964608)), (2004, 8, (2300821, 5500010, 0)))))
 FIGHTS = dict(sorted({**_BASE_FIGHTS, 2410810: _GASCOIGNE_ONE, 3400800: _LUDWIG_ONE, 2300820: _LESSER_DEMON}.items()))  # {home body: Fight}
@@ -689,10 +687,14 @@ def travel(events, arena, fighter, origin_events, new_entities):
         # a cleared arena: the bodies stay off
         off = [(ENABLE[0], ENABLE[1], [new_entities[e], 0]) for e in travelling]
         init = [(1003, 1, [len(off) + 1, defeat])] + off + [(1000, 4, [0])] + init
-        if fight.wake or fight.authority:
+        # co-op: the network authority call (2004[28]) the home map makes on a travelling body once the fight starts is
+        # made for its new entity too: a body without it is not synced to the guests (vanilla gives every parked second
+        # body one; player report 24 Nov: in co-op a stage boss died and the fight never ended)
+        authority = [(e, w) for e in travelling for w in (_authority(origin_events, e),) if w is not None]
+        if fight.wake or authority:
             init += [(IF_FLAG[0], IF_FLAG[1], [256, started])] + [(AI_SWITCH[0], AI_SWITCH[1], [new_entities[e], 1])
                                                                    for e in fight.wake]
-            init += [(AUTHORITY[0], AUTHORITY[1], [new_entities[e], _authority(origin_events, e)]) for e in fight.authority]
+            init += [(AUTHORITY[0], AUTHORITY[1], [new_entities[e], w]) for e, w in authority]
         _new_event(events, caller, ids[-1], init)
     # co-op doping: the home fight's set-up event dopes these bodies (it stays home); here they are doped with the slot
     # body, in this arena's set-up event (STATUS 5 Nov, co-op audit risk 1)
@@ -823,6 +825,11 @@ def _stage_lines(fight, event, home, stage):
     for k, (bank, iid, words) in enumerate(home):
         if (event, bank, iid, tuple(words)) in fight.stage_labels:
             home[k] = (LABEL_BANK, _free_label(home), ())
+        elif (bank, iid) == FORCE_ANIMATION and words and words[0] == fight.stage:
+            # the home second phase's entry animation (Gascoigne's beast 3030, the Orphan's rise 3031, Ludwig's 7000):
+            # on the stage boss's model that id is one of its own moves (DATA: c5070 and c5080 have both 3030 and
+            # 3031), so it plays none
+            home[k] = (LABEL_BANK, _free_label(home), ())
         elif (bank, iid) == BOSS_BAR and len(words) > 3 and words[1] == fight.stage and name is not None:
             home[k] = (bank, iid, tuple(words[:3]) + (name,) + tuple(words[4:]))
     if fight.stage_bar_after and fight.stage_bar_after[0] == event and name is not None:
@@ -841,12 +848,12 @@ def _stage_lines(fight, event, home, stage):
 
 
 def _authority(events, entity):
-    """The second word of the home map's 2004[28] call on the entity (the Fight's `authority`)."""
+    """The second word of the home map's 2004[28] call on the entity, None when it has none."""
     for event in events.event_ids():
         for bank, iid, words in events.instructions(event):
             if (bank, iid) == AUTHORITY and words[0] == entity:
                 return words[1]
-    raise ValueError("no 2004[28] on %d in the home map's events" % entity)
+    return None
 
 
 def _free_label(body):

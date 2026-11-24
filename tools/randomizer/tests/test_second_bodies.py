@@ -104,6 +104,12 @@ class Plan(unittest.TestCase):
                     f = result["fighters"][key]  # whose death ends its new fight
                     if f["needs_end"]:
                         self.assertTrue(arenas.ends_on_death(e), (seed, e, key))
+                    # a stage brings only its main body: never the One Reborn, who fights through his upper body and
+                    # caster (seed 2 put him in the Orphan's second body, where he stood idle: report 24 Nov)
+                    self.assertNotEqual((f.get("stage") or {}).get("key"), "one_reborn", (seed, key))
+                    # nor in the small arenas (user, 24 Nov)
+                    if f["origin"] == 2800800:
+                        self.assertNotIn(arenas.arena_of(e).key, arenas.TOO_SMALL[2800800], (seed, e))
 
 
 @needs_game
@@ -128,6 +134,10 @@ class Handovers(unittest.TestCase):
         self.assertTrue([w for b, d, w in plain(events.instructions(12401800)) if (b, d) == (4, 0) and w[1:] == (beast, 1)])  # its death ends the fight too
         self.assertFalse([w for e in moved.values() for _, _, ws in events.instructions(e) for w in ws
                           if 12410000 <= w < 12420000 or 2410000 <= w < 2420000])
+        self.assertIn((2003, 18, (beast, 3030, 256)), handover)  # his own rise as the beast
+        travelled, = report["helper_report"]["travelled"]
+        # co-op: synced to the guests like vanilla's parked beast (m24_01 12414802 2004[28])
+        self.assertIn((2004, 28, (beast, 4095)), plain(events.instructions(travelled["init"])))
 
     def test_ludwig_travels_with_his_holy_blade_form(self):
         events, vanilla, travellers, report = self.build("m24_00", {AMELIA: LUDWIG})
@@ -187,6 +197,10 @@ class SecondStage(unittest.TestCase):
         self.assertFalse([w for b, d, w in setup if (b, d) == (2004, 33)])  # own HP: no damage link
         body, = report["helper_report"]["bodies"][AMELIA]
         self.assertTrue(body["own_row"])
+        # the beast's rise 3030 is one of the stage model's own moves: not played
+        self.assertFalse([w for b, d, w in handover if (b, d) == (2003, 18) and w[0] == second])
+        # co-op: the stage body is synced to the guests (report 24 Nov: in co-op its death never ended the fight)
+        self.assertIn((2004, 28, (second, 4095)), setup)
 
     def test_the_orphans_stage_needs_no_message_and_gets_a_bar(self):
         events, vanilla, travellers, report = self.build("m24_00", {AMELIA: ORPHAN}, {ORPHAN: LUDWIG})
@@ -196,6 +210,7 @@ class SecondStage(unittest.TestCase):
         self.assertNotIn(13604830, moved)
         handover = plain(events.instructions(moved[13604820]))
         self.assertNotIn((4, 8, (0, second, 50, 1)), handover)
+        self.assertFalse([w for b, d, w in handover if (b, d) == (2003, 18) and w[0] == second])  # no Orphan rise 3031
         at = handover.index((2004, 1, (second, 1)))
         self.assertEqual(handover[at + 1][:2], (2003, 11))
         self.assertEqual(handover[at + 1][2][:3], (1, second, 0))

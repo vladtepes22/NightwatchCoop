@@ -5,7 +5,7 @@ Limits hold for one map and for each group of maps that load together. Bosses ar
 ordinary enemies), by the arena table (arenas.py)."""
 from collections import Counter
 
-from arenas import ARENA_ONLY, ARENAS, BY_KEY, ENEMY_OUT, GROUP, OUT, SOLO, ends_on_death
+from arenas import ARENA_ONLY, ARENAS, BY_KEY, ENEMY_OUT, GROUP, OUT, SOLO, TOO_SMALL, ends_on_death
 from helpers import FIGHTS, extras_of, with_stage
 from neighbours import connections
 from seedcode import Stream, normalize, options_hash
@@ -192,6 +192,14 @@ def boss_enemy_slot(slot):
             and not slot.get("difficult") and (slot.get("entity") or 0) % 1000 // 100 != 8)
 
 
+def own_bodies(fighter):
+    """True for a boss that fights through travelling bodies of its own from the fight's start (the One Reborn's upper
+    body and caster): it never takes a body that wakes later, a phase body or a second stage, which bring only the
+    main body."""
+    fight = FIGHTS.get(fighter["origin"])
+    return bool(fight and fight.wake)
+
+
 def second_bodies(fighters, placed, loaded, slots, index, sizes, limits, groups, staged, seed, opts_hash):
     """Each boss once per run (user, 10 Nov): the second body of a placed Gascoigne, Ludwig or Orphan holds its own second
     phase only while that phase fights in no arena of its own (and option second_stage is off: `staged`); else a boss
@@ -217,6 +225,8 @@ def second_bodies(fighters, placed, loaded, slots, index, sizes, limits, groups,
     membership = {stem: [g for g in groups if stem in g] for stem in loaded}
     counts = Counter(placed.values())
     staged_keys = set()
+    # a stage brings only its main body (player report 24 Nov: the One Reborn in the Orphan's second body stood idle)
+    whole = [f for f in fighters if not own_bodies(f)]
     for key in Stream(seed, opts_hash, "second-bodies").shuffled(left):  # who gets the few free bosses first
         fighter = by_key[key]
         own = by_origin.get(FIGHTS[fighter["origin"]].stage)
@@ -224,12 +234,12 @@ def second_bodies(fighters, placed, loaded, slots, index, sizes, limits, groups,
         def room(f):
             return all(_room(stem, loaded[stem] | {f["model"]}, loaded, sizes, limits, membership)
                        for stem in stems[key])
-        free = [f for f in fighters if f["key"] not in used and room(f)]
+        free = [f for f in whole if f["key"] not in used and room(f)]
         others = [f for f in free if f["key"] != own and f["model"] != fighter["model"]]
         # else its own second phase when free (vanilla; Ludwig's is his own model)
         choices = others or [f for f in free if f["key"] == own]
         if not choices and staged:  # every boss fights already (a mixed world): the least used, never a stage twice
-            spare = [f for f in fighters if f["key"] not in staged_keys and f["key"] != key
+            spare = [f for f in whole if f["key"] not in staged_keys and f["key"] != key
                      and f["model"] != fighter["model"] and room(f)]
             fewest = min((counts[f["key"]] for f in spare), default=None)
             choices = [f for f in spare if counts[f["key"]] == fewest]
@@ -247,7 +257,7 @@ def second_bodies(fighters, placed, loaded, slots, index, sizes, limits, groups,
     return [by_key[f["key"]] for f in fighters]
 
 
-def _plan_bosses(slots, index, units, fighters, sizes, limits, groups, seed, opts_hash, base):
+def _plan_bosses(slots, index, units, fighters, sizes, limits, groups, seed, opts_hash, base, staged=False):
     """Every unit gets a fighter: never one from its own arena or of its own model; a fighter the arena already holds only
     when no other fits (one boss each in a mix), else the least used first; each must fit its new map's budgets with the models it brings (its extras' too). A mix body that fits none takes
     its arena's first draw. Orders are drawn until every unit is filled, else the fullest order is kept.
@@ -256,9 +266,6 @@ def _plan_bosses(slots, index, units, fighters, sizes, limits, groups, seed, opt
     membership = {stem: [g for g in groups if stem in g] for stem in stems}
     draw = Stream(seed, opts_hash, "boss-order")
     total = sum(len(u) for _, _, us in units for u in us)
-    # a phase body wakes after the fight's start: no boss whose travelling bodies wake on the started flag (the One
-    # Reborn's upper body and caster would fight before it exists)
-    wakes = {origin for origin, fight in FIGHTS.items() if fight.wake}
 
     def loaded_models(stem, body_model, brought):
         return base[stem] | {body_model[e] for e in body_stem[stem]} | brought[stem]
@@ -290,7 +297,8 @@ def _plan_bosses(slots, index, units, fighters, sizes, limits, groups, seed, opt
 
                 def allowed(f):
                     return (f["home"] != arena.key and f["model"] not in own and (ends or not f.get("needs_end"))
-                            and not (phase and f["origin"] in wakes))
+                            and arena.key not in TOO_SMALL.get(f["origin"], ())
+                            and not (phase and own_bodies(f)))  # it wakes after the fight's start
                 choices = [f for f in fighter_order if allowed(f)]
                 # one boss each in a mixed or split fight (user, 4 Nov): a fighter already in this arena only when no other
                 # fits; then the least used, so every fighter fights before any fights twice
@@ -324,6 +332,8 @@ def _plan_bosses(slots, index, units, fighters, sizes, limits, groups, seed, opt
     for _ in range(BOSS_ORDER_TRIES):
         arena_order = draw.shuffled(units)
         fighter_order = draw.shuffled(fighters)
+        if staged:  # second stages: a boss no stage can hold takes an arena first, else the pool runs one boss short
+            fighter_order = [f for f in fighter_order if own_bodies(f)] + [f for f in fighter_order if not own_bodies(f)]
         placed, loaded = assign(arena_order, fighter_order)
         score = (len(placed), len(set(placed.values())))
         if best is None or score > best[0]:
@@ -445,7 +455,8 @@ def plan(slots, candidates, sizes, groups, group_limits, seed, options, animatio
         rolled = {id(s) for stem in stems for s in change[stem] if not s.get("needs")}
         base = {stem: {s["model"] for s in slots[stem] if s.get("entity") not in unit_bodies and id(s) not in rolled}
                 for stem in stems}
-        placed, loaded = _plan_bosses(slots, index, units, fighters, sizes, limits, groups, seed, opts_hash, base)
+        placed, loaded = _plan_bosses(slots, index, units, fighters, sizes, limits, groups, seed, opts_hash, base,
+                                      bool(norm["second_stage"]))
         fighters = second_bodies(fighters, placed, loaded, slots, index, sizes, limits, groups, norm["second_stage"],
                                  seed, opts_hash)
         kept.update(loaded)
