@@ -14,6 +14,7 @@ import seedcode  # noqa: E402
 import shops  # noqa: E402
 import treasure  # noqa: E402
 from containers import Layout, Param, bnd4_find, bnd4_read, dcx_read  # noqa: E402
+from noc import NOCTURNE  # noqa: E402  the newest installed Nocturne (BB_NOCTURNE overrides)
 
 GAME = os.environ.get("BB_GAME", r"C:\Games\CUSA03173")
 needs_game = unittest.skipUnless(os.path.isdir(os.path.join(GAME, "dvdroot_ps4")), "no game files")
@@ -111,7 +112,8 @@ class Trades(unittest.TestCase):
         self.assertEqual(shops.plan(self.found, 7, "h"), trades)  # same code, same trades
         self.assertNotEqual(shops.plan(self.found, 8, "h"), trades)
         self.assertEqual(len(set(trades.values())), len(trades))
-        self.assertEqual(len(trades), 63)  # 44 armour rows for 59 pickups, 18 of 136 weapon rows, the bell for 5 goods
+        # 30 of 44 armour rows (14 resell a set piece some lot gives) for 59 pickups, 18 of 136 weapon rows, the bell
+        self.assertEqual(len(trades), 49)
         layout, before, after, lot_layout, lots_before, lots_after = self.traded(self.found, trades)
         self.assertEqual(list(after), list(before))
         self.assertEqual(list(lots_after), list(lots_before))
@@ -259,6 +261,48 @@ def Fraction_of(a, b):
     return Fraction(a, b)
 
 
+def _lone_pieces(files, seeds):
+    """{seed: [armour item a trade put alone into a pickup while another lot still gives it]} (user 24 Nov: a set's piece
+    alone in one pickup, the whole set in another)."""
+    found = shops.census(files)
+    lots, lot_layout = _params(files)("ItemLotParam")
+    rows = lots.first()
+    out = {}
+    for seed in seeds:
+        trades = shops.plan(found, seed, "h")
+        for key, lot in trades.items():
+            item = found["items"][key]
+            if key in found["rows"].get(shops.ARMOUR, []):
+                others = [r for r in rows if r > 0 and r != lot
+                          and (shops.TYPES[shops.ARMOUR], item) in {(c, i) for c, i, _ in shops.entries(lot_layout, rows[r])}]
+                if others:
+                    out.setdefault(seed, []).append(item)
+    return out
+
+
+@needs_game
+class ResoldSets(unittest.TestCase):
+    """An armour row that resells a piece some lot gives never trades it into a pickup: vanilla sets (Gascoigne's,
+    Bone Ash) and a base mod's (Nocturne's Dark, Vesper's, Slave Knight sets) alike."""
+
+    def test_vanilla_sets_never_lie_alone_in_a_pickup(self):
+        from gamedata import GameFiles
+        files = GameFiles(GAME)
+        found = shops.census(files)
+        resold = {found["items"][k] for k in found["resold"]}
+        self.assertLessEqual({130000, 131000, 132000, 133000, 40000, 41000, 42000, 43000}, resold)  # Gascoigne's, Bone Ash
+        self.assertEqual(_lone_pieces(files, range(1, 9)), {})
+
+    @unittest.skipUnless(NOCTURNE and os.path.isdir(NOCTURNE), "Nocturne not installed")
+    def test_a_base_mods_sets_never_lie_alone_in_a_pickup(self):
+        from gamedata import GameFiles
+        files = GameFiles(GAME, [NOCTURNE])
+        found = shops.census(files)
+        resold = {found["items"][k] for k in found["resold"]}
+        self.assertLessEqual({894000, 895000, 896000, 897000, 890000, 898200}, resold)  # Dark set, Vesper's, Slave Knight
+        self.assertEqual(_lone_pieces(files, range(1, 9)), {})
+
+
 @needs_game
 class World(unittest.TestCase):
     def test_a_world_with_shops_treasure_and_materials_shows_every_trade(self):
@@ -303,7 +347,9 @@ class World(unittest.TestCase):
                         row = shop_rows[block * shops.BLOCK + index]
                         self.assertEqual(layout.get(row, "equipId"), want)
                         self.assertGreater(layout.get(row, "value"), 0)
-                        self.assertEqual(layout.get(row, "sellQuantity"), -1)
+                        # a row keeps its stock: consumables unlimited, a resold armour row (never traded) buy-once
+                        self.assertEqual(layout.get(row, "sellQuantity"),
+                                         layout.get(base_shop[block * shops.BLOCK + index], "sellQuantity"))
         for item in shops.STAPLES:  # Blood Vials and Quicksilver Bullets stay where they are
             for rid, row in base_shop.items():
                 if layout.get(row, "equipId") == item and layout.get(row, "equipType") == shops.GOODS:

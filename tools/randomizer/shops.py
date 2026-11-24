@@ -4,7 +4,8 @@ Trades: weapon and armour rows (buy-once and unlimited alike) and buy-once goods
 pickups of the same type. The pickup now gives the item the shop sold, and the row sells the pickup's item at a price
 that fits it. A row keeps its place, its unlock condition (qwcId), its bought-once flag and its stock; only the item and
 the price change. Unlimited goods rows trade only when they sell a chalice ritual material and the chalice materials
-option shuffles those too.
+option shuffles those too. An armour row that resells a piece some lot gives (a set found whole, then sold piece by
+piece) never trades, so no piece lies alone in a pickup while its set's lot still gives it; it is dealt instead.
 
 Deals (`deal`): every weapon and armour row no trade took, and the unlimited goods rows (user, 6 Nov: "shop shuffled
 but not the goods"), are dealt out again across all the shops, echo and insight alike, each type among its own rows. A
@@ -171,7 +172,8 @@ def _deal_ratios(layout, rows, goods_values, keep):
 def census(files, join=frozenset(), materials=frozenset()):
     """{'rows': {equip type: [(first block, index)]}, 'pinned': {(first block, index): reason}, 'items': {(first block,
     index): item}, 'pickups': {equip type: [lot row]}, 'pickup_items': {lot row: item}, 'spots': {lot row: (map, placed
-    lot)}, 'fits', 'values', 'deck': [(first block, index)] of the dealt consumable rows, 'deck_items': {(first block,
+    lot)}, 'resold': armour rows that resell a piece some lot gives (never traded), 'fits', 'values', 'deck': [(first
+    block, index)] of the dealt consumable rows, 'deck_items': {(first block,
     index): (item, price in the first copy, equip type)} of every row a deal may move, 'ratios': _deal_ratios}. join:
     goods whose unlimited rows trade too
     (chalice materials, when shuffled); materials: the chalice ritual materials, never dealt."""
@@ -219,6 +221,11 @@ def census(files, join=frozenset(), materials=frozenset()):
     lot_layout, lots = table("ItemLotParam")
     sold = {(TYPES.get(layout.get(r, "equipType")), layout.get(r, "equipId")) for r in rows.values()}
     held = Counter((c, i) for r in lots.values() for c, i, _ in entries(lot_layout, r))
+    # an armour row that resells a piece some lot gives (a set found whole in the world and then sold piece by piece,
+    # vanilla's and a mod's alike: DATA Gascoigne's, Bone Ash, Nocturne's Dark set) never trades: its piece would lie
+    # alone in a pickup while the set's lot still gives it (user 24 Nov); it is dealt within its shop instead
+    given = {(c, i) for lot, r in lots.items() if lot > 0 for c, i, _ in entries(lot_layout, r)}
+    resold = sorted(k for k in tradable.get(ARMOUR, []) if (TYPES[ARMOUR], items[k]) in given)
     # rows something other than a map pickup reaches: enemies' lots, item rows' lots, lots events award
     reached = set()
     npc_layout, npcs = table("NpcParam")
@@ -269,15 +276,16 @@ def census(files, join=frozenset(), materials=frozenset()):
                         if i in value_rows}
     return {"rows": tradable, "pinned": pinned, "items": items, "pickups": pickups, "pickup_items": pickup_items,
             "spots": spots, "fits": _fits(table, layout, rows), "values": values, "deck": deck, "deck_items": deck_items,
-            "ratios": _deal_ratios(layout, rows, goods_values, keep), "stones": stones}
+            "ratios": _deal_ratios(layout, rows, goods_values, keep), "stones": stones, "resold": resold}
 
 
 def plan(found, seed, opts_hash):
     """{(first block, index): lot row}: each shop row and the pickup it trades with. Per type, the rows that trade (all
-    of them when pickups are enough) and their pickups are drawn from the seed."""
+    of them but the resold armour when pickups are enough) and their pickups are drawn from the seed."""
     out = {}
     for kind in sorted(found["rows"]):
-        rows, picks = found["rows"][kind], found["pickups"].get(kind, [])
+        rows = [k for k in found["rows"][kind] if k not in set(found["resold"])]
+        picks = found["pickups"].get(kind, [])
         n = min(len(rows), len(picks))
         trading = Stream(seed, opts_hash, "shops/rows/%d" % kind).shuffled(rows)[:n]
         partners = Stream(seed, opts_hash, "shops/pickups/%d" % kind).shuffled(picks)[:n]
