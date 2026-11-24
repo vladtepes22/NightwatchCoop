@@ -2747,7 +2747,6 @@
   "Huge bosses as enemies": "Ogromni bossowie jako wrogowie",
   "Huge bosses as enemies.": "Ogromni bossowie jako wrogowie.",
   "Hunter's Dream": "Sen Łowcy",
-  "In use.": "W użyciu.",
   "Include Coiled Host (Nocturne boss)": "Uwzględnij Coiled Host (boss Nocturne)",
   "Include Scorched Beast (Nocturne boss)": "Uwzględnij Scorched Beast (boss Nocturne)",
   "Include chalice dungeon bosses": "Uwzględnij bossów lochów Kielicha",
@@ -2783,7 +2782,6 @@
   "Nocturne {0} is downloaded first ({1} MB).": "Najpierw zostanie pobrane Nocturne {0} ({1} MB).",
   "Nocturne {0} is out and needs Nightwatch {1} or newer. Update Nightwatch first; until then you keep the Nocturne your version runs.": "Wyszło Nocturne {0}, które wymaga Nightwatch {1} lub nowszego. Najpierw zaktualizuj Nightwatch; do tego czasu zostaje Nocturne, z którym działa twoja wersja.",
   "Not a world code yet. Codes look like R2-0W000-44JM2-00MP5.": "To jeszcze nie jest kod świata. Kody wyglądają tak: R2-0W000-44JM2-00MP5.",
-  "Not in use.": "Nieużywane.",
   "Nothing changed in this world.": "Nic się nie zmieniło w tym świecie.",
   "Now": "Teraz",
   "Now and then a boss turns up in place of an ordinary enemy (how often: the two rows below). Its health is cut to fit the area and is never more than in its own fight (how much: Boss HP as an enemy, below) and fights like a normal enemy there: no health bar, no fog wall, no boss music, and it drops what the enemy it replaced would have. Its own boss fight stays as it was. Bosses that need their arena to work (Moon Presence, the Witch of Hemwick, the Shadows of Yharnam, Logarius, the Wet Nurse, the One Reborn, the Orphan's second phase, the Blood-starved Beast) never do this. Chalice dungeon bosses join when they are included.": "Od czasu do czasu zamiast zwykłego wroga pojawia się boss (jak często: dwa wiersze poniżej). Jego HP jest dopasowane do obszaru i nigdy nie jest większe niż w jego własnej walce (ile: HP bossa jako wroga, poniżej). Walczy tam jak zwykły wróg: bez paska zdrowia, bez ściany mgły, bez muzyki bossa, i upuszcza to, co upuściłby zastąpiony wróg. Jego własna walka z bossem zostaje bez zmian. Bossowie, którzy potrzebują areny, by działać (Moon Presence, Wiedźma z Hemwick, Shadows of Yharnam, Logarius, Mamka Mergo, One Reborn, druga faza Sieroty, Blood-starved Beast), nigdy tego nie robią. Bossowie lochów Kielicha dołączają, gdy są uwzględnieni.",
@@ -3037,5 +3035,8 @@
   "Shared with the party": "Wspólne z drużyną",
   "What you keep": "Co zachowujesz",
   "Only for you and your screen: nothing here changes your save (in the game: System > My party).": "Tylko dla ciebie i twojego ekranu: nic tutaj nie zmienia twojego zapisu (w grze: System > Moja drużyna).",
-  "What reaches your own save from the party. Read at the next game start.": "Co z drużyny trafia do twojego zapisu. Działa od następnego uruchomienia gry."
+  "What reaches your own save from the party. Read at the next game start.": "Co z drużyny trafia do twojego zapisu. Działa od następnego uruchomienia gry.",
+  "In use": "W użyciu",
+  "Other mods now": "Teraz inne mody",
+  "Friends can't join": "Znajomi nie mogą dołączyć"
 }

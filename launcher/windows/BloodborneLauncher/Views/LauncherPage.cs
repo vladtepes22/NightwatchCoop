@@ -21,6 +21,8 @@ namespace BloodborneLauncher.Views
         public SymbolIcon Icon { get; }
         public TextBlock Hint { get; }
         public TextBlock Warning { get; }
+        /// <summary>The title and its (i) mark; a page can add small badges after them (Badge).</summary>
+        public StackPanel TitleLine { get; }
         public string Title { get; }
         /// <summary>The description (the ⓘ tooltip).</summary>
         public string? Info { get; }
@@ -53,7 +55,7 @@ namespace BloodborneLauncher.Views
                 Visibility = Visibility.Collapsed };
 
             var name = new TextBlock { Text = title, FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
-            var titleLine = new StackPanel { Orientation = Orientation.Horizontal };
+            var titleLine = TitleLine = new StackPanel { Orientation = Orientation.Horizontal };
             titleLine.Children.Add(name);
             if (!string.IsNullOrWhiteSpace(info))
             {
@@ -532,6 +534,17 @@ namespace BloodborneLauncher.Views
             var row = new SettingRow(icon, title, info, control, wide);
             hintBlock = row.Hint;
             return row;
+        }
+
+        /// <summary>A small rounded label for a row's title line (SettingRow.TitleLine): a state at a glance.</summary>
+        public static Border Badge(string text, bool warning = false)
+        {
+            var label = new TextBlock { Text = text, FontSize = 11 };
+            label.SetResourceReference(TextBlock.ForegroundProperty, warning ? "WarningTextBrush" : "AccentTextFillColorPrimaryBrush");
+            var badge = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(7, 1, 7, 1), Margin = new Thickness(8, 0, 0, 0),
+                                     BorderThickness = new Thickness(1), VerticalAlignment = VerticalAlignment.Center, Child = label };
+            badge.SetResourceReference(Border.BorderBrushProperty, warning ? "WarningTextBrush" : "AccentTextFillColorPrimaryBrush");
+            return badge;
         }
 
         public static void SetHint(TextBlock hint, string? text)

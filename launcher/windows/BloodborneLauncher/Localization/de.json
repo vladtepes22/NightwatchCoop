@@ -2747,7 +2747,6 @@
   "Huge bosses as enemies": "Riesige Bosse als Gegner",
   "Huge bosses as enemies.": "Riesige Bosse als Gegner.",
   "Hunter's Dream": "Traum des Jägers",
-  "In use.": "In Verwendung.",
   "Include Coiled Host (Nocturne boss)": "Coiled Host einbeziehen (Nocturne-Boss)",
   "Include Scorched Beast (Nocturne boss)": "Scorched Beast einbeziehen (Nocturne-Boss)",
   "Include chalice dungeon bosses": "Bosse der Kelchverliese einbeziehen",
@@ -2783,7 +2782,6 @@
   "Nocturne {0} is downloaded first ({1} MB).": "Nocturne {0} wird zuerst heruntergeladen ({1} MB).",
   "Nocturne {0} is out and needs Nightwatch {1} or newer. Update Nightwatch first; until then you keep the Nocturne your version runs.": "Nocturne {0} ist erschienen und benötigt Nightwatch {1} oder neuer. Aktualisiere zuerst Nightwatch; bis dahin behältst du das Nocturne, mit dem deine Version läuft.",
   "Not a world code yet. Codes look like R2-0W000-44JM2-00MP5.": "Noch kein Welt-Code. Codes sehen so aus: R2-0W000-44JM2-00MP5.",
-  "Not in use.": "Nicht in Verwendung.",
   "Nothing changed in this world.": "In dieser Welt hat sich nichts geändert.",
   "Now": "Jetzt",
   "Now and then a boss turns up in place of an ordinary enemy (how often: the two rows below). Its health is cut to fit the area and is never more than in its own fight (how much: Boss HP as an enemy, below) and fights like a normal enemy there: no health bar, no fog wall, no boss music, and it drops what the enemy it replaced would have. Its own boss fight stays as it was. Bosses that need their arena to work (Moon Presence, the Witch of Hemwick, the Shadows of Yharnam, Logarius, the Wet Nurse, the One Reborn, the Orphan's second phase, the Blood-starved Beast) never do this. Chalice dungeon bosses join when they are included.": "Ab und zu taucht ein Boss anstelle eines gewöhnlichen Gegners auf (wie oft: die beiden Zeilen unten). Seine LP werden an das Gebiet angepasst und sind nie höher als in seinem eigenen Kampf (wie viel: Boss-LP als Gegner, unten), und dort kämpft er wie ein normaler Gegner: ohne Lebensleiste, ohne Nebelwand, ohne Bossmusik, und er lässt die Beute fallen, die der ersetzte Gegner gehabt hätte. Sein eigener Bosskampf bleibt, wie er war. Bosse, die ihre Arena brauchen (Mondpräsenz, Die Hexe von Hemwick, die Schatten von Yharnam, Logarius, die Amme, Der Wiedergeborene, die zweite Phase der Waise, die Blutdurstige Bestie), tun das nie. Kelchverlies-Bosse kommen hinzu, wenn sie einbezogen sind.",
@@ -3037,5 +3035,8 @@
   "Shared with the party": "Mit der Gruppe geteilt",
   "What you keep": "Was du behältst",
   "Only for you and your screen: nothing here changes your save (in the game: System > My party).": "Nur für dich und deinen Bildschirm: nichts hier ändert deinen Spielstand (im Spiel: System > Meine Gruppe).",
-  "What reaches your own save from the party. Read at the next game start.": "Was aus der Gruppe in deinen eigenen Spielstand gelangt. Gilt ab dem nächsten Spielstart."
+  "What reaches your own save from the party. Read at the next game start.": "Was aus der Gruppe in deinen eigenen Spielstand gelangt. Gilt ab dem nächsten Spielstart.",
+  "In use": "In Benutzung",
+  "Other mods now": "Jetzt andere Mods",
+  "Friends can't join": "Freunde können nicht beitreten"
 }

@@ -2747,7 +2747,6 @@
   "Huge bosses as enemies": "Énormes boss comme ennemis",
   "Huge bosses as enemies.": "Énormes boss comme ennemis.",
   "Hunter's Dream": "Le Rêve du chasseur",
-  "In use.": "En service.",
   "Include Coiled Host (Nocturne boss)": "Inclure Coiled Host (boss de Nocturne)",
   "Include Scorched Beast (Nocturne boss)": "Inclure Scorched Beast (boss de Nocturne)",
   "Include chalice dungeon bosses": "Inclure les boss des donjons du calice",
@@ -2783,7 +2782,6 @@
   "Nocturne {0} is downloaded first ({1} MB).": "Nocturne {0} est d'abord téléchargé ({1} Mo).",
   "Nocturne {0} is out and needs Nightwatch {1} or newer. Update Nightwatch first; until then you keep the Nocturne your version runs.": "Nocturne {0} est sorti et nécessite Nightwatch {1} ou plus récent. Mettez d'abord Nightwatch à jour ; d'ici là, vous gardez la version de Nocturne que votre version utilise.",
   "Not a world code yet. Codes look like R2-0W000-44JM2-00MP5.": "Ce n'est pas encore un code de monde. Les codes ressemblent à R2-0W000-44JM2-00MP5.",
-  "Not in use.": "Hors service.",
   "Nothing changed in this world.": "Rien n'a changé dans ce monde.",
   "Now": "Maintenant",
   "Now and then a boss turns up in place of an ordinary enemy (how often: the two rows below). Its health is cut to fit the area and is never more than in its own fight (how much: Boss HP as an enemy, below) and fights like a normal enemy there: no health bar, no fog wall, no boss music, and it drops what the enemy it replaced would have. Its own boss fight stays as it was. Bosses that need their arena to work (Moon Presence, the Witch of Hemwick, the Shadows of Yharnam, Logarius, the Wet Nurse, the One Reborn, the Orphan's second phase, the Blood-starved Beast) never do this. Chalice dungeon bosses join when they are included.": "De temps en temps, un boss apparaît à la place d'un ennemi ordinaire (à quelle fréquence : les deux lignes ci-dessous). Ses PV sont ajustés à la zone et ne dépassent jamais ceux de son propre combat (combien : PV des boss comme ennemis, ci-dessous). Il combat là-bas comme un ennemi normal : pas de barre de vie, pas de mur de brouillard, pas de musique de boss, et il lâche ce que l'ennemi remplacé aurait lâché. Son propre combat de boss reste inchangé. Les boss qui ont besoin de leur arène pour fonctionner (Présence de la Lune, Sorcière de Hemwick, Ombres de Yharnam, Logarius, la Nourrice, le Renaissant, la deuxième phase de l'Orpheline, la Bête affamée de sang) ne le font jamais. Les boss des donjons du calice rejoignent le lot quand ils sont inclus.",
@@ -3037,5 +3035,8 @@
   "Shared with the party": "Partagé avec le groupe",
   "What you keep": "Ce que vous gardez",
   "Only for you and your screen: nothing here changes your save (in the game: System > My party).": "Pour vous et votre écran uniquement : rien ici ne modifie votre sauvegarde (en jeu : Système > Mon groupe).",
-  "What reaches your own save from the party. Read at the next game start.": "Ce qui passe du groupe dans votre propre sauvegarde. Pris en compte au prochain lancement du jeu."
+  "What reaches your own save from the party. Read at the next game start.": "Ce qui passe du groupe dans votre propre sauvegarde. Pris en compte au prochain lancement du jeu.",
+  "In use": "Utilisé",
+  "Other mods now": "Autres mods maintenant",
+  "Friends can't join": "Les amis ne peuvent pas rejoindre"
 }

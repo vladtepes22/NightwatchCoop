@@ -2747,7 +2747,6 @@
   "Huge bosses as enemies": "敵としての巨大ボス",
   "Huge bosses as enemies.": "敵としての巨大ボス。",
   "Hunter's Dream": "狩人の夢",
-  "In use.": "使用中。",
   "Include Coiled Host (Nocturne boss)": "Coiled Host（Nocturne のボス）を含める",
   "Include Scorched Beast (Nocturne boss)": "Scorched Beast（Nocturne のボス）を含める",
   "Include chalice dungeon bosses": "聖杯ダンジョンのボスを含める",
@@ -2783,7 +2782,6 @@
   "Nocturne {0} is downloaded first ({1} MB).": "Nocturne {0} を先にダウンロードします（{1} MB）。",
   "Nocturne {0} is out and needs Nightwatch {1} or newer. Update Nightwatch first; until then you keep the Nocturne your version runs.": "Nocturne {0} が公開され、Nightwatch {1} 以降が必要です。先に Nightwatch を更新してください。それまでは、お使いのバージョンで動作する Nocturne を使い続けます。",
   "Not a world code yet. Codes look like R2-0W000-44JM2-00MP5.": "まだワールドコードではありません。コードは R2-0W000-44JM2-00MP5 のような形式です。",
-  "Not in use.": "使用されていません。",
   "Nothing changed in this world.": "このワールドでは何も変わりません。",
   "Now": "今",
   "Now and then a boss turns up in place of an ordinary enemy (how often: the two rows below). Its health is cut to fit the area and is never more than in its own fight (how much: Boss HP as an enemy, below) and fights like a normal enemy there: no health bar, no fog wall, no boss music, and it drops what the enemy it replaced would have. Its own boss fight stays as it was. Bosses that need their arena to work (Moon Presence, the Witch of Hemwick, the Shadows of Yharnam, Logarius, the Wet Nurse, the One Reborn, the Orphan's second phase, the Blood-starved Beast) never do this. Chalice dungeon bosses join when they are included.": "ときどき、通常の敵の代わりにボスが現れます（頻度: 下の 2 項目）。その HP はエリアに合わせて下げられ、本来の戦闘での HP を超えることはありません（量: 下の「敵としてのボス HP」）。そこでは通常の敵のように戦い、HP バーも霧の壁もボスの音楽もなく、置き換えられた敵が落とすものをドロップします。ボス本来の戦闘はそのままです。舞台が機能しないと成立しないボス（月の魔物、ヘムウィックの魔女、ヤーナムの影、ロガリウス、乳母、One Reborn、孤児の第 2 形態、血に渇いた獣）は、この対象になりません。聖杯ダンジョンのボスは、含める設定にしている場合に加わります。",
@@ -3037,5 +3035,8 @@
   "Shared with the party": "パーティと共有",
   "What you keep": "手元に残るもの",
   "Only for you and your screen: nothing here changes your save (in the game: System > My party).": "自分と自分の画面だけの設定です。ここではセーブデータは変わりません（ゲーム内：システム > マイパーティ）。",
-  "What reaches your own save from the party. Read at the next game start.": "パーティから自分のセーブデータに入るもの。次回のゲーム起動時に反映されます。"
+  "What reaches your own save from the party. Read at the next game start.": "パーティから自分のセーブデータに入るもの。次回のゲーム起動時に反映されます。",
+  "In use": "使用中",
+  "Other mods now": "現在は別のMOD",
+  "Friends can't join": "フレンドは参加できません"
 }

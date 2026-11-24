@@ -2747,7 +2747,6 @@
   "Huge bosses as enemies": "Boss giganti come nemici",
   "Huge bosses as enemies.": "Boss giganti come nemici.",
   "Hunter's Dream": "Sogno del cacciatore",
-  "In use.": "In uso.",
   "Include Coiled Host (Nocturne boss)": "Includi Ospite avvolto (boss di Nocturne)",
   "Include Scorched Beast (Nocturne boss)": "Includi Scorched Beast (boss di Nocturne)",
   "Include chalice dungeon bosses": "Includi boss dei sotterranei del Calice",
@@ -2783,7 +2782,6 @@
   "Nocturne {0} is downloaded first ({1} MB).": "Prima viene scaricato Nocturne {0} ({1} MB).",
   "Nocturne {0} is out and needs Nightwatch {1} or newer. Update Nightwatch first; until then you keep the Nocturne your version runs.": "Nocturne {0} è uscito e richiede Nightwatch {1} o successivo. Aggiorna prima Nightwatch; fino ad allora tieni il Nocturne che usa la tua versione.",
   "Not a world code yet. Codes look like R2-0W000-44JM2-00MP5.": "Non è ancora un codice mondo. I codici hanno questa forma: R2-0W000-44JM2-00MP5.",
-  "Not in use.": "Non in uso.",
   "Nothing changed in this world.": "Nulla è cambiato in questo mondo.",
   "Now": "Ora",
   "Now and then a boss turns up in place of an ordinary enemy (how often: the two rows below). Its health is cut to fit the area and is never more than in its own fight (how much: Boss HP as an enemy, below) and fights like a normal enemy there: no health bar, no fog wall, no boss music, and it drops what the enemy it replaced would have. Its own boss fight stays as it was. Bosses that need their arena to work (Moon Presence, the Witch of Hemwick, the Shadows of Yharnam, Logarius, the Wet Nurse, the One Reborn, the Orphan's second phase, the Blood-starved Beast) never do this. Chalice dungeon bosses join when they are included.": "Ogni tanto un boss compare al posto di un nemico normale (quanto spesso: le due righe qui sotto). La sua salute viene ridotta per adattarsi all'area, non è mai superiore a quella del suo combattimento (quanto: Salute del boss come nemico, qui sotto) e combatte come un nemico normale lì: niente barra della salute, niente muro di nebbia, niente musica di boss, e lascia ciò che avrebbe lasciato il nemico sostituito. Il suo combattimento da boss resta com'era. I boss che hanno bisogno dell'arena per funzionare (Presenza lunare, la Strega di Hemwick, le Ombre di Yharnam, Logarius, la Balia di Mergo, il Rinato, la seconda fase dell'Orfano, la Bestia assetata di sangue) non lo fanno mai. I boss dei sotterranei del Calice si uniscono quando sono inclusi.",
@@ -3037,5 +3035,8 @@
   "Shared with the party": "Condiviso con il gruppo",
   "What you keep": "Cosa tieni",
   "Only for you and your screen: nothing here changes your save (in the game: System > My party).": "Solo per te e il tuo schermo: niente qui cambia il tuo salvataggio (nel gioco: Sistema > Il mio gruppo).",
-  "What reaches your own save from the party. Read at the next game start.": "Cosa arriva dal gruppo al tuo salvataggio. Vale dal prossimo avvio del gioco."
+  "What reaches your own save from the party. Read at the next game start.": "Cosa arriva dal gruppo al tuo salvataggio. Vale dal prossimo avvio del gioco.",
+  "In use": "In uso",
+  "Other mods now": "Ora altre mod",
+  "Friends can't join": "Gli amici non possono unirsi"
 }

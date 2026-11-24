@@ -2747,7 +2747,6 @@
   "Huge bosses as enemies": "Jefes enormes como enemigos",
   "Huge bosses as enemies.": "Jefes enormes como enemigos.",
   "Hunter's Dream": "El Sueño del cazador",
-  "In use.": "En uso.",
   "Include Coiled Host (Nocturne boss)": "Incluir Coiled Host (jefe de Nocturne)",
   "Include Scorched Beast (Nocturne boss)": "Incluir Scorched Beast (jefe de Nocturne)",
   "Include chalice dungeon bosses": "Incluir jefes de mazmorras de cáliz",
@@ -2783,7 +2782,6 @@
   "Nocturne {0} is downloaded first ({1} MB).": "Primero se descarga Nocturne {0} ({1} MB).",
   "Nocturne {0} is out and needs Nightwatch {1} or newer. Update Nightwatch first; until then you keep the Nocturne your version runs.": "Nocturne {0} ya está disponible y requiere Nightwatch {1} o posterior. Actualiza Nightwatch primero; hasta entonces conservas la versión de Nocturne que usa tu versión.",
   "Not a world code yet. Codes look like R2-0W000-44JM2-00MP5.": "Todavía no es un código de mundo. Los códigos tienen este formato: R2-0W000-44JM2-00MP5.",
-  "Not in use.": "No se usa.",
   "Nothing changed in this world.": "Nada ha cambiado en este mundo.",
   "Now": "Ahora",
   "Now and then a boss turns up in place of an ordinary enemy (how often: the two rows below). Its health is cut to fit the area and is never more than in its own fight (how much: Boss HP as an enemy, below) and fights like a normal enemy there: no health bar, no fog wall, no boss music, and it drops what the enemy it replaced would have. Its own boss fight stays as it was. Bosses that need their arena to work (Moon Presence, the Witch of Hemwick, the Shadows of Yharnam, Logarius, the Wet Nurse, the One Reborn, the Orphan's second phase, the Blood-starved Beast) never do this. Chalice dungeon bosses join when they are included.": "De vez en cuando aparece un jefe en lugar de un enemigo normal (con qué frecuencia: las dos filas de abajo). Sus PS se ajustan a la zona y nunca son más que en su propio combate (cuánto: PS del jefe como enemigo, abajo), y lucha como un enemigo normal allí: sin barra de vida, sin muro de niebla, sin música de jefe, y suelta lo que soltaría el enemigo que reemplaza. Su propio combate de jefe sigue igual. Los jefes que necesitan su arena para funcionar (la Presencia lunar, la Bruja de Hemwick, las Sombras de Yharnam, Logarius, la Nodriza, el One Reborn, la segunda fase del Huérfano, la Bestia hambrienta de sangre) nunca hacen esto. Los jefes de mazmorras de cáliz se suman cuando están incluidos.",
@@ -3037,5 +3035,8 @@
   "Shared with the party": "Compartido con el grupo",
   "What you keep": "Lo que conservas",
   "Only for you and your screen: nothing here changes your save (in the game: System > My party).": "Solo para ti y tu pantalla: nada de esto cambia tu partida (en el juego: Sistema > Mi grupo).",
-  "What reaches your own save from the party. Read at the next game start.": "Lo que llega del grupo a tu propia partida. Se aplica al iniciar el juego la próxima vez."
+  "What reaches your own save from the party. Read at the next game start.": "Lo que llega del grupo a tu propia partida. Se aplica al iniciar el juego la próxima vez.",
+  "In use": "En uso",
+  "Other mods now": "Ahora otros mods",
+  "Friends can't join": "Los amigos no pueden unirse"
 }

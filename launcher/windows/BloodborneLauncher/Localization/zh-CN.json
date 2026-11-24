@@ -2779,7 +2779,6 @@
   "Huge bosses as enemies": "体型巨大的首领作为敌人",
   "Huge bosses as enemies.": "体型巨大的首领作为敌人。",
   "Hunter's Dream": "Hunter's Dream",
-  "In use.": "使用中。",
   "Include Coiled Host (Nocturne boss)": "包含 Coiled Host（Nocturne 首领）",
   "Include Scorched Beast (Nocturne boss)": "包含 Scorched Beast（Nocturne 首领）",
   "Include chalice dungeon bosses": "包含圣杯地下城首领",
@@ -2807,7 +2806,6 @@
   "No other mods installed: the world is built on the game alone.": "未安装其他模组：该世界仅基于游戏本体生成。",
   "Nocturne {0} is downloaded first ({1} MB).": "将先下载 Nocturne {0}（{1} MB）。",
   "Not a world code yet. Codes look like R2-0W000-44JM2-00MP5.": "还不是世界代码。代码格式类似 R2-0W000-44JM2-00MP5。",
-  "Not in use.": "未使用。",
   "Nothing changed in this world.": "此世界没有任何变化。",
   "Now": "现在",
   "Now and then a boss turns up in place of an ordinary enemy (how often: the two rows below). Its health is cut to fit the area and is never more than in its own fight (how much: Boss HP as an enemy, below) and fights like a normal enemy there: no health bar, no fog wall, no boss music, and it drops what the enemy it replaced would have. Its own boss fight stays as it was. Bosses that need their arena to work (Moon Presence, the Witch of Hemwick, the Shadows of Yharnam, Logarius, the Wet Nurse, the One Reborn, the Orphan's second phase, the Blood-starved Beast) never do this. Chalice dungeon bosses join when they are included.": "首领偶尔会出现在普通敌人的位置（频率见下方两行）。其生命值会按区域调整，且永远不会超过其自身战斗中的数值（幅度见下方“首领作为敌人时的 HP”），并在该处像普通敌人一样战斗：没有血条、没有雾墙、没有首领音乐，被击败后掉落其所替代的敌人所掉落的物品。其自身的首领战保持不变。需要场地才能运作的首领（月之魔物、汉威克的女巫、Shadows of Yharnam、洛加留斯、梅高的奶妈、重生古神、科斯的孤儿第二阶段、渴血怪兽）永远不会这样出现。包含时，圣杯地下城首领也会加入。",
@@ -3038,5 +3036,8 @@
   "Shared with the party": "与队伍共享",
   "What you keep": "你保留的内容",
   "Only for you and your screen: nothing here changes your save (in the game: System > My party).": "仅影响你和你的屏幕：这里的设置不会改变你的存档（游戏内：系统 > 我的队伍）。",
-  "What reaches your own save from the party. Read at the next game start.": "从队伍进入你自己存档的内容。下次启动游戏时生效。"
+  "What reaches your own save from the party. Read at the next game start.": "从队伍进入你自己存档的内容。下次启动游戏时生效。",
+  "In use": "使用中",
+  "Other mods now": "现在是其他模组",
+  "Friends can't join": "好友无法加入"
 }

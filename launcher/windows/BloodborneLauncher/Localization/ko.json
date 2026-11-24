@@ -2747,7 +2747,6 @@
   "Huge bosses as enemies": "적으로 등장하는 거대 보스",
   "Huge bosses as enemies.": "적으로 등장하는 거대 보스.",
   "Hunter's Dream": "사냥꾼의 꿈",
-  "In use.": "사용 중.",
   "Include Coiled Host (Nocturne boss)": "똬리 숙주 포함(Nocturne 보스)",
   "Include Scorched Beast (Nocturne boss)": "Scorched Beast 포함(Nocturne 보스)",
   "Include chalice dungeon bosses": "성배 던전 보스 포함",
@@ -2783,7 +2782,6 @@
   "Nocturne {0} is downloaded first ({1} MB).": "Nocturne {0}을(를) 먼저 다운로드합니다({1} MB).",
   "Nocturne {0} is out and needs Nightwatch {1} or newer. Update Nightwatch first; until then you keep the Nocturne your version runs.": "Nocturne {0}이(가) 출시되었으며 Nightwatch {1} 이상이 필요합니다. 먼저 Nightwatch를 업데이트하세요. 그때까지는 현재 버전에서 실행되는 Nocturne을 유지합니다.",
   "Not a world code yet. Codes look like R2-0W000-44JM2-00MP5.": "아직 세계 코드가 아닙니다. 코드는 R2-0W000-44JM2-00MP5 같은 형태입니다.",
-  "Not in use.": "사용 안 함.",
   "Nothing changed in this world.": "이 세계에서 바뀐 것은 없습니다.",
   "Now": "지금",
   "Now and then a boss turns up in place of an ordinary enemy (how often: the two rows below). Its health is cut to fit the area and is never more than in its own fight (how much: Boss HP as an enemy, below) and fights like a normal enemy there: no health bar, no fog wall, no boss music, and it drops what the enemy it replaced would have. Its own boss fight stays as it was. Bosses that need their arena to work (Moon Presence, the Witch of Hemwick, the Shadows of Yharnam, Logarius, the Wet Nurse, the One Reborn, the Orphan's second phase, the Blood-starved Beast) never do this. Chalice dungeon bosses join when they are included.": "가끔 일반 적 대신 보스가 나타납니다(얼마나 자주인지: 아래 두 항목). 체력은 지역에 맞게 줄어들며, 자신의 보스전보다 많아지지 않습니다(얼마나: 아래 「적으로서의 보스 체력」). 그리고 그 자리에서 일반 적처럼 싸웁니다. 체력 바, 안개벽, 보스 음악이 없으며, 교체된 적이 떨어뜨리는 것을 떨어뜨립니다. 보스 자신의 전투는 그대로입니다. 전투 장소가 작동하려면 필요한 보스(달의 존재, 헴윅의 마녀, 야르남의 그림자, 로가리우스, 유모, 원 리본, 고아의 2단계, 피에 굶주린 짐승)는 이렇게 하지 않습니다. 성배 던전 보스는 포함을 선택하면 들어갑니다.",
@@ -3037,5 +3035,8 @@
   "Shared with the party": "파티와 공유",
   "What you keep": "보관되는 것",
   "Only for you and your screen: nothing here changes your save (in the game: System > My party).": "나와 내 화면에만 적용: 여기서는 저장 데이터가 바뀌지 않습니다 (게임 내: 시스템 > 내 파티).",
-  "What reaches your own save from the party. Read at the next game start.": "파티에서 내 저장 데이터로 들어오는 것. 다음 게임 시작 때 적용됩니다."
+  "What reaches your own save from the party. Read at the next game start.": "파티에서 내 저장 데이터로 들어오는 것. 다음 게임 시작 때 적용됩니다.",
+  "In use": "사용 중",
+  "Other mods now": "지금은 다른 모드",
+  "Friends can't join": "친구가 참가할 수 없음"
 }

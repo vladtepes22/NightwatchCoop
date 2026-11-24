@@ -2747,7 +2747,6 @@
   "Huge bosses as enemies": "Düşman olarak dev patronlar",
   "Huge bosses as enemies.": "Düşman olarak dev patronlar.",
   "Hunter's Dream": "Hunter's Dream",
-  "In use.": "Kullanımda.",
   "Include Coiled Host (Nocturne boss)": "Coiled Host'u dahil et (Nocturne patronu)",
   "Include Scorched Beast (Nocturne boss)": "Scorched Beast'i dahil et (Nocturne patronu)",
   "Include chalice dungeon bosses": "Kadeh zindanı patronlarını dahil et",
@@ -2783,7 +2782,6 @@
   "Nocturne {0} is downloaded first ({1} MB).": "Önce Nocturne {0} indirilir ({1} MB).",
   "Nocturne {0} is out and needs Nightwatch {1} or newer. Update Nightwatch first; until then you keep the Nocturne your version runs.": "Nocturne {0} çıktı ve Nightwatch {1} veya daha yenisini gerektirir. Önce Nightwatch'ı güncelleyin; o zamana kadar sürümünüzün çalıştırdığı Nocturne'ü korursunuz.",
   "Not a world code yet. Codes look like R2-0W000-44JM2-00MP5.": "Henüz bir dünya kodu değil. Kodlar şuna benzer: R2-0W000-44JM2-00MP5.",
-  "Not in use.": "Kullanımda değil.",
   "Nothing changed in this world.": "Bu dünyada hiçbir şey değişmedi.",
   "Now": "Şimdi",
   "Now and then a boss turns up in place of an ordinary enemy (how often: the two rows below). Its health is cut to fit the area and is never more than in its own fight (how much: Boss HP as an enemy, below) and fights like a normal enemy there: no health bar, no fog wall, no boss music, and it drops what the enemy it replaced would have. Its own boss fight stays as it was. Bosses that need their arena to work (Moon Presence, the Witch of Hemwick, the Shadows of Yharnam, Logarius, the Wet Nurse, the One Reborn, the Orphan's second phase, the Blood-starved Beast) never do this. Chalice dungeon bosses join when they are included.": "Ara sıra bir patron, sıradan bir düşmanın yerine çıkar (ne sıklıkla: aşağıdaki iki satır). Canı bölgeye uyacak şekilde kısılır, asla kendi dövüşündeki canından fazla olmaz (ne kadar: aşağıda Düşman olarak patron HP'si) ve orada normal bir düşman gibi dövüşür: can barı yok, sis duvarı yok, patron müziği yok, ve yerine geçtiği düşmanın düşüreceği şeyi düşürür. Kendi patron dövüşü olduğu gibi kalır. Arenasının çalışması için gereken patronlar (Moon Presence, Witch of Hemwick, Shadows of Yharnam, Logarius, Wet Nurse, One Reborn, Orphan'ın ikinci evresi, Blood-starved Beast) asla bunu yapmaz. Kadeh zindanı patronları dahil edildiğinde katılır.",
@@ -3037,5 +3035,8 @@
   "Shared with the party": "Grupla paylaşılan",
   "What you keep": "Sende kalanlar",
   "Only for you and your screen: nothing here changes your save (in the game: System > My party).": "Yalnızca sen ve ekranın için: buradaki hiçbir şey kaydını değiştirmez (oyunda: Sistem > Grubum).",
-  "What reaches your own save from the party. Read at the next game start.": "Gruptan kendi kaydına geçenler. Oyunun bir sonraki başlatılışında geçerli olur."
+  "What reaches your own save from the party. Read at the next game start.": "Gruptan kendi kaydına geçenler. Oyunun bir sonraki başlatılışında geçerli olur.",
+  "In use": "Kullanımda",
+  "Other mods now": "Artık başka modlar",
+  "Friends can't join": "Arkadaşlar katılamaz"
 }

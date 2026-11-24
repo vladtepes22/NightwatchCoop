@@ -78,6 +78,22 @@ namespace BloodborneLauncher.Views
             Add(Card(SymbolRegular.Rename24, L.T("World name"), L.T("Names this world's saves on this PC. It is never shared: friends who join name their own copy."),
                 _nameBox, out _), _create);
 
+            // Generate leads the tab (the beta 3 review: it sat below every option and the mods list); the options
+            // below come with defaults, and the code above changes with them.
+            _generate = SmallButton(L.T("Generate"), SymbolRegular.Play24, async (_, _) => await GenerateNow(), ControlAppearance.Primary);
+            _cancel = SmallButton(L.T("Stop"), SymbolRegular.Stop24, (_, _) => _stop?.Cancel());
+            _cancel.Visibility = Visibility.Collapsed;
+            _generateRow = Add(Card(SymbolRegular.Save24, L.T("Generate"), L.T("Each code has its own characters. Your other saves are safe. Takes a minute or two."), Row(_cancel, _generate), out _status), _create);
+            _bar.Template = (ControlTemplate)System.Windows.Markup.XamlReader.Parse("""
+                <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="ProgressBar">
+                    <Grid SnapsToDevicePixels="True">
+                        <Border Name="PART_Track" Background="{DynamicResource ControlFillColorSecondaryBrush}" CornerRadius="2" />
+                        <Border Name="PART_Indicator" HorizontalAlignment="Left" Background="{DynamicResource AccentTextFillColorPrimaryBrush}" CornerRadius="2" />
+                    </Grid>
+                </ControlTemplate>
+                """);
+            _create.Children.Add(new Grid { Height = 16, Children = { _bar } });
+
             Group(L.T("Options"), _create);
             var enemies = Section(L.T("Enemies"), open: true);
             Bind(ComboRow(SymbolRegular.ArrowShuffle24, L.T("Enemies that change"), L.T("How many enemies get replaced. The rest stay as they are."),
@@ -193,19 +209,6 @@ namespace BloodborneLauncher.Views
             _create.Children.Add(Text(L.T("Ticked mods are built into the world and stay on. A world can't keep up with a later change to this list."), "CaptionTextBlockStyle"));
             _create.Children.Add(_modChoices);
 
-            _generate = SmallButton(L.T("Generate"), SymbolRegular.Play24, async (_, _) => await GenerateNow(), ControlAppearance.Primary);
-            _cancel = SmallButton(L.T("Stop"), SymbolRegular.Stop24, (_, _) => _stop?.Cancel());
-            _cancel.Visibility = Visibility.Collapsed;
-            _generateRow = Add(Card(SymbolRegular.Save24, L.T("Generate"), L.T("Each code has its own characters. Your other saves are safe. Takes a minute or two."), Row(_cancel, _generate), out _status), _create);
-            _bar.Template = (ControlTemplate)System.Windows.Markup.XamlReader.Parse("""
-                <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="ProgressBar">
-                    <Grid SnapsToDevicePixels="True">
-                        <Border Name="PART_Track" Background="{DynamicResource ControlFillColorSecondaryBrush}" CornerRadius="2" />
-                        <Border Name="PART_Indicator" HorizontalAlignment="Left" Background="{DynamicResource AccentTextFillColorPrimaryBrush}" CornerRadius="2" />
-                    </Grid>
-                </ControlTemplate>
-                """);
-            _create.Children.Add(new Grid { Height = 16, Children = { _bar } });
             ShowTab(play: true);
             Loaded += (_, _) => Sync();
         }
@@ -470,7 +473,7 @@ namespace BloodborneLauncher.Views
                 var (options, hidden) = Randomizer.FromCode(decoded);
                 summary = Randomizer.Summary(options, hidden) + " ";
             }
-            var note = (inUse ? L.T("In use.") : L.T("Not in use.")) + " " + summary + Randomizer.BuiltOnText(builtOn) +
+            var note = summary + Randomizer.BuiltOnText(builtOn) +
                        (byContent.Count > 0 ? " " + L.F($"Friends who join it from the Join list need the same files of: {string.Join(", ", byContent)} (any folder name).") : "");
             // Problems get their own line in the warning colour, not the end of the grey summary.
             var warning = ((builtOn != null && !shareable ? L.T("Friends can't join it from the Join list: one of the mods it is built on is missing, can't be read or has the same files as another.") + " " : "") +
@@ -492,8 +495,12 @@ namespace BloodborneLauncher.Views
             var saves = WorldSaves.Find(ProfileFolder, world.Code, world.Hash);
             if (saves != null) note = L.F($"Code {world.Code}.") + " " + note;
             var card = Card(SymbolRegular.Globe24, saves?.Name ?? world.Code, null, buttons, out var line, wide: true);
-            SetHint(line, note);
+            SetHint(line, note.Trim());
             SetHint(card.Warning, warning);
+            // The world's state at a glance beside its name; the warning line says why.
+            if (inUse) card.TitleLine.Children.Add(Badge(L.T("In use")));
+            if (stale) card.TitleLine.Children.Add(Badge(L.T("Other mods now"), warning: true));
+            if (builtOn != null && !shareable) card.TitleLine.Children.Add(Badge(L.T("Friends can't join"), warning: true));
             return card;
         }
 

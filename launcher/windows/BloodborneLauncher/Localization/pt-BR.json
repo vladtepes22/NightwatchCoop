@@ -2747,7 +2747,6 @@
   "Huge bosses as enemies": "Chefes gigantes como inimigos",
   "Huge bosses as enemies.": "Chefes gigantes como inimigos.",
   "Hunter's Dream": "Hunter's Dream",
-  "In use.": "Em uso.",
   "Include Coiled Host (Nocturne boss)": "Incluir Coiled Host (chefe do Nocturne)",
   "Include Scorched Beast (Nocturne boss)": "Incluir Scorched Beast (chefe do Nocturne)",
   "Include chalice dungeon bosses": "Incluir chefes das masmorras de cálice",
@@ -2783,7 +2782,6 @@
   "Nocturne {0} is downloaded first ({1} MB).": "O Nocturne {0} é baixado primeiro ({1} MB).",
   "Nocturne {0} is out and needs Nightwatch {1} or newer. Update Nightwatch first; until then you keep the Nocturne your version runs.": "O Nocturne {0} saiu e requer Nightwatch {1} ou mais recente. Atualize o Nightwatch primeiro; até lá você mantém o Nocturne que sua versão usa.",
   "Not a world code yet. Codes look like R2-0W000-44JM2-00MP5.": "Ainda não é um código de mundo. Os códigos têm este formato: R2-0W000-44JM2-00MP5.",
-  "Not in use.": "Não em uso.",
   "Nothing changed in this world.": "Nada mudou neste mundo.",
   "Now": "Agora",
   "Now and then a boss turns up in place of an ordinary enemy (how often: the two rows below). Its health is cut to fit the area and is never more than in its own fight (how much: Boss HP as an enemy, below) and fights like a normal enemy there: no health bar, no fog wall, no boss music, and it drops what the enemy it replaced would have. Its own boss fight stays as it was. Bosses that need their arena to work (Moon Presence, the Witch of Hemwick, the Shadows of Yharnam, Logarius, the Wet Nurse, the One Reborn, the Orphan's second phase, the Blood-starved Beast) never do this. Chalice dungeon bosses join when they are included.": "De vez em quando um chefe aparece no lugar de um inimigo comum (com que frequência: as duas linhas abaixo). Sua vida é reduzida para caber na área e nunca passa da que tem na própria luta (quanto: HP de chefe como inimigo, abaixo), e luta como um inimigo normal ali: sem barra de vida, sem parede de névoa, sem música de chefe, e dá o que o inimigo substituído daria. A luta de chefe própria dele continua como era. Chefes que precisam da arena para funcionar (Presença da Lua, a Bruxa de Hemwick, as Sombras de Yharnam, Logarius, a Ama de Leite, o One Reborn, a segunda fase do Órfão, a Fera Sedenta de Sangue) nunca fazem isso. Chefes de masmorra de cálice entram quando são incluídos.",
@@ -3037,5 +3035,8 @@
   "Shared with the party": "Compartilhado com o grupo",
   "What you keep": "O que você guarda",
   "Only for you and your screen: nothing here changes your save (in the game: System > My party).": "Só para você e sua tela: nada aqui muda seu save (no jogo: Sistema > Meu grupo).",
-  "What reaches your own save from the party. Read at the next game start.": "O que chega do grupo ao seu próprio save. Vale a partir do próximo início do jogo."
+  "What reaches your own save from the party. Read at the next game start.": "O que chega do grupo ao seu próprio save. Vale a partir do próximo início do jogo.",
+  "In use": "Em uso",
+  "Other mods now": "Agora outros mods",
+  "Friends can't join": "Amigos não podem entrar"
 }

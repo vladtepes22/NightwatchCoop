@@ -2747,7 +2747,6 @@
   "Huge bosses as enemies": "Величезні боси як вороги",
   "Huge bosses as enemies.": "Величезні боси як вороги.",
   "Hunter's Dream": "Сон мисливця",
-  "In use.": "Використовується.",
   "Include Coiled Host (Nocturne boss)": "Включити Coiled Host (бос Nocturne)",
   "Include Scorched Beast (Nocturne boss)": "Включити Scorched Beast (бос Nocturne)",
   "Include chalice dungeon bosses": "Включити босів підземель чаш",
@@ -2783,7 +2782,6 @@
   "Nocturne {0} is downloaded first ({1} MB).": "Спершу завантажується Nocturne {0} ({1} МБ).",
   "Nocturne {0} is out and needs Nightwatch {1} or newer. Update Nightwatch first; until then you keep the Nocturne your version runs.": "Вийшов Nocturne {0}, і йому потрібен Nightwatch {1} або новіший. Спершу оновіть Nightwatch; доти ви лишаєтеся з тим Nocturne, який працює у вашій версії.",
   "Not a world code yet. Codes look like R2-0W000-44JM2-00MP5.": "Це ще не код світу. Коди мають вигляд R2-0W000-44JM2-00MP5.",
-  "Not in use.": "Не використовується.",
   "Nothing changed in this world.": "У цьому світі нічого не змінилося.",
   "Now": "Зараз",
   "Now and then a boss turns up in place of an ordinary enemy (how often: the two rows below). Its health is cut to fit the area and is never more than in its own fight (how much: Boss HP as an enemy, below) and fights like a normal enemy there: no health bar, no fog wall, no boss music, and it drops what the enemy it replaced would have. Its own boss fight stays as it was. Bosses that need their arena to work (Moon Presence, the Witch of Hemwick, the Shadows of Yharnam, Logarius, the Wet Nurse, the One Reborn, the Orphan's second phase, the Blood-starved Beast) never do this. Chalice dungeon bosses join when they are included.": "Інколи бос з’являється замість звичайного ворога (як часто: два рядки нижче). Його здоров’я зменшується відповідно до області, і воно ніколи не буває більшим, ніж у його власному бою (наскільки: Здоров’я боса як ворога, нижче). Він б’ється як звичайний ворог у цій області: без смуги здоров’я, без туманної стіни, без музики боса, і дає те, що дав би ворог, якого він замінив. Власний бій боса лишається як був. Боси, яким для роботи потрібна їхня арена (Присутність Місяця, Відьма Гемвіку, Тіні Ярнаму, Логарій, Годувальниця Мерго, Перероджений, друга фаза Сироти, Спраглий крові звір), ніколи цього не роблять. Боси підземель чаш долучаються, якщо їх включено.",
@@ -3037,5 +3035,8 @@
   "Shared with the party": "Спільне з групою",
   "What you keep": "Що лишається у вас",
   "Only for you and your screen: nothing here changes your save (in the game: System > My party).": "Лише для вас і вашого екрана: тут ніщо не змінює ваше збереження (у грі: Система > Моя група).",
-  "What reaches your own save from the party. Read at the next game start.": "Що потрапляє з групи у ваше збереження. Діє з наступного запуску гри."
+  "What reaches your own save from the party. Read at the next game start.": "Що потрапляє з групи у ваше збереження. Діє з наступного запуску гри.",
+  "In use": "Використовується",
+  "Other mods now": "Тепер інші моди",
+  "Friends can't join": "Друзі не зможуть приєднатися"
 }

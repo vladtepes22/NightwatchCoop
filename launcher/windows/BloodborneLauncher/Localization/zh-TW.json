@@ -2761,7 +2761,6 @@
   "Huge bosses as enemies": "巨大首領作為敵人",
   "Huge bosses as enemies.": "巨大首領作為敵人。",
   "Hunter's Dream": "Hunter's Dream",
-  "In use.": "使用中。",
   "Include Coiled Host (Nocturne boss)": "包含纏繞宿主（Nocturne 首領）",
   "Include Scorched Beast (Nocturne boss)": "包含 Scorched Beast（Nocturne 首領）",
   "Include chalice dungeon bosses": "包含聖杯地城首領",
@@ -2794,7 +2793,6 @@
   "No other mods installed: the world is built on the game alone.": "未安裝其他模組：此世界僅以遊戲本體建立。",
   "Nocturne {0} is downloaded first ({1} MB).": "將先下載 Nocturne {0}（{1} MB）。",
   "Not a world code yet. Codes look like R2-0W000-44JM2-00MP5.": "尚非有效的世界代碼。代碼格式如 R2-0W000-44JM2-00MP5。",
-  "Not in use.": "未使用。",
   "Nothing changed in this world.": "此世界沒有任何變更。",
   "Now": "現在",
   "Now and then a boss turns up in place of an ordinary enemy (how often: the two rows below). Its health is cut to fit the area and is never more than in its own fight (how much: Boss HP as an enemy, below) and fights like a normal enemy there: no health bar, no fog wall, no boss music, and it drops what the enemy it replaced would have. Its own boss fight stays as it was. Bosses that need their arena to work (Moon Presence, the Witch of Hemwick, the Shadows of Yharnam, Logarius, the Wet Nurse, the One Reborn, the Orphan's second phase, the Blood-starved Beast) never do this. Chalice dungeon bosses join when they are included.": "偶爾會有首領取代一般敵人出現（頻率：下方兩列）。其血量會依區域調整，且永遠不會超過其自身戰鬥中的血量（幅度：下方的「首領作為敵人時的血量」），並如同一般敵人般在該處戰鬥：沒有血條、沒有霧牆、沒有首領音樂，並會掉落被其取代的敵人所掉落的物品。其自身的首領戰維持原樣。需要戰場才能運作的首領（月之魔、漢威克的魔女、亞楠之影、洛加留斯、梅高的奶媽、再誕者、科斯的孤兒第二階段、渴血之獸）絕不會如此。包含聖杯地城首領時，它們也會加入。",
@@ -3037,5 +3035,8 @@
   "Shared with the party": "與隊伍共享",
   "What you keep": "你保留的內容",
   "Only for you and your screen: nothing here changes your save (in the game: System > My party).": "僅影響你和你的畫面：這裡的設定不會改變你的存檔（遊戲內：系統 > 我的隊伍）。",
-  "What reaches your own save from the party. Read at the next game start.": "從隊伍進入你自己存檔的內容。下次啟動遊戲時生效。"
+  "What reaches your own save from the party. Read at the next game start.": "從隊伍進入你自己存檔的內容。下次啟動遊戲時生效。",
+  "In use": "使用中",
+  "Other mods now": "現在是其他模組",
+  "Friends can't join": "好友無法加入"
 }
