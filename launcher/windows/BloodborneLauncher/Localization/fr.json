@@ -3043,6 +3043,8 @@
   "More enemy kinds per area.": "Plus de types d'ennemis par zone.",
   "Most enemy kinds per area.": "Maximum de types d'ennemis par zone.",
   "Presets": "Préréglages",
+  "Presets…": "Préréglages…",
+  "A preset fills in the picture, effect and lighting settings on the Graphics page. They stay editable there.": "Un préréglage remplit les réglages d'image, d'effets et d'éclairage de la page Graphismes. Ils restent modifiables à cet endroit.",
   "Original": "Original",
   "Crisp": "Net",
   "Atmospheric": "Atmosphérique",

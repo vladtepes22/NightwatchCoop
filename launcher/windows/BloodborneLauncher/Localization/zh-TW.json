@@ -3043,6 +3043,8 @@
   "More enemy kinds per area.": "每個區域的敵人種類更多。",
   "Most enemy kinds per area.": "每個區域的敵人種類最多。",
   "Presets": "預設",
+  "Presets…": "預設…",
+  "A preset fills in the picture, effect and lighting settings on the Graphics page. They stay editable there.": "預設會填入「圖形」頁面上的畫面、效果與光照設定。這些設定仍可在那裡修改。",
   "Original": "原版",
   "Crisp": "清晰",
   "Atmospheric": "氛圍",
