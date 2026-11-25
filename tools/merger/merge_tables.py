@@ -145,6 +145,55 @@ def merge_tables(mods, out_dir, out_name, log):
     return written
 
 
+HOST_ONLY = "party_host_only.txt"
+HOST_ONLY_MAX = 4096  # engine\start\host_only.h kMax
+
+
+def host_only_ids(data):
+    """The event ids of one mod's party_host_only.txt as the engine reads it (engine\\start\\host_only.h ParseModList):
+    UTF-8 (a BOM dropped), `#` starts a comment, spaces, tabs and CRs around an id dropped, ids 1..4294967295. Raises
+    ValueError on a line the engine refuses (it then leaves out that mod's whole list)."""
+    text = data.decode("utf-8-sig")
+    ids = []
+    for number, line in enumerate(text.splitlines(), 1):
+        value = line.split("#", 1)[0].strip(" \t\r")
+        if not value:
+            continue
+        if not re.fullmatch(r"[0-9]+", value) or not 0 < int(value) <= 0xFFFFFFFF:
+            raise ValueError("line %d is not an event id: %s" % (number, line.strip()))
+        ids.append(int(value))
+    return ids
+
+
+def merge_host_only(mods, out_dir, log):
+    """party_host_only.txt (boss phase events only the party host decides; at the mod folder's root, beside
+    dvdroot_ps4): the engine merges the enabled mods' lists sorted and unique, so the merged mod gets that union."""
+    ids, sources = set(), []
+    for mod, folder in mods:
+        path = os.path.join(folder, HOST_ONLY)
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "rb") as f:
+                own = host_only_ids(f.read())
+        except (OSError, ValueError) as error:
+            log("INFO %s of %s cannot be read (%s): left out, as the game would leave it out" % (HOST_ONLY, mod, error))
+            continue
+        sources.append(mod)
+        ids.update(own)
+    if not ids:
+        return None
+    if len(ids) > HOST_ONLY_MAX:
+        log("INFO %s: %d events, more than the game takes (%d): the game will use none of them" % (
+            HOST_ONLY, len(ids), HOST_ONLY_MAX))
+    with open(os.path.join(out_dir, HOST_ONLY), "w", encoding="utf-8", newline="\n") as f:
+        f.write("# Boss phase events only the party host decides, merged from: %s\n" % ", ".join(sources))
+        f.write("".join("%d\n" % i for i in sorted(ids)))
+    log("MERGED %s from %d mod%s: %d event%s" % (HOST_ONLY, len(sources), "" if len(sources) == 1 else "s", len(ids),
+                                                 "" if len(ids) == 1 else "s"))
+    return HOST_ONLY
+
+
 def _copy_sound(mod, folder, rel, out_dir, written, log):
     """Copies a sound file a row names; when another mod already put a different file at that path, this one goes
     under merged\\<mod>\\ and the row is pointed there."""

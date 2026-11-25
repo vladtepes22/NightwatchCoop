@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import MergeError, Report, containers, plural  # noqa: E402
 from merge_any import Context, describe, merge_payload, unpack  # noqa: E402
 from merge_param import Paramdefs  # noqa: E402
-from merge_tables import merge_tables  # noqa: E402
+from merge_tables import HOST_ONLY, merge_host_only, merge_tables  # noqa: E402
 
 SERIALS = ("CUSA03173", "CUSA00900", "CUSA00207", "CUSA00208", "CUSA00299", "CUSA01363", "CUSA03179", "CUSA03014",
            "CUSA03023")
@@ -314,8 +314,10 @@ def run(args):
                 files += 1
         folders = [(name, os.path.abspath(folder)) for (name, _), folder in zip(mods, args.mod)]
         merge_tables(folders, tmp, os.path.basename(out), log)
+        merge_host_only(folders, tmp, log)
         for name, folder in folders:
-            extra = sorted(e for e in _entries(folder) if e.lower() not in ("nightwatch.json", "nightwatch") and
+            kept = ("nightwatch.json", "nightwatch", HOST_ONLY)
+            extra = sorted(e for e in _entries(folder) if e.lower() not in kept and
                            os.path.isfile(os.path.join(folder, e)))
             if extra:
                 log("INFO %s: not copied (beside its game files): %s" % (name, ", ".join(extra)))

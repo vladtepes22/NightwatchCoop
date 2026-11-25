@@ -475,6 +475,27 @@ class EndToEndTests(unittest.TestCase):
         # The launcher lists it: a dvdroot_ps4 folder in it.
         self.assertTrue(os.path.isdir(os.path.join(out, "dvdroot_ps4")))
 
+    def test_party_host_only_lists_are_merged(self):
+        # A boss mod's host-only events must reach the merged mod, else co-op loses them.
+        synth.write(os.path.join(self.mods[0], "party_host_only.txt"),
+                    b"\xef\xbb\xbf# boss\n12104900\r\n  12204900 # x\n")
+        synth.write(os.path.join(self.mods[1], "party_host_only.txt"), b"12204900\n12000001\n")
+        out = os.path.join(self.dir, "mods", "Merged")
+        code, lines, err = self.run_merge(out)
+        self.assertEqual(code, 0, err)
+        with open(os.path.join(out, "party_host_only.txt"), encoding="utf-8") as f:
+            ids = [line for line in f.read().splitlines() if not line.startswith("#")]
+        self.assertEqual(ids, ["12000001", "12104900", "12204900"])
+        self.assertIn("MERGED party_host_only.txt from 2 mods: 3 events", lines)
+        self.assertFalse(any("not copied" in line and "party_host_only" in line for line in lines), lines)
+        # A list the game refuses is left out, as the game leaves it out.
+        out2 = os.path.join(self.dir, "mods", "Merged2")
+        synth.write(os.path.join(self.mods[1], "party_host_only.txt"), b"12000001\nboss\n")
+        code, lines, err = self.run_merge(out2)
+        self.assertEqual(code, 0, err)
+        with open(os.path.join(out2, "party_host_only.txt"), encoding="utf-8") as f:
+            self.assertEqual([x for x in f.read().splitlines() if not x.startswith("#")], ["12104900", "12204900"])
+
     def test_deterministic(self):
         first, second = os.path.join(self.dir, "o1", "Merged"), os.path.join(self.dir, "o2", "Merged")
         self.assertEqual(self.run_merge(first)[0], 0)
