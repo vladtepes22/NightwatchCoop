@@ -62,11 +62,11 @@ def options_from(args):
     return out
 
 
-# boss round 2 switches, CLI --witch-mix, --shadows-mix ... (on/off option ids 26-45, 48, 50 in seedcode)
+# boss round 2 switches, CLI --witch-mix, --shadows-mix ... (on/off option ids 26-45, 48, 50, 52, 53 in seedcode)
 ROUND2_FLAGS = ("witch_mix", "shadows_mix", "emissary_mix", "failures_mix", "chalice_bosses", "hard_rom",
                 "hard_amygdala", "hard_ebrietas", "difficult_enemies", "second_stage", "away_from_home", "free_poses",
                 "starter_armor", "shadows_summons", "chalice_enemies", "bosses_as_enemies", "coiled_host", "gem_roulette", "cursed_gems",
-                "huge_bosses_as_enemies", "no_winter_lanterns", "scorched_beast")
+                "huge_bosses_as_enemies", "no_winter_lanterns", "scorched_beast", "moon_presence_two")
 ROUND2_HELP = {"witch_mix": "each Witch of Hemwick body draws its own boss", "shadows_mix": "each Shadow draws its own boss",
                "emissary_mix": "every Celestial Emissary becomes a boss with its own HP",
                "failures_mix": "every Living Failure becomes a boss with its own HP",
@@ -96,6 +96,9 @@ ROUND2_HELP = {"witch_mix": "each Witch of Hemwick body draws its own boss", "sh
                               "boss pool and his own place draws a boss; no effect without Nocturne v2.0.0 or later",
                "scorched_beast": "with boss swaps: Nocturne's Scorched Beast (the Lesser Demon of Old Yharnam, with his second head) "
                                  "joins the boss pool and his plaza draws a boss; no effect without Nocturne v5.0.0 or later",
+               "moon_presence_two": "with boss swaps: Nocturne's Moon Presence phase two comes along wherever the Moon "
+                                    "Presence fights (at half her bar she hands over to it); without it she fights alone "
+                                    "away from the Dream; no effect without Nocturne v6.1.0 or later",
                "no_winter_lanterns": "Winter Lanterns never replace an enemy (their Frenzy reaches from afar); their own "
                                      "places still change as usual"}
 

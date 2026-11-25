@@ -386,6 +386,21 @@ def stem_of(entity):
     return "m%02d_%02d" % (entity // 100000, entity // 10000 % 10)
 
 
+_SAVED = {}
+
+
+def setUpModule():
+    """These fights read the game alone, while the module-wide tables (arenas.set_phases) hold whatever inputs an earlier
+    test module's census read: a base mod's fight (helpers.found_mod_fights, Nocturne v6.1.0's Moon Presence phase two)
+    has no body here, so it is left out for this module and comes back afterwards."""
+    _SAVED.update(phases=dict(arenas.PHASES), helpers=dict(arenas.FOUND_HELPERS))
+    arenas.set_phases(_SAVED["phases"], {e: s for e, s in _SAVED["helpers"].items() if "fight" not in s})
+
+
+def tearDownModule():
+    arenas.set_phases(_SAVED["phases"], _SAVED["helpers"])
+
+
 class Game:
     _files, _events, _msb, _variants = None, {}, {}, {}
 

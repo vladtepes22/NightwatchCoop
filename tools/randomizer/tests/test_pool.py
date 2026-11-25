@@ -129,11 +129,11 @@ class Pool(unittest.TestCase):
             self.assertEqual(strength[npc], max(strength.values()), (key, strength))
 
     def test_option_ids_agree_across_the_generator_the_command_line_and_the_launcher(self):
-        """Options 25-52: seedcode, the CLI flags (run as the launcher runs them), WorldCode.cs and Randomizer.cs."""
+        """Options 25-53: seedcode, the CLI flags (run as the launcher runs them), WorldCode.cs and Randomizer.cs."""
         import re
         import subprocess
         import seedcode
-        round2 = [o for o in seedcode.OPTIONS if 25 <= o[0] <= 52
+        round2 = [o for o in seedcode.OPTIONS if 25 <= o[0] <= 53
                   and o[1] not in ("boss_enemy_chance", "boss_enemy_max", "boss_enemy_hp", "include_only")]
         self.assertEqual([o[1] for o in round2], list(seedcode.BOOL_OPTIONS_R2[:4]) + ["bell_maidens"]
                          + list(seedcode.BOOL_OPTIONS_R2[4:]))  # 25 (hard mode) was removed

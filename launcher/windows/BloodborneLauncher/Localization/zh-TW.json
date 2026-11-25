@@ -3087,5 +3087,9 @@
   "That name is too long.": "名稱過長。",
   "A mod with that name already exists.": "已有同名的模組。",
   "New Settings screen": "新的設定畫面",
-  "New Settings screen: the pause menu's Settings page; off shows the game's System list with the PC pages instead. Only with the menus on.": "新的設定畫面：暫停選單中的設定頁面；關閉後改為顯示遊戲的系統列表及 PC 頁面。僅在選單開啟時有效。"
+  "New Settings screen: the pause menu's Settings page; off shows the game's System list with the PC pages instead. Only with the menus on.": "新的設定畫面：暫停選單中的設定頁面；關閉後改為顯示遊戲的系統列表及 PC 頁面。僅在選單開啟時有效。",
+  "Include Moon Presence phase two (Nocturne)": "包含 Moon Presence 第二階段（Nocturne）",
+  "Needs Nocturne v6.1.0 or later among the ticked mods below, which gives the Moon Presence a second phase; without it this row is greyed out and does nothing. With this on, the Moon Presence brings her second phase to whatever fight she lands in, and turns into it at half her health bar. With this off, she fights alone there.": "需要勾選下方的模組中有 Nocturne v6.1.0 或更新版本，它為 Moon Presence 加入第二階段；沒有的話此列會變灰且沒有作用。開啟後，Moon Presence 無論出現在哪場戰鬥都會帶上第二階段，並在血條剩一半時變成它。關閉後，她在那裡單獨戰鬥。",
+  "The Moon Presence phase two option is skipped: no Nocturne v6.1.0 or later among the ticked mods.": "已略過 Moon Presence 第二階段選項：勾選的模組中沒有 Nocturne v6.1.0 或更新版本。",
+  "The Moon Presence brings her phase two.": "Moon Presence 帶上她的第二階段。"
 }

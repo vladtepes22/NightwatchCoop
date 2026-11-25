@@ -38,7 +38,8 @@ namespace BloodborneLauncher.Core
             bool DifficultEnemies = false, bool SecondStage = false, bool AwayFromHome = false, bool FreePoses = false, bool StarterArmor = false,
             bool ShadowsSummons = false, bool ChaliceEnemies = false, bool BossesAsEnemies = false, bool CoiledHost = false, bool GemRoulette = false,
             bool CursedGems = false, int BossEnemyChance = 25, int BossEnemyMax = 1, bool HugeBossesAsEnemies = false,
-            int BossEnemyHp = 8, bool NoWinterLanterns = false, IReadOnlyList<int>? IncludeOnly = null, bool ScorchedBeast = false);
+            int BossEnemyHp = 8, bool NoWinterLanterns = false, IReadOnlyList<int>? IncludeOnly = null, bool ScorchedBeast = false,
+            bool MoonPresenceTwo = false);
 
         /// <summary>The bell maidens' choices (seedcode option bell_maidens 0-2).</summary>
         public static readonly string[] BellMaidenChoices = { "off", "normal", "difficult" };
@@ -212,8 +213,21 @@ namespace BloodborneLauncher.Core
 
         public static bool PlacesScorchedBeast(string folder) => PlacesEntity(folder, "m23_00_00_00", ScorchedBeastEntity);
 
-        /// <summary>The mod ships this map and its bytes hold the entity id (a 4-byte search); false for anything unreadable.</summary>
-        public static bool PlacesEntity(string folder, string map, int entity)
+        /// <summary>Option moon_presence_two has something to act on: a ticked mod places the Moon Presence's phase two
+        /// (Nocturne v6.1.0 or later), found the same way. Reads a map file, so call it off the UI thread.</summary>
+        public static bool HasMoonPresenceTwo(string modsDir, IEnumerable<string> modFolders) =>
+            modFolders.Any(m => PlacesMoonPresenceTwo(Path.Combine(modsDir, m)));
+
+        /// <summary>Nocturne's Moon Presence phase two: entity 2100860 of model c5420 in m21_00_00_00's map (in no game map;
+        /// the model name too, as a world made from an older Nocturne may give that entity to a boss's helper).</summary>
+        public const int MoonPresenceTwoEntity = 2100860;
+
+        public static bool PlacesMoonPresenceTwo(string folder) =>
+            PlacesEntity(folder, "m21_00_00_00", MoonPresenceTwoEntity, "c5420");
+
+        /// <summary>The mod ships this map and its bytes hold the entity id (a 4-byte search), and the model name when one is
+        /// given (UTF-16, as the map stores names); false for anything unreadable.</summary>
+        public static bool PlacesEntity(string folder, string map, int entity, string? model = null)
         {
             try
             {
@@ -223,7 +237,9 @@ namespace BloodborneLauncher.Core
                 var file = Path.Combine(Directory.Exists(dvd) ? dvd : root, "map", "MapStudio", map + ".msb.dcx");
                 if (!File.Exists(file)) return false;
                 var key = BitConverter.GetBytes(entity);
-                return Dcx(File.ReadAllBytes(file)).AsSpan().IndexOf(key) >= 0;
+                var data = Dcx(File.ReadAllBytes(file));
+                return data.AsSpan().IndexOf(key) >= 0
+                       && (model == null || data.AsSpan().IndexOf(Encoding.Unicode.GetBytes(model)) >= 0);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException) { return false; }
         }
@@ -294,7 +310,8 @@ namespace BloodborneLauncher.Core
                 B("hard_amygdala"), B("hard_ebrietas"), B("difficult_enemies"), B("second_stage"), B("away_from_home"), B("free_poses"),
                 B("starter_armor"), B("shadows_summons"), B("chalice_enemies"), B("bosses_as_enemies"), B("coiled_host"), B("gem_roulette"),
                 B("cursed_gems"), (int)I("boss_enemy_chance"), (int)I("boss_enemy_max"), B("huge_bosses_as_enemies"),
-                (int)I("boss_enemy_hp"), B("no_winter_lanterns"), ((long[])o["include_only"]).Select(x => (int)x).ToList(), B("scorched_beast"));
+                (int)I("boss_enemy_hp"), B("no_winter_lanterns"), ((long[])o["include_only"]).Select(x => (int)x).ToList(), B("scorched_beast"),
+                B("moon_presence_two"));
             var hidden = ((ValueTuple<long, long>[])o["area_chance"]).Length > 0 || I("oops_all") != 0 || I("fixed_effect") != 0 ||
                          I("variety") != 0 || I("map_models") != 24 || I("map_mb") != 343;
             return (options, hidden);
@@ -349,6 +366,7 @@ namespace BloodborneLauncher.Core
             c["coiled_host"] = B(o.CoiledHost);
             c["no_winter_lanterns"] = B(o.NoWinterLanterns);
             c["scorched_beast"] = B(o.ScorchedBeast);
+            c["moon_presence_two"] = B(o.MoonPresenceTwo);
             c["include_only"] = (o.IncludeOnly ?? Array.Empty<int>()).Select(x => (long)x).ToArray();
             return WorldCode.Encode((uint)o.Seed, c);
         }
@@ -378,6 +396,7 @@ namespace BloodborneLauncher.Core
             if (o.Bosses && o.SecondStage) text += " " + L.T("Gascoigne, Ludwig and the Orphan turn into another boss.");
             if (o.Bosses && o.CoiledHost) text += " " + L.T("Coiled Host in the boss swaps.");
             if (o.Bosses && o.ScorchedBeast) text += " " + L.T("Scorched Beast in the boss swaps.");
+            if (o.Bosses && o.MoonPresenceTwo) text += " " + L.T("The Moon Presence brings her phase two.");
             if (o.DifficultEnemies) text += " " + L.T("Difficult enemies.");
             if (o.AwayFromHome) text += " " + L.T("Enemies away from home.");
             if (o.FreePoses) text += " " + L.T("More randomness.");

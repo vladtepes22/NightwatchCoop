@@ -3088,5 +3088,9 @@
   "That name is too long.": "名称过长。",
   "A mod with that name already exists.": "已存在同名模组。",
   "New Settings screen": "新的设置界面",
-  "New Settings screen: the pause menu's Settings page; off shows the game's System list with the PC pages instead. Only with the menus on.": "新的设置界面：暂停菜单中的设置页面；关闭后改为显示游戏的系统列表及 PC 页面。仅在菜单开启时有效。"
+  "New Settings screen: the pause menu's Settings page; off shows the game's System list with the PC pages instead. Only with the menus on.": "新的设置界面：暂停菜单中的设置页面；关闭后改为显示游戏的系统列表及 PC 页面。仅在菜单开启时有效。",
+  "Include Moon Presence phase two (Nocturne)": "包含 Moon Presence 第二阶段（Nocturne）",
+  "Needs Nocturne v6.1.0 or later among the ticked mods below, which gives the Moon Presence a second phase; without it this row is greyed out and does nothing. With this on, the Moon Presence brings her second phase to whatever fight she lands in, and turns into it at half her health bar. With this off, she fights alone there.": "需要勾选下方的模组中有 Nocturne v6.1.0 或更高版本，它为 Moon Presence 加入第二阶段；没有则此行变灰且无效。开启后，Moon Presence 无论出现在哪场战斗都会带上第二阶段，并在血条剩一半时变成它。关闭后，她在那里单独战斗。",
+  "The Moon Presence phase two option is skipped: no Nocturne v6.1.0 or later among the ticked mods.": "已跳过 Moon Presence 第二阶段选项：勾选的模组中没有 Nocturne v6.1.0 或更高版本。",
+  "The Moon Presence brings her phase two.": "Moon Presence 带上她的第二阶段。"
 }

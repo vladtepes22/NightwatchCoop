@@ -3087,5 +3087,9 @@
   "That name is too long.": "Ce nom est trop long.",
   "A mod with that name already exists.": "Un mod portant ce nom existe déjà.",
   "New Settings screen": "Nouvel écran des réglages",
-  "New Settings screen: the pause menu's Settings page; off shows the game's System list with the PC pages instead. Only with the menus on.": "Nouvel écran des réglages : la page Réglages du menu pause ; désactivé, la liste Système du jeu avec les pages PC s'affiche à la place. Seulement avec les menus activés."
+  "New Settings screen: the pause menu's Settings page; off shows the game's System list with the PC pages instead. Only with the menus on.": "Nouvel écran des réglages : la page Réglages du menu pause ; désactivé, la liste Système du jeu avec les pages PC s'affiche à la place. Seulement avec les menus activés.",
+  "Include Moon Presence phase two (Nocturne)": "Inclure la seconde phase de Moon Presence (Nocturne)",
+  "Needs Nocturne v6.1.0 or later among the ticked mods below, which gives the Moon Presence a second phase; without it this row is greyed out and does nothing. With this on, the Moon Presence brings her second phase to whatever fight she lands in, and turns into it at half her health bar. With this off, she fights alone there.": "Nécessite Nocturne v6.1.0 ou plus récent parmi les mods cochés ci-dessous, qui donne une seconde phase à Moon Presence ; sans lui, cette ligne est grisée et ne fait rien. Avec cette option activée, Moon Presence emmène sa seconde phase dans le combat où elle apparaît et s'y transforme à la moitié de sa barre de vie. Désactivée, elle y combat seule.",
+  "The Moon Presence phase two option is skipped: no Nocturne v6.1.0 or later among the ticked mods.": "L'option de la seconde phase de Moon Presence est ignorée : aucun Nocturne v6.1.0 ou plus récent parmi les mods cochés.",
+  "The Moon Presence brings her phase two.": "Moon Presence emmène sa seconde phase."
 }

@@ -293,14 +293,15 @@ def merged_archive(census, stem, changes, model_home):
 
 
 def patched_events(data, stem, placed, fighters, modes, animations, origin_events=None, sources=None,
-                   helper_models=None):
+                   helper_models=None, host_only=frozenset()):
     """The map's event file for its new bosses (boss_events.arena_events: second-attempt starts, scenes off, part and
     phase events and bar names per body, what each kind of fight needs), then with the forced animations a body's new
     model lacks made inert. placed: {entity: fighter key} of this stem's bodies with a boss; fighters: {key: fighter
     dict}; modes: {arena key: "swap" | "mix" | "normal"}; animations: {model: animation ids}; origin_events(entity) ->
     the Emevd of that entity's home map (data already carries the helpers' edits,
     helpers.apply_stem); sources: the helpers' Emevd.sources (their copies, for hostonly.cover);
-    helper_models: {entity: model} of the bodies the helpers added (a stage boss lacks the second phase's animations).
+    helper_models: {entity: model} of the bodies the helpers added (a stage boss lacks the second phase's animations);
+    host_only: the event ids the inputs' mods list host-only (hostonly.mod_listed).
     Returns (bytes or None, [(entity, event, instruction, animation)], report)."""
     events = Emevd(data)
     events.sources.update(sources or {})
@@ -311,7 +312,7 @@ def patched_events(data, stem, placed, fighters, modes, animations, origin_event
     done = _inert_animations(events, models, animations, foreign=frozenset(placed))
     changed = done or any(report.values())
     # last: copies of host-only phase events take this map's emptied listed ids (co-op, hostonly.py)
-    covered = hostonly.cover(events)
+    covered = hostonly.cover(events, host_only)
     for copy, listed, *_ in covered.get("covered", ()):  # the report and the patches name the ids the file ends with
         report, done = _swapped((report, done), copy, listed)
     report["host_only"] = covered
@@ -705,6 +706,7 @@ def generate(game, mods, out_root, code, label=None, base_label=None, progress=N
     texture_report = {}  # {stem: [[source model, entity, models that need it]]} (texture_parts)
     event_effects = {}  # {stem: effect ids its events newly spawn} (effects.plan)
     travelled = {}  # {stem: {(model, home npc row)}} of the bodies that came with a boss, for their effects
+    mod_host_only = hostonly.mod_listed(files.mod_folders)  # a copy of a mod's host-only event stays host-only
 
     def origin_events(entity):
         return Emevd(dcx_read(files.read("event/%s_00_00.emevd.dcx" % home_stem[entity]))[0])
@@ -772,7 +774,7 @@ def generate(game, mods, out_root, code, label=None, base_label=None, progress=N
                                                                 events.sources if helped else None,
                                                                 {**loose, **{b["entity"]: b["model"]
                                                                  for bodies in helper_report["bodies"].values()
-                                                                 for b in bodies}})
+                                                                 for b in bodies}}, mod_host_only)
             event_reports[stem]["helpers"] = {"dismissed": len(helper_report["dismissed"]),
                                               "travelled": len(helper_report["travelled"]), "parts": added}
             boss_patches.extend(d for d in done if d[0] not in loose)

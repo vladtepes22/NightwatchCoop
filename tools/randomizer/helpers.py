@@ -81,7 +81,7 @@ class Fight:
     def __init__(self, key, init, moved, park=(), repoint=(), labels=(), disable=(), bar=None, end_with=None, warps=(),
                  same_hp=(), wake=(), hold=None, home=True, boss=None, travel=None, stage=None,
                  stage_events=(), stage_extra=(), stage_labels=(), stage_bar_after=None, handover=None, made=(),
-                 runs=None, as_started=(), models=None):
+                 runs=None, as_started=(), models=None, made_from=()):
         arena = arenas.BY_KEY[key]
         self.key, self.stem = key, arena.stem
         self.defeat, self.started = arena.flags
@@ -111,7 +111,8 @@ class Fight:
         # The moved event that hands the fight over to the second body (turns its gravity back on, warps it in, wakes its
         # AI). Its own flag is on once it has run (vanilla's re-entry branch reads it): the second body's death ends the
         # fight only then (bug 8 Nov, zip 030a: a carried second stage handed over at the first Dream load, fell and won
-        # Moon Presence's fight).
+        # Moon Presence's fight). MADE + k: the handover is the fight's k-th `made` event (Nocturne's Moon Presence: lines
+        # of her defeat event).
         self.handover = handover
         # Copied events wait for the arena's started flag before their first test (gate): nothing a carried body does
         # (handover, summon, clone) can happen before the fight. Not for a fight whose bodies' set-up runs from load
@@ -120,6 +121,9 @@ class Fight:
         # Events the home map holds only as lines of a longer event (so they cannot be copied whole): written here with the
         # home entities and made events of their own in the new arena, each waiting for the started flag first.
         self.made = made
+        # the home event each `made` event's lines come from (None: several), recorded as its source: a copy of an event a
+        # mod lists host-only stays host-only (hostonly.rank)
+        self.made_from = tuple(made_from) + (None,) * (len(made) - len(made_from))
         # Moved events that are templates: {event: [(slot, argument words)]}, the home map's runs of each. The copy keeps
         # its parameters and is run once per home run, with the arguments renamed (a phase body's helpers, found_helpers)
         self.runs = dict(runs or {})
@@ -222,6 +226,83 @@ _LESSER_DEMON = Fight("lesser_demon",
                             ((4, 2, (0, 2300820, 5, 1056964608)), (2004, 8, (2300821, 5500010, 0)))))
 FIGHTS = dict(sorted({**_BASE_FIGHTS, 2410810: _GASCOIGNE_ONE, 3400800: _LUDWIG_ONE, 2300820: _LESSER_DEMON}.items()))  # {home body: Fight}
 LISTED = dict(FIGHTS)
+MADE = "made"  # Fight.handover (MADE, k): the k-th made event hands over
+
+# Nocturne v6.1.0's Moon Presence phase two (option moon_presence_two; user 25 Nov: "add a toggle for her", "make sure the
+# randomizer fixes her when shes transported into other areas"). DATA, the mod's m21 (bb-modding mods\moon-presence-kos):
+# c5420 2100860 (row 542000) waits 82 m under the Moon Presence 2100810. 12100800 i0-3 hold her at load (AI and small bar
+# off, invincible, disabled); 12104852 at the fight's start enables her parked (gravity, AI and small bar off, not
+# invincible), links the Moon Presence's damage to her, raises her HP (SpEffect 7635, 2004[53]), makes her authority call
+# (i9), dopes her for co-op beside the Moon Presence (i29 / i32, i36 / i39) and shows the bar on her (i43). The handover is
+# lines 5-28 of the defeat event 12101850 (her bar at half or the Moon Presence at 4 %: the Moon Presence falls (2200),
+# she is warped onto its dummy poly 203, the Moon Presence disabled, her AI on); the tail waits for her death (i29) and gives
+# the arena's rewards. 12104871 is her Doom Gaze (12104870 on her message 10). Away from the Dream she travels with the
+# Moon Presence as the Orphan's phase two does: held at load, started with the fight (made event 0, the lines of 12104852),
+# handed over by made event 1 (the lines of 12101850, host-only there: party_host_only.txt), her death ending the fight
+# once it ran; at home another boss's fight drops her lines and waits on the slot body's death again. Found in the inputs
+# (found_mod_fights), never assumed: without her the fight is the game's.
+MOON, MOON_TWO = 2100810, 2100860
+_MOON_SETUP, _MOON_DEFEAT, _MOON_STARTED = 12104852, 12101850, 12104850
+_MOON_START = ((2004, 5, (MOON_TWO, 1)), (2004, 10, (MOON_TWO, 0)), (2004, 1, (MOON_TWO, 0)), (2004, 30, (MOON_TWO, 0)),
+               (2004, 15, (MOON_TWO, 0)), (2004, 33, (MOON, MOON_TWO)), (2004, 8, (MOON_TWO, 7635, 1)))
+_MOON_FILL = (2004, 53, (MOON_TWO,))
+_MOON_HANDOVER = (
+    (4, 2, (1, MOON_TWO, 3, 1056964608)), (4, 2, (2, MOON, 3, 1025758986)),  # her HP <= 0.5, the Moon Presence's <= 0.04
+    (0, 0, (66047,)), (0, 0, (131583,)), (0, 0, (16711936,)),                # either
+    (2004, 1, (MOON, 0)), (2004, 15, (MOON, 1)), (2004, 8, (MOON_TWO, 7636, 0)), (2004, 8, (MOON, 7636, 0)),
+    (2004, 43, (MOON, 0)), (2003, 18, (MOON, 2200, 0)), (1001, 0, (1085905306,)), (2004, 10, (MOON_TWO, 1)),
+    (2004, 34, (MOON, 65281)), (2004, 34, (MOON_TWO, 1)), (2004, 42, (MOON_TWO, 2, MOON, BOSS_POINT, MOON)),
+    (2004, 5, (MOON, 0)), (2003, 18, (MOON_TWO, 7001, 0)), (1001, 0, (1065353216,)), (2003, 18, (MOON_TWO, 7000, 0)),
+    (2004, 11, (MOON_TWO, 10000)), (2004, 1, (MOON_TWO, 1)), (1001, 0, (1081585172,)), (2004, 21, (MOON_TWO, 7636)))
+_MOON_END_IF_CLEARED = (1003, 2, (256, _MOON_DEFEAT))  # 12104852 i0: nothing once the fight is won
+MOON_PRESENCE_TWO = Fight(
+    "moon_presence",
+    init=((2004, 1, (MOON_TWO, 0)), (2004, 30, (MOON_TWO, 0)), (2004, 15, (MOON_TWO, 1)), (2004, 5, (MOON_TWO, 0)),
+          (2004, 10, (MOON_TWO, 0))),  # 12100800 i0-3, and gravity off at her park
+    moved=(12104871,), park=(12104871,),
+    repoint=((_MOON_SETUP, 2003, 11, (1, MOON_TWO, 0, 540000), 1, MOON),     # the bar back on the slot body
+             (_MOON_DEFEAT, 4, 0, (0, MOON_TWO, 1), 1, MOON)),               # the end on the slot body's death
+    labels=tuple((_MOON_SETUP,) + line for line in ((2004, 28, (MOON_TWO, 4095)),) + _MOON_START + (_MOON_FILL,)
+                 + ((2004, 8, (MOON_TWO, 7500, 1)), _MOON_FILL, (2004, 8, (MOON_TWO, 7501, 1)), _MOON_FILL))
+    + tuple((_MOON_DEFEAT,) + line for line in _MOON_HANDOVER),
+    disable=(MOON_TWO,), bar=MOON_TWO, end_with=MOON_TWO, travel=(MOON_TWO,), boss=MOON, handover=(MADE, 1),
+    made=((_MOON_END_IF_CLEARED, (3, 0, (256, _MOON_STARTED))) + _MOON_START + ((1001, 1, (1,)), _MOON_FILL),
+          (_MOON_END_IF_CLEARED,) + _MOON_HANDOVER),
+    made_from=(None, _MOON_DEFEAT))
+MOD_FIGHTS = {"moon_presence_two": MOON_PRESENCE_TWO}  # found_mod_fights' names
+MOD_MODELS = {"moon_presence_two": (MOON_TWO, "m21_00", "c5420")}  # the body a mod adds: entity, map, model
+
+
+def _holds(lines, wanted):
+    """Whether every (bank, id, words) of `wanted` is among `lines`, as often as `wanted` names it."""
+    left = [(b, i, tuple(w)) for b, i, w in lines]
+    for bank, iid, words in wanted:
+        line = (bank, iid, tuple(words))
+        if line not in left:
+            return False
+        left.remove(line)
+    return True
+
+
+def found_mod_fights(events, enemies):
+    """{home body: {"fight": name}} of the listed fights a base mod adds a body to (MOD_FIGHTS), found in the inputs: the
+    body is an enemy part of the map with its model, and every line the fight edits or copies is in its events (a mod
+    version with other events counts as none, so no edit lands on a line it lacks). events, enemies: as found_helpers."""
+    out = {}
+    for name, fight in sorted(MOD_FIGHTS.items()):
+        entity, stem, model = MOD_MODELS[name]
+        part = enemies.get(stem, {}).get(entity)
+        own = events.get(stem, {})
+        if part is None or part["model"] != model or any(e not in own for e in fight.moved):
+            continue
+        wanted = {}
+        for event, bank, iid, words in fight.labels:
+            wanted.setdefault(event, []).append((bank, iid, words))
+        for event, bank, iid, words, _, _ in fight.repoint:
+            wanted.setdefault(event, []).append((bank, iid, words))
+        if all(event in own and _holds(own[event][0], lines) for event, lines in wanted.items()):
+            out[fight.boss] = {"fight": name, "extras": fight.travel}
+    return out
 
 
 # A boss's map-side helpers (arenas.FOUND_HELPERS; user 23 Nov: "the Coiled Host's helpers travel with him", "what about
@@ -317,6 +398,9 @@ def _sync_phase_fights():
     FIGHTS.clear()
     FIGHTS.update(LISTED)
     for body, spec in sorted(arenas.FOUND_HELPERS.items()):
+        if "fight" in spec:  # a listed fight a base mod adds a body to (found_mod_fights)
+            FIGHTS[body] = MOD_FIGHTS[spec["fight"]]
+            continue
         phase = body in arenas.PHASES
         key = arenas.PHASES[body] if phase else arenas.BY_ENTITY[body].key
         FIGHTS[body] = Fight(key, init=spec["init"], moved=spec["moved"], park=() if phase else spec["moved"], boss=body,
@@ -332,7 +416,10 @@ def _sync_phase_fights():
 # second body holds nobody travels as phase one alone, its fight ending on its own death. Gascoigne and Ludwig bring
 # nothing (no handover, no link); the Orphan brings his player effect on message 30 (DATA m36 13604840).
 ALONE = {2410810: None, 3400800: None,
-         3600800: Fight("orphan", init=(), moved=(13604840,), park=(13604840,), bar=3600801, boss=3600800, travel=())}
+         3600800: Fight("orphan", init=(), moved=(13604840,), park=(13604840,), bar=3600801, boss=3600800, travel=()),
+         # option moon_presence_two off with her phase two in the inputs: the Moon Presence alone, with the bar name her
+         # home bar shows on her phase two
+         MOON: Fight("moon_presence", init=(), moved=(), bar=MOON_TWO, boss=MOON, travel=())}
 
 
 def fight_of(fighter):
@@ -677,9 +764,9 @@ def travel(events, arena, fighter, origin_events, new_entities):
         for slot, args in calls:
             events.append_instruction(caller, CALL[0], CALL[1], [slot, moved[event]] + (list(args) or [0]))
         report["events"].append((event, moved[event]))
-    for event, lines in zip(made_ids, fight.made):
+    for event, lines, source in zip(made_ids, fight.made, fight.made_from):
         body = gate(rewrite(list(lines), renames, origin, fight.defeat), started)
-        events.add_event(event, 0, body, source=(None, arena, "helper"))
+        events.add_event(event, 0, body, source=(source, arena, "helper"))
         events.append_instruction(caller, CALL[0], CALL[1], [0, event, 0])
         report["events"].append((None, event))
     if setup:
@@ -716,10 +803,13 @@ def travel(events, arena, fighter, origin_events, new_entities):
                     events.set_word(event, i, 3, name)
                 report["bar"] = (event, i, new_entities.get(bar_body, arena), name)
     if fight.end_with is not None:
-        if fight.handover not in moved:
+        if isinstance(fight.handover, tuple) and fight.handover[0] == MADE:
+            report["handover"] = made_ids[fight.handover[1]]
+        elif fight.handover in moved:
+            report["handover"] = moved[fight.handover]
+        else:
             raise ValueError("arena %d: %s's second body ends the fight but no handover travels" % (arena, fight.key))
-        report["handover"] = moved[fight.handover]
-        report["end"] = _or_death(events, defeat, arena, new_entities[fight.end_with], after=moved[fight.handover])
+        report["end"] = _or_death(events, defeat, arena, new_entities[fight.end_with], after=report["handover"])
         if not report["end"]:
             raise ValueError("arena %d: no death condition in event %d" % (arena, defeat))
     return report

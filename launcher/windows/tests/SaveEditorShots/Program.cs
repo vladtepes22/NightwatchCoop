@@ -327,10 +327,11 @@ internal static class Program
             }
             var rows = Descendants(root).OfType<Control>().Where(c => c is ComboBox or ChoiceSwitch && c.Visibility == Visibility.Visible && c.ActualWidth > 0).ToList();
             // The rows shown locked are exactly those whose option is off in these options: with Enemies open, what needs bosses as
-            // enemies; with Bosses open, the Nocturne bosses (no Nocturne v2 / v5 in the fixture) and, while bosses stay home,
+            // enemies; with Bosses open, the Nocturne bosses (no Nocturne v2 / v5 / v6.1 in the fixture) and, while bosses stay home,
             // what needs randomized bosses; with every section open also what needs the gem roulette.
             var bossEnemyDependents = new[] { "Areas with bosses as enemies", "Bosses per area", "Boss HP as an enemy", "Huge bosses as enemies" };
-            var nocturneBosses = new[] { "Include Coiled Host (Nocturne boss)", "Include Scorched Beast (Nocturne boss)" };
+            var nocturneBosses = new[] { "Include Coiled Host (Nocturne boss)", "Include Scorched Beast (Nocturne boss)",
+                "Include Moon Presence phase two (Nocturne)" };
             var expectedLocked = (state switch
             {
                 "open" => arenaDependents.Concat(nocturneBosses).Concat(bossEnemyDependents).Append("Cursed gems"),

@@ -93,8 +93,13 @@ BODY_PHASES = {2410811: (12414809,)}
 RETRY_KEEP = {12701802: (2, 3, 4, 5)}
 
 
+# A fight's defeat event is never a phase of its body (DATA Nocturne v6.1.0 m21: 12101850 tests the Moon Presence's HP and
+# forces her fall 2200 for the handover to her phase two; taken as her phase, it was silenced at home and copied along)
+DEFEATS = frozenset(a.flags[0] for a in arenas.ARENAS)
+
+
 def _excluded(entity):
-    return NOT_PHASES | helpers.OWNED.get(entity, frozenset())
+    return NOT_PHASES | DEFEATS | helpers.OWNED.get(entity, frozenset())
 
 
 def _old_map_id(word, origin):

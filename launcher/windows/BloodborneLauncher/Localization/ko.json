@@ -3087,5 +3087,9 @@
   "That name is too long.": "이름이 너무 깁니다.",
   "A mod with that name already exists.": "같은 이름의 모드가 이미 있습니다.",
   "New Settings screen": "새 설정 화면",
-  "New Settings screen: the pause menu's Settings page; off shows the game's System list with the PC pages instead. Only with the menus on.": "새 설정 화면: 일시 정지 메뉴의 설정 페이지입니다. 끄면 대신 게임의 시스템 목록과 PC 페이지가 표시됩니다. 메뉴가 켜져 있을 때만."
+  "New Settings screen: the pause menu's Settings page; off shows the game's System list with the PC pages instead. Only with the menus on.": "새 설정 화면: 일시 정지 메뉴의 설정 페이지입니다. 끄면 대신 게임의 시스템 목록과 PC 페이지가 표시됩니다. 메뉴가 켜져 있을 때만.",
+  "Include Moon Presence phase two (Nocturne)": "Moon Presence 2페이즈 포함(Nocturne)",
+  "Needs Nocturne v6.1.0 or later among the ticked mods below, which gives the Moon Presence a second phase; without it this row is greyed out and does nothing. With this on, the Moon Presence brings her second phase to whatever fight she lands in, and turns into it at half her health bar. With this off, she fights alone there.": "아래에서 체크한 모드 중 Nocturne v6.1.0 이상이 필요합니다. Moon Presence에 2페이즈를 추가합니다. 없으면 이 항목은 회색으로 표시되고 아무 동작도 하지 않습니다. 이것을 켜면 Moon Presence는 어느 전투에 나타나든 2페이즈를 데려가고, 체력 바가 절반이 되면 2페이즈로 바뀝니다. 끄면 그곳에서는 혼자 싸웁니다.",
+  "The Moon Presence phase two option is skipped: no Nocturne v6.1.0 or later among the ticked mods.": "Moon Presence 2페이즈 옵션은 건너뜁니다. 선택한 모드 중 Nocturne v6.1.0 이상이 없습니다.",
+  "The Moon Presence brings her phase two.": "Moon Presence가 2페이즈를 데려갑니다."
 }
