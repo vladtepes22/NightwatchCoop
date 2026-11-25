@@ -268,11 +268,17 @@ def _unit(report, place, what, values, base, show):
 
 def merge_inner(report, place, name, vanilla, mods, ctx, counts):
     """An inner file two or more mods changed: merged by its type, else the later mod's file + a CONFLICT line."""
+    # A merge that fails part way leaves nothing behind: its lines and counts are rolled back.
+    lines_before, conflicts_before, counts_before = len(report.lines), report.conflicts, dict(counts)
     try:
         payloads = [(m, unpack(d)) for m, d in mods]
         base, base_header = unpack(vanilla) if vanilla is not None else (None, None)
         merged = merge_payload(report, place, name, base, [(m, p) for m, (p, _) in payloads], ctx, counts)
     except MergeError as error:
+        del report.lines[lines_before:]
+        report.conflicts = conflicts_before
+        counts.clear()
+        counts.update(counts_before)
         report.conflict(place, [(m, _size(d)) for m, d in mods], mods[-1][0])
         report.info("%s: kept whole from %s (%s)" % (place, mods[-1][0], error))
         return mods[-1][1]

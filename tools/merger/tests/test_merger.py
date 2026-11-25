@@ -279,6 +279,29 @@ class BndTests(unittest.TestCase):
         self.assertTrue(any("x.tpf: kept whole from B (the TPF file cannot be read" in line for line in report.lines),
                         report.lines)
 
+    def test_failed_inner_merge_leaves_only_the_kept_whole_lines(self):
+        # An inner FMG merge reports a conflict, then fails: the inner file is kept whole from B, and the conflict
+        # line and counts of the attempt that failed must not stay behind.
+        import merge_any
+        from unittest import mock
+
+        def fails_late(label, vanilla, mods, report):
+            report.conflict("%s text 1" % label, [("A", "x"), ("B", "y")], "B")
+            raise MergeError("late failure")
+        vanilla = synth.bnd([(0, "N:\\m\\y.fmg", synth.fmg({1: "v"}))])
+        a = synth.bnd([(0, "N:\\m\\y.fmg", synth.fmg({1: "a"}))])
+        b = synth.bnd([(0, "N:\\m\\y.fmg", synth.fmg({1: "b"}))])
+        report = Report("msg\\engus\\item.msgbnd.dcx")
+        counts = {}
+        with mock.patch.object(merge_any, "merge_fmg", fails_late):
+            out, _ = merge_bnd(report, "", vanilla, [("A", a), ("B", b)], Context(defs()), counts)
+        self.assertEqual(containers.bnd4_read(out)["entries"][0][3], synth.fmg({1: "b"}))
+        self.assertEqual(report.conflicts, 1)
+        self.assertEqual(report.lines, ["CONFLICT msg\\engus\\item.msgbnd.dcx y.fmg: A %d bytes, B %d bytes -> B wins"
+                                        % (len(synth.fmg({1: "a"})), len(synth.fmg({1: "b"}))),
+                                        "INFO msg\\engus\\item.msgbnd.dcx: y.fmg: kept whole from B (late failure)"])
+        self.assertNotIn("merged inner files", counts)
+
     def test_inner_paths_matched_by_file_name(self):
         vanilla = synth.bnd([(10, "N:\\msg\\engGB\\names.fmg", synth.fmg({1: "colour", 2: "x"}))])
         a = synth.bnd([(10, "N:\\msg\\engUS\\names.fmg", synth.fmg({1: "color", 2: "x"}))])

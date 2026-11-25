@@ -221,7 +221,7 @@ def merge_one(key, game, mods, ctx, tmp):
         header = base_header or next((h for _, (_, h) in reversed(payloads) if h), None)
         data = containers.dcx_write(merged, header) if header else merged
     except MergeError as error:
-        report.lines = [line for line in report.lines if not line.startswith(("CONFLICT", "INFO"))]
+        report.lines = []  # the failed attempt's lines (NOT MERGED of inner tables included) go
         report.conflicts = 0
         report.not_merged("", [n for n, _ in changed], changed[-1][0], str(error))
         _write(target, changed[-1][1])
