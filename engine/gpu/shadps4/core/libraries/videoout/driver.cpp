@@ -1439,16 +1439,15 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
         // Nightwatch (judder report NW-b9564e8, 25 Nov: judder on a G-Sync display with a steady
         // counter, the GPU near its limit): a flip not locked to the vblanks is shown when the GPU
         // finishes its frame. The flip after a frame the GPU finished late waits a whole pace from
-        // that finish (LanternPacing::GpuPacedSlot) instead of following it at once, and the game,
-        // waiting for its flip, steps by the time really shown. BB_GPU_PACING=0: flips keep their
-        // own clock (before 0.3.3).
-        static const bool gpu_pacing = [] {
-            const char* env = std::getenv("BB_GPU_PACING");
-            return !(env && env[0] == '0');
-        }();
+        // that finish less the usual lateness (LanternPacing::GpuPacedSlot) instead of following it
+        // at once. Off by default (ini gpu_pacing, BB_GPU_PACING=1): a model of a game that starts
+        // each frame when its last flip was taken shows one slow frame turning into three uneven
+        // ones (tests/test_gpu_pacing.cpp); which one Bloodborne is needs a run on a GPU-bound PC.
+        // The finish times feed the Pacing line either way.
         u64 last_tick = 0; // the last flip's frame (0: none, or no longer waited for)
         Clock::time_point last_flip{}, last_shown{};
         bool last_noted = false;
+        bool next_moved = false, last_moved = false; // the next / last flip moved by gpu_gate
         LanternPacing::UsualLate usual_late;
         const auto note_shown = [&](const BbFrameDone::State& state) {
             if (last_noted || state.kind != BbFrameDone::State::Kind::Done) return;
@@ -1459,7 +1458,7 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
                 ++pacing.gpu_late;
                 pacing.worst_gpu_late_ms = std::max(pacing.worst_gpu_late_ms, ms(state.done - last_flip));
             }
-            usual_late.Add(state.done - last_flip);
+            if (!last_moved) usual_late.Add(state.done - last_flip);
             const auto shown = std::max(last_flip, state.done);
             if (last_shown != Clock::time_point{} && shown - last_shown < pace * 4) {
                 const auto interval = shown - last_shown;
@@ -1475,7 +1474,7 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
             if (!last_tick) return true;
             auto& watch = BbFrameDone::Get();
             BbFrameDone::State state = watch.Get(last_tick);
-            const bool hold = gpu_pacing && !locked && frame_limit &&
+            const bool hold = BbSettings::Get().gpu_pacing.load(std::memory_order_relaxed) && !locked && frame_limit &&
                               !BbSettings::Get().frame_gen_active.load(std::memory_order_relaxed);
             if (state.kind == BbFrameDone::State::Kind::Pending && hold) {
                 const auto give_up = last_flip + LanternPacing::GpuHoldLimit(flips.Period());
@@ -1489,11 +1488,12 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
             }
             const auto usual = usual_late.Get(); // before this frame joins it
             note_shown(state);
-            if (!hold || state.kind != BbFrameDone::State::Kind::Done) return true;
+            if (!hold || state.kind != BbFrameDone::State::Kind::Done || !usual_late.Learned()) return true;
             const auto slot =
                 LanternPacing::GpuPacedSlot(flips.Slot(), last_flip, state.done, flips.Period(), usual);
             if (slot == flips.Slot()) return true;
             flips.PushTo(slot);
+            next_moved = true;
             ++pacing.gpu_held;
             const auto due = flips.Slot() - flips.Period() / 16;
             if (due >= tick_deadline) return false; // at a later tick
@@ -1504,6 +1504,8 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
             last_tick = request.frame ? request.frame->ready_tick : 0;
             last_flip = now;
             last_noted = false;
+            last_moved = next_moved;
+            next_moved = false;
             flips.Taken(now);
             lock_to_vblank();
             note_pacing(now);

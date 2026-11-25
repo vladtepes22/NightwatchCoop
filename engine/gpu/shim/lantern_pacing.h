@@ -88,9 +88,15 @@ inline Clock::time_point GpuPacedSlot(Clock::time_point slot, Clock::time_point 
     return std::max(slot, done + pace - usual);
 }
 
-/// The frames' usual finish after their flips (0 when before): the median of the last few.
+/// The frames' usual finish after their flips (0 when before): the median of the last few. A
+/// frame whose flip GpuPacedSlot moved finishes early against it: not added (it would pull the
+/// median down and make the next normal frame look late).
 class UsualLate {
 public:
+    /// Enough frames seen to tell a late one.
+    [[nodiscard]] bool Learned() const {
+        return filled >= 5;
+    }
     void Add(std::chrono::nanoseconds late) {
         recent[next] = std::max(late, std::chrono::nanoseconds(0));
         next = (next + 1) % Count;
