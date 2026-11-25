@@ -21,7 +21,7 @@ set "PYTHONDONTWRITEBYTECODE=1"
 set "PYTHONIOENCODING=utf-8"
 "%PY%" -I "%~dp0scripts\net_doctor.py" %* > "%TEMP%\net_doctor_reply.txt"
 type "%TEMP%\net_doctor_reply.txt"
-clip < "%TEMP%\net_doctor_reply.txt"
 echo.
-echo (copied to the clipboard)
+REM clip.exe is missing under Wine / Proton: then the reply is only shown.
+where clip >nul 2>nul && clip < "%TEMP%\net_doctor_reply.txt" && echo (copied to the clipboard)
 pause

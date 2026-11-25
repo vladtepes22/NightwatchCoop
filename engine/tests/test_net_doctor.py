@@ -93,6 +93,19 @@ def test_vpn_installed_not_claimed_running(tmp_path, capsys):
     assert "running, but the game uses" not in out and "installed" in out
 
 
+def test_nightwatch_vpn_and_radmin_both_up(tmp_path, capsys):
+    # auto took the Nightwatch tunnel while friends came in over Radmin (NW-04fab46): name both VPNs and the picker
+    h = tmp_path / "host.log"
+    h.write_text(HOST.replace(
+        "local address 192.168.50.4 on Ethernet 2 / Realtek [default route, gateway 192.168.50.1]",
+        "local address 10.8.0.6 on OpenVPN Data Channel Offload [hosting over Nightwatch VPN, party_vpn=auto]"),
+        encoding="utf-8")
+    assert nd.main([str(h)]) == 0
+    out = capsys.readouterr().out
+    assert "two VPNs up" in out and "> VPN, pick Radmin" in out
+    assert "make the game use Radmin" not in out
+
+
 def test_offline_vpn_candidate_ignored(tmp_path, capsys):
     h = tmp_path / "host.log"
     h.write_text(HOST.replace("(score 6);", "(score 6) (offline VPN, skipped);"), encoding="utf-8")

@@ -117,6 +117,7 @@ class Log:
         self.local = None
         self.local_forced = False
         self.local_adapter = ""
+        self.nightwatch_vpn = False  # the game chose the Nightwatch VPN tunnel (party_vpn=auto)
         self.vpn_candidates = []
         self.tether = False
         self.public = None
@@ -206,6 +207,7 @@ def parse(path):
                 lg.local = m.group(1)
                 lg.local_forced = m.group(2) == "from BB_PARTY_LOCAL_IP"
                 lg.local_adapter = m.group(3)
+                lg.nightwatch_vpn = "over Nightwatch VPN" in line
                 lg.tether = lg.tether or "Remote NDIS" in line
                 for seg in line.split(";"):
                     cand = re.search(r"(\d+\.\d+\.(?:\d+|x)\.(?:\d+|x)) ([^/;]+?) /", seg)
@@ -449,6 +451,13 @@ def diagnose(logs, show_ips):
             prio = 1 if vpn_in_use else 3
             flagged.add(("vpn_unused", who))
             known_online = any(v == "online" and kind.lower() in k.lower() for k, v in l.vpn_probe.items())
+            if l.nightwatch_vpn:
+                # Two VPNs up: auto takes the Nightwatch tunnel, friends who came in over the other VPN never land.
+                add(1, f"**{who} has two VPNs up: the Nightwatch VPN and {kind}.** The game uses the Nightwatch VPN "
+                       f"tunnel, so friends who joined over {kind} cannot reach {who}.",
+                    f"{who}: in the launcher, Seamless > Advanced networking and troubleshooting > VPN, pick "
+                    f"{kind} (or disconnect the Nightwatch VPN), then host again. Everyone must play over the same VPN.")
+                continue
             if not known_online and not vpn_in_use:
                 # older builds cannot tell an offline VPN from an online one: do not claim it is in use
                 add(4, f"{who} has {kind} installed ({ip}); the game used the home network address. Fine if you "
