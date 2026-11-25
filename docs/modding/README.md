@@ -15,7 +15,10 @@ Mods/
 ```
 
 - **Loose files:** a file under `dvdroot_ps4` replaces the game's file of the same path. When two enabled mods ship
-  the same file, the later mod wins the whole file (no merging inside files).
+  the same file, the later mod wins the whole file (no merging inside files at load). To combine mods that change the
+  same files, players use the launcher's Workshop > Merge tab: it writes a new mod that merges params per field, texts
+  per id, BND4 per inner file, textures, TAE per animation and hks per function, and logs every conflict
+  (`tools/merger/README.md`).
 - **Load order:** the order on the Mods page (`mods.json` `order`); mods not listed there follow by name.
 - **Manifest:** `nightwatch.json` says which Nightwatch the mod needs and which features it uses
   ([manifest.md](manifest.md)). A mod without one loads as before and cannot use a feature table.
