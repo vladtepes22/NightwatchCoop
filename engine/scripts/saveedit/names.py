@@ -100,6 +100,28 @@ def _progress(game):
         return {}
 
 
+def _gem_tables(p):
+    """The gem and rune tables of one gameparam (a params.Params): effects, gemgen and gemrows as read_game keys them."""
+    negative = {i for i, v in p.table("GemCategoryParam", ["isNegative"]).items() if v[0]}
+    out = {}
+    # effect id -> [cursed, icon offset, name offset, sort category (0 blood gem, 1 Caryll rune, 2 oath rune)]
+    out["effects"] = {i: [int(cat in negative), icon, name, sort] for i, (cat, icon, name, sort) in
+                      p.table("GemeffectParam", ["categoryId", "gemIconIdOffset", "gemNameIdOffset",
+                                                 "sortCategory"]).items()}
+    out["gemgen"] = {i: v[0] for i, v in p.table("GemGenParam", ["gemNameIdOffset"]).items()}
+    # Rows whose first effect is fixed: id -> [name offset, shapes (bit per slotTypeRate column A-F), effect id,
+    # the row's other fixed effects...]. The shape and effects of every gem and rune in a party save follow from
+    # these (see Catalogue.caryll_runes): the game writes all of a rune row's fixed effects, e.g. Milkweed's third
+    # (2129003) is what transforms the Kos Parasite, and a Beast rune holds 1129000 and 1140000.
+    cols = (["gemNameIdOffset"] + [f"slotTypeRate{c}" for c in "ABCDEF"]
+            + [f"gemeffectGenParam{k}_{i}" for i in range(6) for k in ("Type", "")])
+    out["gemrows"] = {i: [v[0], sum(1 << k for k in range(6) if v[1 + k] > 0)]
+                      + [v[8 + 2 * k] for k in range(6) if v[7 + 2 * k] == 1 and v[8 + 2 * k] > 0]
+                      for i, v in p.table("GemGenParam", cols).items()
+                      if v[7] == 1 and v[8] > 0}
+    return out
+
+
 def read_game(game_dir, lang="engus"):
     """Parse the game's files: {"names": {kind: {id: name}}, "ids": {kind: [id, ...]}}."""
     game = Path(game_dir)
@@ -128,22 +150,7 @@ def read_game(game_dir, lang="engus"):
         data["icons"] = {kind: {i: v[0] for i, v in p.table(pn, ["iconIdM" if kind == "armor" else "iconId"]).items()
                                 if v[0] > 0 and not (kind == "weapon" and (i % 10000) // 100)}
                          for kind, pn in PARAMS.items()}
-        negative = {i for i, v in p.table("GemCategoryParam", ["isNegative"]).items() if v[0]}
-        # effect id -> [cursed, icon offset, name offset, sort category (0 blood gem, 1 Caryll rune, 2 oath rune)]
-        data["effects"] = {i: [int(cat in negative), icon, name, sort] for i, (cat, icon, name, sort) in
-                           p.table("GemeffectParam", ["categoryId", "gemIconIdOffset", "gemNameIdOffset",
-                                                      "sortCategory"]).items()}
-        data["gemgen"] = {i: v[0] for i, v in p.table("GemGenParam", ["gemNameIdOffset"]).items()}
-        # Rows whose first effect is fixed: id -> [name offset, shapes (bit per slotTypeRate column A-F), effect id,
-        # the row's other fixed effects...]. The shape and effects of every gem and rune in a party save follow from
-        # these (see Catalogue.caryll_runes): the game writes all of a rune row's fixed effects, e.g. Milkweed's third
-        # (2129003) is what transforms the Kos Parasite, and a Beast rune holds 1129000 and 1140000.
-        cols = (["gemNameIdOffset"] + [f"slotTypeRate{c}" for c in "ABCDEF"]
-                + [f"gemeffectGenParam{k}_{i}" for i in range(6) for k in ("Type", "")])
-        data["gemrows"] = {i: [v[0], sum(1 << k for k in range(6) if v[1 + k] > 0)]
-                           + [v[8 + 2 * k] for k in range(6) if v[7 + 2 * k] == 1 and v[8 + 2 * k] > 0]
-                           for i, v in p.table("GemGenParam", cols).items()
-                           if v[7] == 1 and v[8] > 0}
+        data.update(_gem_tables(p))
         # Effects the game can produce: a fixed effect of a generator row (type 1) or any effect of a category a
         # generator draws from (type 2). Rows no generator reaches are cut or unused content and are not offered.
         gen_cols = [f"gemeffectGenParam{k}_{i}" for i in range(6) for k in ("Type", "")]
@@ -181,6 +188,7 @@ def mod_source_files(mods_dir, config, lang="engus"):
             root = mods.child(base, "dvdroot_ps4") if not prefix else base
             out.append(mods.child(mods.child(mods.child(root, "param"), "gameparam"), "gameparam.parambnd.dcx"))
             out.append(mods.child(mods.child(mods.child(root, "msg"), lang), "item.msgbnd.dcx"))
+            out.append(mods.child(mods.child(mods.child(root, "msg"), lang), "menu.msgbnd.dcx"))  # rune names
             event = mods.child(root, "event")
             if event.is_dir():
                 out.extend(sorted(f for f in event.iterdir() if f.is_file()))
@@ -227,6 +235,50 @@ def read_mod_items(game_dir, mods_dir, config, lang="engus"):
     except (OSError, ValueError, KeyError, TypeError, struct.error, zlib.error):
         return {}
     return out
+
+
+MOD_GEM_KEYS = ("effects", "gemgen", "gemrows")
+
+
+def read_mod_gems(game_dir, mods_dir, config, lang="engus"):
+    """The gem and rune rows the installed, enabled Nocturne mods add (GemGenParam / GemeffectParam rows the game folder
+    lacks, keyed as read_game keys them) and the mods' gem names and effect texts (menu.msgbnd): {"effects", "gemgen",
+    "gemrows", "gem", "effect"}. A mod's new rune (Serpentry: GemGen 200060, effect 2130001) becomes one of
+    Catalogue.caryll_runes this way. Empty when no such mod, no game paramdefs or anything unreadable."""
+    from . import params
+    import mods
+    game = Path(game_dir)
+    if not (game / "msg").is_dir() and (game / "dvdroot_ps4" / "msg").is_dir():
+        game = game / "dvdroot_ps4"
+    out = {k: {} for k in MOD_GEM_KEYS + ("gem", "effect")}
+    try:
+        vanilla = _bnd4(_dcx((game / "param" / "gameparam" / "gameparam.parambnd.dcx").read_bytes()))
+        known = {"effects": set(_param_ids(_entry(vanilla, "GemeffectParam.param"))),
+                 "gemgen": set(_param_ids(_entry(vanilla, "GemGenParam.param")))}
+        known["gemrows"] = known["gemgen"]
+        for name in mods.selected(mods_dir, config):
+            if not name.casefold().startswith(MOD_PREFIX.casefold()):
+                continue
+            base, prefix = mods.content_root(Path(mods_dir) / name)
+            root = mods.child(base, "dvdroot_ps4") if not prefix else base
+            gameparam = mods.child(mods.child(mods.child(root, "param"), "gameparam"), "gameparam.parambnd.dcx")
+            if not gameparam.is_file():
+                continue
+            tables = _gem_tables(params.Params(game, gameparam))
+            new = {k: {i: v for i, v in tables[k].items() if i not in known[k]} for k in MOD_GEM_KEYS}
+            if not new["gemrows"] and not new["effects"]:
+                continue
+            for k in MOD_GEM_KEYS:
+                out[k].update(new[k])
+            try:
+                menu = _bnd4(_dcx(mods.child(mods.child(mods.child(root, "msg"), lang), "menu.msgbnd.dcx").read_bytes()))
+                out["gem"].update(_fmg(_entry(menu, GEM_NAMES + ".fmg")))
+                out["effect"].update(_fmg(_entry(menu, GEM_EFFECTS + ".fmg")))
+            except (OSError, ValueError, KeyError):
+                pass  # rows without names: the rune is not offered (caryll_runes needs its name)
+    except (OSError, ValueError, KeyError, TypeError, struct.error, zlib.error):
+        return {}
+    return out if any(out.values()) else {}
 
 
 def read_mod_bosses(game_dir, mods_dir, config, progress, lang="engus"):
@@ -312,6 +364,10 @@ class Catalogue:
         self._weapon_slots = {int(i): tuple(v) for i, v in (data or {}).get("weapon_slots", {}).items()}
         # CalcCorrectGraph rows 100 / 101 for SaveModel.set_stat: {row: (stage, grow, adj)}; empty without game files
         self.graphs = {int(i): tuple(tuple(c) for c in v) for i, v in (data or {}).get("graphs", {}).items()}
+        # The game's own gem tables and texts; set_mod_gems lays a mod's new rows and texts over copies of these.
+        self._base_gems = (dict(self._effects), dict(self._gemgen), dict(self._gemrows),
+                           dict(self._names.get("gem", {})), dict(self._names.get("effect", {})))
+        self.mod_gem_rows = set()  # GemGen ids of the rows the enabled Nocturne mod adds (set_mod_gems)
 
     @classmethod
     def load(cls, game_dir, cache_dir, lang="engus"):
@@ -345,6 +401,29 @@ class Catalogue:
 
     def set_mod_items(self, items):
         self.mod_items = dict(items)
+
+    def set_mod_gems(self, gems):
+        """Lay the enabled mod's new gem and rune rows and texts (read_mod_gems) over the game's; {} restores the game's
+        alone (the worker keeps one catalogue while Nocturne is switched on and off). The game's texts win."""
+        gems = gems or {}
+        effects, gemgen, gemrows, gem_names, effect_names = self._base_gems
+        self._effects = {**effects, **{int(i): v for i, v in gems.get("effects", {}).items() if int(i) not in effects}}
+        self._gemgen = {**gemgen, **{int(i): v for i, v in gems.get("gemgen", {}).items() if int(i) not in gemgen}}
+        mod_rows = {int(i): v for i, v in gems.get("gemrows", {}).items() if int(i) not in gemrows}
+        self._gemrows = {**gemrows, **mod_rows}
+        self.mod_gem_rows = set(mod_rows)
+        self._names["gem"] = {**{int(i): t for i, t in gems.get("gem", {}).items()}, **gem_names}
+        self._names["effect"] = {**{int(i): t for i, t in gems.get("effect", {}).items()}, **effect_names}
+
+    def mod_runes(self, text=""):
+        """[(GemGen id, effect id, shape, name)] of the Caryll and oath runes the enabled mod adds, matching text."""
+        text = text.lower()
+        out = []
+        for gen, eff, shape in self.caryll_runes():
+            name = self.gem(gen, shape, [eff])[0] if gen in self.mod_gem_rows else None
+            if name and (not text or text in name.lower() or text == str(eff)):
+                out.append((gen, eff, shape, name))
+        return out
 
     def set_mod_bosses(self, bosses):
         self.mod_bosses = list(bosses)  # [(kill flag, name)] of the Nocturne mod (read_mod_bosses)

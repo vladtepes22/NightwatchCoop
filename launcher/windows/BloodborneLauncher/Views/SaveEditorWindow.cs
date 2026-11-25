@@ -135,7 +135,8 @@ public sealed partial class SaveEditorWindow : Window
     private readonly ListBox _itemList = new(), _flagList = new();
     private readonly TextBlock _itemEmpty = LauncherPage.Text(L.T("No items found"), "Muted"), _itemCount = LauncherPage.Text("", "StatLabel");
     private readonly TextBlock _flagEmpty = LauncherPage.Text(L.T("Nothing to show here"), "Muted"), _flagNote = LauncherPage.Text("", "Muted");
-    // The world's time of day (flags 9800..9802): Day, Evening, Night, Blood Moon; off when the save has no room for them.
+    // The world's time of day (flags 9800..9802): Day, Evening, Night, Blood Moon; kept in step with the Progress tab's
+    // Time of day rows (MoonPicked / TimeFlagChanged). Off when the save has no room for them.
     private readonly ComboBox _moon = new() { MinWidth = 160 };
     private readonly string[] MoonPhases = { L.T("Day"), L.T("Evening"), L.T("Night"), L.T("Blood Moon") };
     private readonly List<Button> _restoreButtons = new();
@@ -411,7 +412,7 @@ public sealed partial class SaveEditorWindow : Window
             _fields["insight"].Load(c.Insight.ToString(CultureInfo.InvariantCulture));
             _fields["ng_cycle"].Load(c.NgCycle.ToString(CultureInfo.InvariantCulture));
             _items = data.Items.Select(i => new ItemRow(i, UpdateState, row => _ = Guard(() => EditGem(row)), QueueGemCopy)).ToList();
-            _flags = (data.Flags ?? []).Select(f => new FlagRow(f, UpdateState)).ToList();
+            _flags = (data.Flags ?? []).Select(f => new FlagRow(f, f.Kind == "time" ? () => { TimeFlagChanged(); UpdateState(); } : UpdateState)).ToList();
             _moon.SelectedIndex = data.Moon ?? -1; _moon.IsEnabled = data.Moon != null;
             _itemList.ItemsSource = null;  // no refilter of the old list on the resets below
             _search.Text = ""; _changedOnly.IsChecked = false; _itemKinds.Select(0); _flagKinds.Select(0);
@@ -462,7 +463,9 @@ public sealed partial class SaveEditorWindow : Window
         {
             lines.Add(L.T("Copy") + ": " + copy.Title); perTab[InventoryTab]++;
         }
-        foreach (var row in _flags.Where(f => f.Changed))
+        // The time of day rows are summed up by the moon phase line unless they hold a pattern the phase cannot show.
+        bool timeByMoon = MoonChanged && !TimeFlagsOffPattern();
+        foreach (var row in _flags.Where(f => f.Changed && !(timeByMoon && f.Flag.Kind == "time")))
         {
             lines.Add(row.Label + ": " + (row.On ? L.T("set") : L.T("cleared"))); perTab[ProgressTab]++;
         }
@@ -523,7 +526,8 @@ public sealed partial class SaveEditorWindow : Window
             Insight = _fields["insight"].Number, NgCycle = _fields["ng_cycle"].Number, Items = items, Gems = gems,
             pending.Add, pending.CopyGems, pending.AddGems,
             Flags = _flags.Where(f => f.Changed).Select(f => new { f.Flag.Id, f.On }).ToArray(),
-            Moon = MoonChanged ? _moon.SelectedIndex : (int?)null,
+            // The phase travels as its three flag rows (MoonPicked), so the save gets exactly what the rows show.
+            Moon = MoonChanged && !_flags.Any(f => f.Flag.Kind == "time") ? _moon.SelectedIndex : (int?)null,
             Repair = Array.Empty<string>() };
         if (!Prompt.Confirm(L.T("Apply these edits?"), summary + "\n\n" + L.F($"All saves related to {_snapshot.Character.Name} will be backed up first."), L.T("Apply"))) return;
         var result = await Run<SaveEditor.WriteResult>("apply", _selected.SlotNumber, edit);

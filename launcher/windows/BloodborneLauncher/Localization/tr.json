@@ -3060,5 +3060,8 @@
   "In use. ": "Kullanımda. ",
   "Could not change the settings": "Ayarlar değiştirilemedi",
   "The saved settings are damaged.": "Kayıtlı ayarlar bozuk.",
-  "Preset in use: {0}. It takes effect the next time the game starts.": "Kullanılan ön ayar: {0}. Oyun bir sonraki başlatılışta geçerli olur."
+  "Preset in use: {0}. It takes effect the next time the game starts.": "Kullanılan ön ayar: {0}. Oyun bir sonraki başlatılışta geçerli olur.",
+  "Time of day": "Günün saati",
+  "Evening reached": "Akşama ulaşıldı",
+  "The world's time of day. The game sets these flags together: Night also has Evening reached, Blood Moon has all three. The Moon phase above sets them the same way. Takes effect on the next load.": "Dünyanın günün saati. Oyun bu bayrakları birlikte ayarlar: Gece, Akşama ulaşıldı'yı da içerir, Kan Ayı üçünü birden. Yukarıdaki ay evresi de bunları aynı şekilde ayarlar. Bir sonraki yüklemede etkili olur."
 }

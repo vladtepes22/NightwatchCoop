@@ -316,6 +316,55 @@ class SaveEditorCliTests(unittest.TestCase):
             self.assertEqual(self.call("apply", dict(revision=revision, gems=[dict(handle=handle, effects=[13106])]))[0], 1)
             self.assertEqual(self.call("apply", dict(revision=revision, gems=[dict(handle=handle, effects=[28101, 13105])]))[0], 0)
 
+    def test_a_mods_new_rune_is_offered_and_added(self):
+        """A rune a Nocturne mod adds (Serpentry: GemGen 200060, oath effect 2130001, name key 12000010, icon offset
+        1055) is in the rune list and the Nocturne list, and adding it writes the row's fixed effects; switching the
+        mod off (set_mod_gems({})) leaves only the game's runes."""
+        d = bytearray(self.original)
+        struct.pack_into("<15I", d, 0x54, 0x80800010, 22000300, 0, 0, 0, *(instances.NO_SLOT, 0) * 5)
+        struct.pack_into("<8I", d, 0x54 + 60, 0, 0xFFFFFFFF, 0, 0xFFFFFFFF, 0, 0xFFFFFFFF, 0, 0xFFFFFFFF)
+        self.file.write_bytes(bytes(d))
+        catalogue = names.Catalogue({
+            "names": {"effect": {2107001: "Oath effect"}, "gem": {12000004: "Test Oath"}},
+            "ids": {"weapon": [22000300]}, "icons": {},
+            "effects": {2107001: [0, 1013, 4, 2]}, "gemgen": {200000: 10000000},
+            "gemrows": {200000: [10000000, 2, 2107001]}})
+        mod = {"effects": {2130001: [0, 1055, 10, 2], 2130002: [0, 1055, 10, 2]}, "gemgen": {200060: 10000000},
+               "gemrows": {200060: [10000000, 2, 2130001]},
+               "gem": {12000010: "Serpentry", 12000004: "Renamed by the mod"},
+               "effect": {2130001: "Transforms the head into a writhing mass of snakes"}}
+        catalogue.set_mod_gems(mod)
+        with patch.object(names.Catalogue, "load", return_value=catalogue):
+            self.assertEqual(self.call("catalog", edit=dict(category=8, text=""))[1],
+                             [dict(number=2107001, name="Test Oath", icon=None, shape=2),  # the game's text wins
+                              dict(number=2130001, name="Serpentry", icon=None, shape=2)])
+            self.assertEqual(self.call("catalog", edit=dict(category=9, text="serp"))[1],
+                             [dict(number=2130001, name="Serpentry", icon=None, category=8, shape=2)])
+            self.assertEqual(catalogue.gem(200060, 2, [2130001])[1], 3000 + 200 + 1055)  # the mod's icon cell 4255
+            revision = self.call("show")[1]["revision"]
+            code, reply = self.call("apply", dict(revision=revision, add_gems=[dict(type=2, effect=2130001)]))
+            self.assertEqual(code, 0, reply)
+            gems = [i for i in self.call("show")[1]["items"] if i.get("gem")]
+            self.assertEqual([(g["name"], g["gem"]["type"], g["gem"]["shape"], g["gem"]["gen"], g["gem"]["sort"],
+                               [e["id"] for e in g["gem"]["effects"]]) for g in gems],
+                             [("Serpentry", 2, 2, 200060, 2, [2130001])])
+        catalogue.set_mod_gems({})
+        self.assertEqual([e for _g, e, _s in catalogue.caryll_runes()], [2107001])
+        self.assertEqual(catalogue.gem(200000, 2, [2107001])[0], "Test Oath")
+
+    def test_time_of_day_flags_are_listed_and_edited(self):
+        rows = [(f, g, label) for f, k, g, label in cli.flag_rows(names.Catalogue()) if k == "time"]
+        self.assertEqual(rows, [(9800, "Time of day", "Evening reached"), (9801, "Time of day", "Night"),
+                                (9802, "Time of day", "Blood Moon")])
+        shown = self.call("show")[1]
+        self.assertEqual([(f["id"], f["on"]) for f in shown["flags"] if f["kind"] == "time"],
+                         [(9800, False), (9801, False), (9802, False)])
+        edit = dict(revision=shown["revision"], flags=[dict(id=9800, on=True), dict(id=9801, on=True)])
+        self.assertEqual(self.call("apply", edit)[0], 0)
+        shown = self.call("show")[1]
+        self.assertEqual(shown["moon"], 2)  # Night
+        self.assertEqual([f["on"] for f in shown["flags"] if f["kind"] == "time"], [True, True, False])
+
     def test_subprocess_json_contract(self):
         script = Path(cli.__file__)
         for command, expected in (("slots", 0), ("invalid", 1)):
@@ -453,20 +502,21 @@ class ModDataCacheTests(unittest.TestCase):
             catalogue = type("Catalogue", (), {"progress": None})()
             calls = []
             with patch.object(names, "read_mod_items", lambda *a: calls.append("items") or {1: "a"}), \
+                 patch.object(names, "read_mod_gems", lambda *a: calls.append("gems") or {"gemrows": {3: [0]}}), \
                  patch.object(names, "read_mod_bosses", lambda *a: calls.append("bosses") or [(2, "b")]):
                 kept = {}
-                self.assertEqual(cli.mod_data(args, catalogue, kept), ({1: "a"}, [(2, "b")]))
+                self.assertEqual(cli.mod_data(args, catalogue, kept), ({1: "a"}, [(2, "b")], {"gemrows": {3: [0]}}))
                 cli.mod_data(args, catalogue, kept)
-                self.assertEqual(calls, ["items", "bosses"])  # the second request reads nothing
+                self.assertEqual(calls, ["items", "gems", "bosses"])  # the second request reads nothing
                 (mods / "NewMod").mkdir()  # a mod installed: the Mods folder changed
                 cli.mod_data(args, catalogue, kept)
-                self.assertEqual(len(calls), 4)
+                self.assertEqual(len(calls), 6)
                 config.write_text('{"order": ["NewMod"]}\n', encoding="utf-8")  # a mod enabled
                 os.utime(config, ns=(1, 1))
                 cli.mod_data(args, catalogue, kept)
-                self.assertEqual(len(calls), 6)
+                self.assertEqual(len(calls), 9)
                 cli.mod_data(args, catalogue, None)  # a single run (no worker) always reads
-                self.assertEqual(len(calls), 8)
+                self.assertEqual(len(calls), 12)
 
 
 if __name__ == "__main__":

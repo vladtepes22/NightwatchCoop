@@ -3060,5 +3060,8 @@
   "In use. ": "사용 중. ",
   "Could not change the settings": "설정을 변경할 수 없습니다",
   "The saved settings are damaged.": "저장된 설정이 손상되었습니다.",
-  "Preset in use: {0}. It takes effect the next time the game starts.": "사용 중인 프리셋: {0}. 다음에 게임을 시작할 때 적용됩니다."
+  "Preset in use: {0}. It takes effect the next time the game starts.": "사용 중인 프리셋: {0}. 다음에 게임을 시작할 때 적용됩니다.",
+  "Time of day": "시간대",
+  "Evening reached": "저녁 도달",
+  "The world's time of day. The game sets these flags together: Night also has Evening reached, Blood Moon has all three. The Moon phase above sets them the same way. Takes effect on the next load.": "세계의 시간대입니다. 게임은 이 플래그들을 함께 설정합니다: 밤은 저녁 도달도 포함하고, 붉은 달은 세 개 모두입니다. 위의 달의 위상도 같은 방식으로 설정합니다. 다음 로드 시 적용됩니다."
 }
