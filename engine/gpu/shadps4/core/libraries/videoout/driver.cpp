@@ -19,6 +19,7 @@
 #include "common/assert.h"
 #include "bbport_platform.h"
 #include "lantern_pacing.h"
+#include "frame_done_watch.h"
 #include "engine/live_clock.h"
 #include "bbport_toggles.h"
 #include "bbport_heap_sites.h"
@@ -1379,6 +1380,10 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
         struct PacingStats {
             Clock::time_point last{}, window_start = Clock::now();
             u64 flips = 0, locked = 0, late = 0, early = 0, at_refresh = 0, phased = 0;
+            // Frames as shown (GPU finish times, gpu_gate): finished late, shown off the pace, flips
+            // moved after a late one, flips that stopped waiting for a stalled one.
+            u64 gpu_late = 0, shown = 0, shown_uneven = 0, gpu_held = 0, gpu_stalls = 0;
+            double worst_gpu_late_ms = 0, worst_shown_ms = 0;
             u64 off_target_at_start = BbEngine::LiveClock::OffTargetSteps();
             u64 steps_at_start = BbEngine::LiveClock::Steps();
             double worst_ms = 0;
@@ -1407,7 +1412,8 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
             const auto vblank = LanternPacing::VblankAny();
             std::printf("Pacing: %llu flips (pace %.2f ms), %llu locked to vblanks; %llu late, %llu early, "
                         "worst %.1f ms; %llu of %llu at a refresh (watch %.2f Hz, display mode %u Hz); "
-                        "game steps off target %llu of %llu\n",
+                        "game steps off target %llu of %llu; shown: %llu of %llu off the pace, worst %.1f ms; "
+                        "GPU finished %llu late (worst %.1f ms), %llu flips moved after one, %llu stalls\n",
                         static_cast<unsigned long long>(pacing.flips), pace_ms,
                         static_cast<unsigned long long>(pacing.locked),
                         static_cast<unsigned long long>(pacing.late), static_cast<unsigned long long>(pacing.early),
@@ -1416,14 +1422,84 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
                         vblank && vblank->period.count() > 0 ? 1e9 / double(vblank->period.count()) : 0.0,
                         Frontend::DisplayRefreshHz(),
                         static_cast<unsigned long long>(off - pacing.off_target_at_start),
-                        static_cast<unsigned long long>(steps - pacing.steps_at_start));
+                        static_cast<unsigned long long>(steps - pacing.steps_at_start),
+                        static_cast<unsigned long long>(pacing.shown_uneven),
+                        static_cast<unsigned long long>(pacing.shown), pacing.worst_shown_ms,
+                        static_cast<unsigned long long>(pacing.gpu_late), pacing.worst_gpu_late_ms,
+                        static_cast<unsigned long long>(pacing.gpu_held),
+                        static_cast<unsigned long long>(pacing.gpu_stalls));
             pacing.window_start = now;
+            pacing.gpu_late = pacing.shown = pacing.shown_uneven = pacing.gpu_held = pacing.gpu_stalls = 0;
+            pacing.worst_gpu_late_ms = pacing.worst_shown_ms = 0;
             pacing.flips = pacing.locked = pacing.late = pacing.early = pacing.at_refresh = pacing.phased = 0;
             pacing.worst_ms = 0;
             pacing.off_target_at_start = off;
             pacing.steps_at_start = steps;
         };
+        // Nightwatch (judder report NW-b9564e8, 25 Nov: judder on a G-Sync display with a steady
+        // counter, the GPU near its limit): a flip not locked to the vblanks is shown when the GPU
+        // finishes its frame. The flip after a frame the GPU finished late waits a whole pace from
+        // that finish (LanternPacing::GpuPacedSlot) instead of following it at once, and the game,
+        // waiting for its flip, steps by the time really shown. BB_GPU_PACING=0: flips keep their
+        // own clock (before 0.3.3).
+        static const bool gpu_pacing = [] {
+            const char* env = std::getenv("BB_GPU_PACING");
+            return !(env && env[0] == '0');
+        }();
+        u64 last_tick = 0; // the last flip's frame (0: none, or no longer waited for)
+        Clock::time_point last_flip{}, last_shown{};
+        bool last_noted = false;
+        const auto note_shown = [&](const BbFrameDone::State& state) {
+            if (last_noted || state.kind != BbFrameDone::State::Kind::Done) return;
+            last_noted = true;
+            const auto pace = flips.Period();
+            const auto ms = [](auto d) { return std::chrono::duration<double, std::milli>(d).count(); };
+            if (state.done - last_flip > pace / 16) {
+                ++pacing.gpu_late;
+                pacing.worst_gpu_late_ms = std::max(pacing.worst_gpu_late_ms, ms(state.done - last_flip));
+            }
+            const auto shown = std::max(last_flip, state.done);
+            if (last_shown != Clock::time_point{} && shown - last_shown < pace * 4) {
+                const auto interval = shown - last_shown;
+                ++pacing.shown;
+                pacing.shown_uneven += interval > pace + pace / 4 || interval < pace - pace / 4;
+                pacing.worst_shown_ms = std::max(pacing.worst_shown_ms, ms(interval));
+            }
+            last_shown = shown;
+        };
+        // Before a flip whose slot came: true when it may go now. Waits for the last frame's GPU
+        // work until `until` at most (never past the flip loop's next tick).
+        const auto gpu_gate = [&](Clock::time_point until, Clock::time_point tick_deadline) -> bool {
+            if (!last_tick) return true;
+            auto& watch = BbFrameDone::Get();
+            BbFrameDone::State state = watch.Get(last_tick);
+            const bool hold = gpu_pacing && !locked && frame_limit &&
+                              !BbSettings::Get().frame_gen_active.load(std::memory_order_relaxed);
+            if (state.kind == BbFrameDone::State::Kind::Pending && hold) {
+                const auto give_up = last_flip + LanternPacing::GpuHoldLimit(flips.Period());
+                state = watch.WaitFor(last_tick, std::min(give_up, until));
+                if (state.kind == BbFrameDone::State::Kind::Pending) {
+                    if (Clock::now() < give_up) return false; // still rendering: wait on
+                    ++pacing.gpu_stalls;                        // a stall: the flips keep their clock
+                    last_tick = 0;
+                    return true;
+                }
+            }
+            note_shown(state);
+            if (!hold || state.kind != BbFrameDone::State::Kind::Done) return true;
+            const auto slot = LanternPacing::GpuPacedSlot(flips.Slot(), last_flip, state.done, flips.Period());
+            if (slot == flips.Slot()) return true;
+            flips.PushTo(slot);
+            ++pacing.gpu_held;
+            const auto due = flips.Slot() - flips.Period() / 16;
+            if (due >= tick_deadline) return false; // at a later tick
+            LanternPacing::WaitUntil(due, true, max_spin);
+            return true;
+        };
         const auto take_flip = [&](const Request& request, Clock::time_point now) {
+            last_tick = request.frame ? request.frame->ready_tick : 0;
+            last_flip = now;
+            last_noted = false;
             flips.Taken(now);
             lock_to_vblank();
             note_pacing(now);
@@ -1443,7 +1519,8 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
             }
 
             const auto now = Clock::now();
-            if (flips.Ready(now) && main_port.vblank_status.count % (main_port.flip_rate + 1) == 0) {
+            if (flips.Ready(now) && main_port.vblank_status.count % (main_port.flip_rate + 1) == 0 &&
+                gpu_gate(now, now)) { // no waiting here: the vblank is signalled below
                 const auto request = receive_request();
                 if (!request) {
                     if (!main_port.is_open) {
@@ -1471,6 +1548,9 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
                     break; // its slot is at the next tick or later
                 }
                 LanternPacing::WaitUntil(flips.Slot() - flips.Period() / 16, true, max_spin);
+                if (!gpu_gate(tick_deadline - max_spin, tick_deadline)) {
+                    break;
+                }
                 if (const auto request = receive_request()) {
                     take_flip(request, Clock::now());
                 }
