@@ -313,6 +313,22 @@ class OnNocturne(unittest.TestCase):
             first = next(w for b, i, w in events.instructions(t) if b < 1000)
             self.assertEqual(tuple(first), (256, started), t)
 
+    def test_his_snake_balls_rise_apart(self):
+        """User 25 Nov: away from home the three balls rose stacked from one spot. At home each one's generator
+        (2705001-003, 4 spawn points each; DATA Nocturne v6.0.0 m27) places it; the copies have none, so each ball stands
+        at its generator's point nearest him."""
+        import helpers
+        from msb import Msb
+        Noc.census()
+        msb = Msb(next(iter(Noc.variants("m27_00").values())))
+        for ball in (2700803, 2700804, 2700805):
+            self.assertEqual(len(msb.generator_points(helpers._pose(msb, ball)[0]["part"])), 4, ball)
+        home, spots = helpers._pose(msb, HOST)[1], set()
+        for ball in (2700803, 2700804, 2700805):
+            points = msb.generator_points(helpers._pose(msb, ball)[0]["part"])
+            spots.add(min(points, key=lambda p: (p[0] - home[0]) ** 2 + (p[2] - home[2]) ** 2))
+        self.assertEqual(len(spots), 3)
+
     def test_off_no_summons_also_silences_nocturnes_summon_event(self):
         """Nocturne runs its own copy of the summon event (12704813, which also waits on his message 20) in place of
         12704807: option shadows_summons off must silence that one."""

@@ -228,6 +228,9 @@ def helper_rows(census, stem, placed, fighters, slot_row, new_rows):
             home_row = by_entity[home]["npc"]
             row = bytearray(census.npc_rows[home_row])
             for name in (("hp",) if home in fight.same_hp else ()) + SLOT_STRENGTH:
+                if name in SLOT_STRENGTH and layout.get(row, name) <= 0:
+                    continue  # unscaled at home stays unscaled (user 25 Nov: the Coiled Host's puddle owners, none
+                    # at home, took the slot's area effect and hit harder in easier areas)
                 layout.set(row, name, layout.get(boss_row, name))
             body_bytes = bytes(row)
             if body_bytes == census.npc_rows[home_row]:
@@ -701,6 +704,7 @@ def generate(game, mods, out_root, code, label=None, base_label=None, progress=N
     home_stem = {s["entity"]: stem for stem in STEMS for s in census.slots[stem]}
     event_reports = {}
     texture_report = {}  # {stem: [[source model, entity, models that need it]]} (texture_parts)
+    event_effects = {}  # {stem: effect ids its events newly spawn} (effects.plan)
     travelled = {}  # {stem: {(model, home npc row)}} of the bodies that came with a boss, for their effects
     mod_host_only = hostonly.mod_listed(files.mod_folders)  # a copy of a mod's host-only event stays host-only
 
@@ -795,6 +799,10 @@ def generate(game, mods, out_root, code, label=None, base_label=None, progress=N
         # the models whose textures this map's enemies draw with get a hidden part each (textures.py)
         rel = "event/%s_00_00.emevd.dcx" % stem
         events = Emevd(dcx_read(outputs[rel] if rel in outputs else files.read(rel))[0])
+        if rel in outputs:  # effects the travelled events spawn (the Coiled Host's puddle look 651207, user 25 Nov)
+            new_effects = effect_copies.spawned(events) - effect_copies.spawned(Emevd(dcx_read(files.read(rel))[0]))
+            if new_effects:
+                event_effects[stem] = new_effects
         edited, hidden = texture_parts(census, {v: b[0] for v, b in variants.items()}, events)
         if hidden:
             for variant, data in edited.items():
@@ -840,7 +848,8 @@ def generate(game, mods, out_root, code, label=None, base_label=None, progress=N
     # take files.read_hash(), which must already cover every file the world reads
     step("effects")
     effect_outputs, effect_report = effect_copies.plan(files, census, changes,
-                                                       lambda done, total: step("effects", done, total), travelled)
+                                                       lambda done, total: step("effects", done, total), travelled,
+                                                       event_effects)
     outputs.update(effect_outputs)
     step("items")
     drop_plan = {}

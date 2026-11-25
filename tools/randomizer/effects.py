@@ -162,6 +162,15 @@ def _closure(start, names, numbers, held):
     return sorted(need)
 
 
+SPAWN_SFX = ((2006, 2), (2006, 3))  # one-shot and following SFX: [entity kind, entity, dummy poly, effect id]
+
+
+def spawned(events):
+    """The effect ids an Emevd's SFX lines spawn."""
+    return {w[3] for e in events.event_ids() for b, i, w in events.instructions(e)
+            if (b, i) in SPAWN_SFX and len(w) > 3 and w[3] > 0}
+
+
 def add_files(bnd, files_to_add):
     """Adds entries, ids continuing each type's range, the list kept in id order."""
     top = {}
@@ -175,12 +184,16 @@ def add_files(bnd, files_to_add):
     bnd["entries"].sort(key=lambda e: e[1])
 
 
-def plan(files, census, changes, progress=None, travelled=None):
+def plan(files, census, changes, progress=None, travelled=None, event_effects=None):
     """({archive rel: dcx bytes}, report). changes: {stem: {part: (model, think, npc)}}. travelled: {stem: {(model, home
     npc row)}}, the bodies that came along with a boss (helpers' parts: they are in no slot change, and the Scorched
     Beast's head fired invisible fireballs away from Hemwick, 17 Nov). progress(done, total): called as the archives
-    finish packing, which is most of the step's time (zlib level 9, several seconds per archive)."""
-    wanted, placed_rows = {}, {}
+    finish packing, which is most of the step's time (zlib level 9, several seconds per archive). event_effects: {stem:
+    effect ids} the map's events spawn that its vanilla events did not (events.spawned: a helper's events that travelled)."""
+    wanted, placed_rows, spawned = {}, {}, {}
+    for stem, ids in (event_effects or {}).items():
+        wanted.setdefault(stem[:3], set())
+        spawned.setdefault(stem[:3], set()).update(ids)
     for stem, bodies in (travelled or {}).items():
         wanted.setdefault(stem[:3], set()).update(model for model, _ in bodies)
         placed_rows.setdefault(stem[:3], set()).update(npc for _, npc in bodies)
@@ -223,12 +236,22 @@ def plan(files, census, changes, progress=None, travelled=None):
         held = resident | set(archives[family][0])
         adding, unfound = {}, 0
         wanted_effects = set().union(*(model_effects[m] for m in wanted[family]),
-                                     *(row_effects(npc) for npc in placed_rows.get(family, ())))
+                                     *(row_effects(npc) for npc in placed_rows.get(family, ())), spawned.get(family, ()))
         for effect in sorted(wanted_effects):
             base = "f%09d.fxr" % effect
-            if base in held or base in adding:
+            if base in adding or base in archives[family][0]:
                 continue
             source = next((s for s in sources if base in archives[s][0]), None)
+            if base in resident:
+                # a resident effect can draw with files only a map archive holds (user 25 Nov: the Coiled Host's
+                # puddle f000651207 is in patcheffects, its model and textures s25070 only in m27 / m33's archives;
+                # "every map should load every asset it needs"): those files come along, as for any effect
+                if source is not None:
+                    names, numbers = archives[source]
+                    for name in _closure(base, names, numbers, (held | set(adding)) - {base}):
+                        if name != base:
+                            adding[name] = names[name]
+                continue
             if source is None:
                 unfound += 1  # vanilla names effects that exist nowhere: they play nothing there either
                 continue
