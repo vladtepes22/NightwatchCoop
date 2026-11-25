@@ -2540,7 +2540,7 @@
   "Switch to UPnP/VPN/LAN": "UPnP/VPN/LAN으로 전환",
   "Connect and play": "연결하고 플레이",
   "here": "여기",
-  "Nocturne {0} is out: an optional mod made by the devs of Nightwatch that adds new weapons and hunter tools. See what it adds {link}.": "Nocturne {0} 출시: Nightwatch 개발자가 만든 선택형 모드로, 새 무기와 사냥꾼 도구를 추가합니다. 추가 내용은 {link}에서 확인하세요.",
+  "Nocturne {0} is out: an optional mod made by the devs of Nightwatch that restores cut bosses, and adds new weapons and hunter tools. See what it adds {link}.": "Nocturne {0} 출시: Nightwatch 개발자가 만든 선택형 모드로, 삭제된 보스를 되살리고 새 무기와 사냥 도구를 추가합니다. 추가 내용은 {link}에서 확인하세요.",
   "Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.": "Nocturne {0} 출시(현재 {1}). '업데이트'를 누르면 다운로드({2} MB)하고 설치된 버전을 교체합니다. 새로운 내용은 {link}에서 확인하세요.",
   "The Nocturne download could not be reached: {0}": "Nocturne 다운로드에 연결할 수 없습니다: {0}",
   "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "모드 폴더에 이미 {0} 폴더가 있습니다. 삭제하거나 이름을 바꾼 뒤 다시 시도하세요.",

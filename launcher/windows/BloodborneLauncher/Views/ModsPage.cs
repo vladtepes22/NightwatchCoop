@@ -175,7 +175,7 @@ namespace BloodborneLauncher.Views
             string? error = null;
             if (news == StartNews.Try)
             {
-                var text = L.T("Nocturne {0} is out: an optional mod made by the devs of Nightwatch that adds new weapons and hunter tools. See what it adds {link}.")
+                var text = L.T("Nocturne {0} is out: an optional mod made by the devs of Nightwatch that restores cut bosses, and adds new weapons and hunter tools. See what it adds {link}.")
                     .Replace("{0}", newest.Version) + NeedsText(newest);
                 // Not asked yet: the switch's own question gives the download size.
                 if (Prompt.ChooseWithLink(L.T("Nocturne"), text, L.T("here"), CuratedMods.NexusPage, L.T("Not now"), L.T("Try Nocturne")) == 1)

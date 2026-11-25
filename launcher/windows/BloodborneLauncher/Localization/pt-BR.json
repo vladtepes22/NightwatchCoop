@@ -2540,7 +2540,7 @@
   "Switch to UPnP/VPN/LAN": "Mudar para UPnP/VPN/LAN",
   "Connect and play": "Conectar e jogar",
   "here": "aqui",
-  "Nocturne {0} is out: an optional mod made by the devs of Nightwatch that adds new weapons and hunter tools. See what it adds {link}.": "Saiu o Nocturne {0}: um mod opcional feito pelos desenvolvedores do Nightwatch que adiciona novas armas e ferramentas de caçador. Veja o que ele adiciona {link}.",
+  "Nocturne {0} is out: an optional mod made by the devs of Nightwatch that restores cut bosses, and adds new weapons and hunter tools. See what it adds {link}.": "Saiu o Nocturne {0}: um mod opcional feito pelos desenvolvedores do Nightwatch que restaura chefes cortados e adiciona novas armas e ferramentas de caçador. Veja o que ele adiciona {link}.",
   "Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.": "Saiu o Nocturne {0} (você tem a {1}). “Atualizar” baixa a versão ({2} MB) e substitui a instalada. Veja as novidades {link}.",
   "The Nocturne download could not be reached: {0}": "Não foi possível acessar o download do Nocturne: {0}",
   "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "Sua pasta de mods já tem uma pasta chamada {0}. Remova-a ou renomeie-a e tente de novo.",
