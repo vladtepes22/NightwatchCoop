@@ -18,7 +18,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        if (args.Length != 1 && !(args.Length == 2 && args[1] is "--coop" or "--randomizer")) { Console.Error.WriteLine("Usage: SaveEditorShots <output-folder> [--coop | --randomizer]"); return 2; }
+        if (args.Length != 1 && !(args.Length == 2 && args[1] is "--coop" or "--randomizer" or "--merge")) { Console.Error.WriteLine("Usage: SaveEditorShots <output-folder> [--coop | --randomizer | --merge]"); return 2; }
         try
         {
             Directory.CreateDirectory(args[0]);
@@ -28,6 +28,7 @@ internal static class Program
             app.Resources.MergedDictionaries.Add(new ControlsDictionary());
             foreach (var file in new[] { "Charcoal", "Styles", "ScrollBar" })
                 app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri($"pack://application:,,,/Nightwatch Co-op;component/Themes/{file}.xaml") });
+            if (args.Length == 2 && args[1] == "--merge") { MergeShots(args[0]); app.Shutdown(); return 0; }
             if (args.Length == 2 && args[1] == "--randomizer") { RandomizerShots(args[0]); app.Shutdown(); return 0; }
             if (args.Length == 2) { CoopShots(args[0]); app.Shutdown(); return 0; }
             int shots = 0;
@@ -218,6 +219,41 @@ internal static class Program
 
     /// <summary>The Randomizer page on a fixture Mods folder (one world, one plain mod): as it opens (on Play, since a world
     /// is there), then Create world new, with a pasted code (rows locked), with every section open, and the spoiler window. Nothing outside the output folder is written.</summary>
+    private static void MergeShots(string output)
+    {
+        Environment.SetEnvironmentVariable("BB_LAUNCHER_CONFIG_DIR", Path.Combine(output, "fixture-config"));
+        var settings = Workspace.Current.Settings;
+        var mods = Path.Combine(output, "fixture-mods");
+        foreach (var name in new[] { "Nocturne", "Vacuous Rite", "Param tweaks" }) Directory.CreateDirectory(Path.Combine(mods, name, "dvdroot_ps4"));
+        settings.Set("mods_dir", mods);
+        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        var page = new MergePage();
+        typeof(LauncherPage).GetMethod("Sectionize", flags)!.Invoke(page, null);
+        page.OnShown();
+        var add = typeof(MergePage).GetMethod("AddLine", flags)!;
+        foreach (var line in new[]
+        {
+            "INFO 3 mods, game files read from the game folder", "MERGED param/GameParam/EquipParamWeapon.parambnd.dcx: 214 rows from 2 mods",
+            "CONFLICT param/GameParam/EquipParamWeapon.parambnd.dcx EquipParamWeapon row 100000 (Hunter Axe) field attackBasePhysics: Nocturne 120, Param tweaks 95; Param tweaks wins",
+            "CONFLICT msg/engUS/item.msgbnd.dcx text id 9000: Nocturne \"Pebble\", Vacuous Rite \"Stone\"; Vacuous Rite wins",
+            "NOT MERGED event/m24_01_00_00.emevd.dcx (EMEVD): taken whole from Vacuous Rite", "COPIED chr/c2090.anibnd.dcx", "DONE 52 files, 2 conflicts",
+        }) add.Invoke(page, new object[] { line });
+        var content = (UIElement)page.Content; page.Content = null;
+        var root = new Border { Child = content, Width = 860, Height = 1000 };
+        root.SetResourceReference(Border.BackgroundProperty, "DialogBackgroundBrush");
+        root.SetResourceReference(TextElement.ForegroundProperty, "TextFillColorPrimaryBrush");
+        Layout(root, 860, 1000);
+        var toggles = Descendants(root).OfType<Wpf.Ui.Controls.ToggleSwitch>().ToList();
+        Require(toggles.Count == 3, "one include switch per mod");
+        toggles[0].IsChecked = true; toggles[2].IsChecked = true;
+        foreach (var t in toggles.Where(t => t.IsChecked == true)) t.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+        ((Wpf.Ui.Controls.TextBox)typeof(MergePage).GetField("_nameBox", flags)!.GetValue(page)!).Text = "My merge";
+        var merge = (Wpf.Ui.Controls.Button)typeof(MergePage).GetField("_merge", flags)!.GetValue(page)!;
+        Require(merge.IsEnabled, "two mods and a name enable Merge");
+        Layout(root, 860, 1000);
+        Render(root, 860, 1000, 1, Path.Combine(output, "merge.png"));
+    }
+
     private static void RandomizerShots(string output)
     {
         Environment.SetEnvironmentVariable("BB_LAUNCHER_CONFIG_DIR", Path.Combine(output, "fixture-config"));
