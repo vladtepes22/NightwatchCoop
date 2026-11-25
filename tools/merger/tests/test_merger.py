@@ -151,8 +151,23 @@ class ParamTests(unittest.TestCase):
         out, report = self.merge(vanilla, [("A", a), ("B", b)])
         self.assertEqual(values(out), [(1, row()), (2, row(8)), (3, row(1))])
         self.assertEqual(report.conflicts, 1)
-        self.assertIn("row 2 (two) (a new row; the versions differ in attackBaseMagic): A adds it, B adds it -> B wins",
-                      report.lines[0])
+        self.assertIn("row 2 (two) (a new row; the versions differ in attackBaseMagic): A attackBaseMagic=7, "
+                      "B attackBaseMagic=8 -> B wins", report.lines[0])
+
+    def test_row_names_set_differently_are_one_summary_line(self):
+        # Two mods naming rows differently (a translation) change nothing in the game: one INFO line per table, no
+        # CONFLICT per row; a value conflict in the same table stays its own line.
+        vanilla = synth.param(TYPE, SIZE, [(1, row(), "a"), (2, row(), "b"), (3, row(), "c")])
+        a = synth.param(TYPE, SIZE, [(1, row(), "Blade"), (2, row(5), "Hammer"), (3, row(), "c"), (9, row(1), "Neu")])
+        b = synth.param(TYPE, SIZE, [(1, row(), "Klinge"), (2, row(6), "Hammer"), (3, row(), "c"), (9, row(1), "New")])
+        out, report = self.merge(vanilla, [("A", a), ("B", b)])
+        self.assertEqual(names_of(out), ["Klinge", "Hammer", "c", "New"])
+        self.assertEqual(values(out), [(1, row()), (2, row(6)), (3, row()), (9, row(1))])
+        self.assertEqual(report.conflicts, 1)
+        self.assertEqual([line for line in report.lines if line.startswith("CONFLICT")],
+                         ["CONFLICT gameparam Test row 2 (b) attackBaseMagic: A 5, B 6 -> B wins"])
+        self.assertIn("INFO gameparam: Test: 2 row names set differently by two or more mods (the game does not use row "
+                      "names; the later mod's name is kept): rows 1, 9", report.lines)
 
     def test_row_name_merge(self):
         vanilla = synth.param(TYPE, SIZE, [(1, row(), "a"), (2, row(), "b")])

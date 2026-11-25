@@ -279,6 +279,9 @@ def merge_param(label_table, vanilla, mods, report, paramdefs, item_name=None):
 
     out_rows = []
     taken = 0
+    # Rows whose name two mods set differently (often only a translation): the game does not use row names, so they
+    # get one summary line per table instead of a CONFLICT line each.
+    name_clashes = []
     for key, row_id, vbody, vref in base_rows:
         units = changes.get(key, {})
         deleters = deleted.get(key, [])
@@ -303,7 +306,7 @@ def merge_param(label_table, vanilla, mods, report, paramdefs, item_name=None):
             final = values[-1][1]
             if index == "name":
                 if len({v for _, v in values}) > 1:
-                    report.conflict("%s row name" % place, [(m, show_text(v)) for m, v in values], values[-1][0])
+                    name_clashes.append(key)
                 ref = final
                 continue
             unit = layout.units[index]
@@ -319,20 +322,35 @@ def merge_param(label_table, vanilla, mods, report, paramdefs, item_name=None):
         for version in versions:
             if not any(version[1:] == d[1:] for d in distinct):
                 distinct.append(version)
-        if len(distinct) > 1:
+        if any(t != distinct[0][2] for _, _, t in distinct):
+            name_clashes.append(key)
+        if len({d[1] for d in distinct}) > 1:
             place = place_of(label_table, key, lookup(label_table, key[0]) or text or None)
             fields = []
             first = int.from_bytes(distinct[0][1], "little")
             for _, other_body, _ in distinct[1:]:
                 other = int.from_bytes(other_body, "little")
-                fields += [u.name for u in layout.units if u.value(first) != u.value(other) and u.name not in fields]
-            if any(t != distinct[0][2] for _, _, t in distinct):
-                fields.append("row name")
-            what = ", ".join(fields[:6]) + (" and %d more" % (len(fields) - 6) if len(fields) > 6 else "")
-            report.conflict("%s (a new row; the versions differ in %s)" % (place, what),
-                            [(m, "adds it") for m, _, _ in versions], mod)
+                fields += [u for u in layout.units if u.value(first) != u.value(other) and u not in fields]
+            what = ", ".join(u.name for u in fields[:6])
+            if len(fields) > 6:
+                what += " and %d more" % (len(fields) - 6)
+            if len(fields) <= 3:  # few fields: each mod's values of them
+                shown = []
+                for m, body, _ in versions:
+                    value = int.from_bytes(body, "little")
+                    shown.append((m, " ".join("%s=%s" % (u.name, u.show(u.value(value))) for u in fields)))
+            else:
+                shown = [(m, "adds it") for m, _, _ in versions]
+            report.conflict("%s (a new row; the versions differ in %s)" % (place, what), shown, mod)
         taken += 1
         insert_new(out_rows, key, body, text)
+    if name_clashes:
+        shown = ", ".join("%d" % k[0] + (" #%d" % (k[1] + 1) if k[1] else "") for k in name_clashes[:8])
+        report.info("%s: %d row name%s set differently by two or more mods (the game does not use row names; the later "
+                    "mod's name is kept): row%s %s%s" % (
+                        label_table, len(name_clashes), "" if len(name_clashes) == 1 else "s",
+                        "" if len(name_clashes) == 1 else "s", shown,
+                        " and %d more" % (len(name_clashes) - 8) if len(name_clashes) > 8 else ""))
     base.rows = out_rows
     return base.write(), taken
 
