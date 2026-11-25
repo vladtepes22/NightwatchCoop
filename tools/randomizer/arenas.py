@@ -158,6 +158,9 @@ ENEMY_OUT = {
 
 ARENAS_OF_GAME = tuple(a for a in ARENAS if a.option is None)  # the fights the game itself has (tests of the game alone)
 BY_KEY = {a.key: a for a in ARENAS}
+# {boss body: arena keys it never fights in}: the One Reborn does not fit the small arenas (user, 24 Nov: "keep him from
+# spawning in tiny arenas like witch, amelia, gascoigne"; player report: in Amelia's he stood above the arena)
+TOO_SMALL = {2800800: frozenset(("witch", "amelia", "gascoigne"))}
 BY_ENTITY = {e: a for a in ARENAS for e in a.bodies + a.extras + ((a.pool,) if a.pool else ())}
 BOSS_BODIES = frozenset(e for a in ARENAS for e in a.bodies)
 ESCORTS = frozenset(e for a in ARENAS for e in a.escorts)

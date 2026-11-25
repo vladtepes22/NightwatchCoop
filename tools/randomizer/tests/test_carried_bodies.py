@@ -255,6 +255,11 @@ class CarriedBodies(unittest.TestCase):
         index = planner._index(census.slots)
         pool = {f["key"]: f for f in planner.boss_fighters(census.slots, index, set(), phases=planner.phase_entities(index))}
         result["fighters"]["ludwig"] = helpers.with_stage(pool["ludwig"], pool["shadows_phase"], census.slots)
+        # and on Moon Presence's body as that build drew him (later planners draw this code otherwise: 24 Nov, a boss no
+        # stage can hold takes an arena first)
+        drawn = result["boss_fighters"]
+        at = next(e for e, k in drawn.items() if k == "ludwig")
+        drawn[at], drawn[2100810] = drawn[2100810], drawn[at]
         return result
 
     @needs_nocturne

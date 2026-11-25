@@ -75,8 +75,8 @@ class Table(unittest.TestCase):
     def test_the_fight_in_helpers(self):
         import helpers
         fight = helpers.FIGHTS[BODY]
-        self.assertEqual((fight.key, fight.boss, fight.travel, fight.hold, fight.wake, fight.authority, fight.disable),
-                         (KEY, BODY, (HEAD,), 12304822, (HEAD,), (HEAD,), (HEAD,)))
+        self.assertEqual((fight.key, fight.boss, fight.travel, fight.hold, fight.wake, fight.disable),
+                         (KEY, BODY, (HEAD,), 12304822, (HEAD,), (HEAD,)))
         self.assertEqual(fight.moved, (12304823,))
         self.assertEqual(len(fight.made), 2)  # the head's death with him, its breath at half HP
 

@@ -407,7 +407,9 @@ class Fights(unittest.TestCase):
         for instruction in [(2004, 33, (upper, target)), (2004, 11, (upper, target)), (2004, 12, (upper, 1)),
                             (2004, 10, (caster, 0)), (2004, 1, (upper, 0))]:
             self.assertIn(instruction, init)
-        self.assertEqual(init[-3:], [(3, 0, (256, started)), (2004, 1, (upper, 1)), (2004, 1, (caster, 1))])
+        # AI on at the fight's start, then the co-op authority home m28 gives both (12804802 2004[28])
+        self.assertEqual(init[-5:], [(3, 0, (256, started)), (2004, 1, (upper, 1)), (2004, 1, (caster, 1)),
+                                     (2004, 28, (upper, 4095)), (2004, 28, (caster, 4095))])
         self.assertEqual(travelled["bar"][2:], (target, 507000))  # the bar stays on the boss, with its own name
         self.assertEqual(report["scripts"], [("c5071", 0, 507100), ("c5072", 507200, 507200)])
         self.assertNoDangling(events, vanilla, msbs, ONE_REBORN)
