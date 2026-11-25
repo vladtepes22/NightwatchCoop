@@ -52,6 +52,7 @@ private:
         Clock::time_point done; // epoch: not finished yet
     };
     State Find(std::uint64_t tick) const; // with mutex held
+    void Trim();                          // with mutex held
     void Run(std::stop_token token);
 
     mutable std::mutex mutex;

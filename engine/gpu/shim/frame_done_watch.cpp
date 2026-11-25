@@ -37,12 +37,16 @@ void Watch::Note(std::uint64_t tick) {
         return;
     }
     entries.push_back({tick, Clock::time_point{}});
+    Trim();
+    changed.notify_all();
+}
+
+void Watch::Trim() {
     // Finished ones beyond the kept few go; a pending one is never dropped (the thread waits on it).
     while (entries.size() > Kept && next_wait > 0) {
         entries.pop_front();
         --next_wait;
     }
-    changed.notify_all();
 }
 
 State Watch::Find(std::uint64_t tick) const {
@@ -109,6 +113,7 @@ void Watch::Run(std::stop_token token) {
                 entries[i].done = now;
                 ++next_wait;
             }
+            Trim();
         }
         changed.notify_all();
     }
