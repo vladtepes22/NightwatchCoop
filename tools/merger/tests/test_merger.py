@@ -245,6 +245,25 @@ class BndTests(unittest.TestCase):
         self.assertEqual(containers.bnd4_read(out)["entries"][0][3], b"bb")
         self.assertEqual(report.lines[0], "CONFLICT chr\\c1000.chrbnd.dcx c1000.flver: A 1 bytes, B 2 bytes -> B wins")
 
+    def test_damaged_inner_file_falls_back_instead_of_stopping(self):
+        # An ASCII-named TPF whose name has no end: the reader fails with a plain ValueError. The merge must keep the
+        # later mod's file and go on, not stop the whole run.
+        broken = bytearray(b"TPF\0" + bytes(4) + struct.pack("<I", 1) + b"\x04\x03\x02\x00")
+        entry = bytearray(0x24)
+        struct.pack_into("<I", entry, 0x18, 0x10 + 0x24)
+        broken += entry + b"abc"
+        vanilla = synth.bnd([(0, "N:\\m\\x.tpf", synth.tpf([("t", b"v" * 16)])),
+                             (1, "N:\\m\\y.fmg", synth.fmg({1: "v"}))])
+        a = synth.bnd([(0, "N:\\m\\x.tpf", synth.tpf([("t", b"a" * 16)])), (1, "N:\\m\\y.fmg", synth.fmg({1: "a"}))])
+        b = synth.bnd([(0, "N:\\m\\x.tpf", bytes(broken)), (1, "N:\\m\\y.fmg", synth.fmg({1: "v", 2: "b"}))])
+        report = Report("menu\\m.tpfbnd.dcx")
+        out, _ = merge_bnd(report, "", vanilla, [("A", a), ("B", b)], Context(defs()), {})
+        entries = containers.bnd4_read(out)["entries"]
+        self.assertEqual(entries[0][3], bytes(broken))
+        self.assertEqual(containers.fmg_read(entries[1][3])["texts"], {1: "a", 2: "b"})
+        self.assertTrue(any("x.tpf: kept whole from B (the TPF file cannot be read" in line for line in report.lines),
+                        report.lines)
+
     def test_inner_paths_matched_by_file_name(self):
         vanilla = synth.bnd([(10, "N:\\msg\\engGB\\names.fmg", synth.fmg({1: "colour", 2: "x"}))])
         a = synth.bnd([(10, "N:\\msg\\engUS\\names.fmg", synth.fmg({1: "color", 2: "x"}))])

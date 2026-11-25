@@ -85,7 +85,10 @@ def merge_payload(report, place, name, vanilla, mods, ctx, counts):
         raise MergeError(why_not(name) if kinds == {None} else "the mods' files are of different types")
     kind = kinds.pop()
     if kind == "bnd":
-        data, taken = merge_bnd(report, place, vanilla, mods, ctx, counts)
+        try:
+            data, taken = merge_bnd(report, place, vanilla, mods, ctx, counts)
+        except (ValueError, struct.error, IndexError, KeyError, UnicodeDecodeError, OverflowError) as error:
+            raise MergeError("the BND4 cannot be merged: %s" % error)
     elif kind == "param":
         if vanilla is None:
             raise MergeError("a PARAM the game does not have")
@@ -99,12 +102,18 @@ def merge_payload(report, place, name, vanilla, mods, ctx, counts):
             data, taken = merge_fmg(place, vanilla, mods, report)
         except (ValueError, struct.error, IndexError, UnicodeDecodeError) as error:
             raise MergeError("an FMG cannot be read: %s" % error)
-    elif kind == "tpf":
-        data, taken = merge_tpf(place, vanilla, mods, report)
-    elif kind == "tae":
-        data, taken = merge_tae(place, vanilla, mods, report)
     else:
-        data, taken = merge_hks(place, os.path.basename(name.replace("\\", "/")), vanilla, mods, report)
+        # A damaged or unusual file can fail deep in a reader with a plain Python error: that file falls back to the
+        # later mod's whole file (MergeError), the rest of the merge goes on.
+        try:
+            if kind == "tpf":
+                data, taken = merge_tpf(place, vanilla, mods, report)
+            elif kind == "tae":
+                data, taken = merge_tae(place, vanilla, mods, report)
+            else:
+                data, taken = merge_hks(place, os.path.basename(name.replace("\\", "/")), vanilla, mods, report)
+        except (ValueError, struct.error, IndexError, KeyError, UnicodeDecodeError, OverflowError) as error:
+            raise MergeError("the %s file cannot be read: %s" % (kind.upper(), error))
     counts[UNIT[kind]] = counts.get(UNIT[kind], 0) + taken
     return data
 
