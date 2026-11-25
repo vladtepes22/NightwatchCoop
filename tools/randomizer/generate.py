@@ -228,6 +228,9 @@ def helper_rows(census, stem, placed, fighters, slot_row, new_rows):
             home_row = by_entity[home]["npc"]
             row = bytearray(census.npc_rows[home_row])
             for name in (("hp",) if home in fight.same_hp else ()) + SLOT_STRENGTH:
+                if name in SLOT_STRENGTH and layout.get(row, name) <= 0:
+                    continue  # unscaled at home stays unscaled (user 25 Nov: the Coiled Host's puddle owners, none
+                    # at home, took the slot's area effect and hit harder in easier areas)
                 layout.set(row, name, layout.get(boss_row, name))
             body_bytes = bytes(row)
             if body_bytes == census.npc_rows[home_row]:
