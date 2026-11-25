@@ -3043,6 +3043,8 @@
   "More enemy kinds per area.": "エリアごとの敵の種類：多め。",
   "Most enemy kinds per area.": "エリアごとの敵の種類：最多。",
   "Presets": "プリセット",
+  "Presets…": "プリセット…",
+  "A preset fills in the picture, effect and lighting settings on the Graphics page. They stay editable there.": "プリセットはグラフィックページの画質・エフェクト・ライティングの設定を入力します。設定はそこで引き続き変更できます。",
   "Original": "オリジナル",
   "Crisp": "くっきり",
   "Atmospheric": "雰囲気重視",

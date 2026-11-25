@@ -3044,6 +3044,8 @@
   "More enemy kinds per area.": "每个区域的敌人种类更多。",
   "Most enemy kinds per area.": "每个区域的敌人种类最多。",
   "Presets": "预设",
+  "Presets…": "预设…",
+  "A preset fills in the picture, effect and lighting settings on the Graphics page. They stay editable there.": "预设会填写“图形”页面上的画面、效果和光照设置。这些设置仍可在那里修改。",
   "Original": "原版",
   "Crisp": "清晰",
   "Atmospheric": "氛围",

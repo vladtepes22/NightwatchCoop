@@ -3043,6 +3043,8 @@
   "More enemy kinds per area.": "Більше видів ворогів на зону.",
   "Most enemy kinds per area.": "Максимум видів ворогів на зону.",
   "Presets": "Пресети",
+  "Presets…": "Пресети…",
+  "A preset fills in the picture, effect and lighting settings on the Graphics page. They stay editable there.": "Пресет заповнює налаштування зображення, ефектів і освітлення на сторінці «Графіка». Там їх і далі можна змінювати.",
   "Original": "Оригінал",
   "Crisp": "Чіткий",
   "Atmospheric": "Атмосферний",
