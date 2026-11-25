@@ -112,11 +112,12 @@ def catalog(catalogue, request, game, cache):
 
 
 def rune_catalog(catalogue, text, game, cache):
-    """[{number, name, icon, shape}] of the Caryll and oath runes the editor can add; number is the rune's effect id."""
+    """[{number, name, icon, shape}] of the game's Caryll and oath runes the editor can add (a mod's runes are in the Nocturne
+    list only); number is the rune's effect id."""
     rows = []
     for gen, effect, shape in catalogue.caryll_runes():
         name, icon, _ = catalogue.gem(gen, shape, [effect])
-        if name is not None and (not text or text in name.lower() or text == str(effect)):
+        if name is not None and gen not in catalogue.mod_gem_rows and (not text or text in name.lower() or text == str(effect)):
             rows.append((effect, name, icon, shape))
     # The game's rune list is fixed and short (73 rows), and the oath runes come last.
     paths = icons.ensure(game, cache, {r[2] for r in rows} - {None}) if game and rows else {}

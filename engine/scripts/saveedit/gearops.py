@@ -121,11 +121,11 @@ def add_blood_gem(model, catalogue, shape, effects):
 
 
 def rune_rows(catalogue):
-    """[(rune effect id, name, shape)] of the Caryll and oath runes that can be added."""
+    """[(rune effect id, name, shape)] of the game's Caryll and oath runes that can be added (not a mod's)."""
     out = []
     for gen, effect, shape in catalogue.caryll_runes():
         name, _icon, _cursed = catalogue.gem(gen, shape, [effect])
-        if name is not None:
+        if name is not None and gen not in catalogue.mod_gem_rows:
             out.append((effect, name, shape))
     return out
 

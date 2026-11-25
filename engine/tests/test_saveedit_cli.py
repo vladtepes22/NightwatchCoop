@@ -318,7 +318,7 @@ class SaveEditorCliTests(unittest.TestCase):
 
     def test_a_mods_new_rune_is_offered_and_added(self):
         """A rune a Nocturne mod adds (Serpentry: GemGen 200060, oath effect 2130001, name key 12000010, icon offset
-        1055) is in the rune list and the Nocturne list, and adding it writes the row's fixed effects; switching the
+        1055) is in the Nocturne list only (not the game's rune list), and adding it writes the row's fixed effects; switching the
         mod off (set_mod_gems({})) leaves only the game's runes."""
         d = bytearray(self.original)
         struct.pack_into("<15I", d, 0x54, 0x80800010, 22000300, 0, 0, 0, *(instances.NO_SLOT, 0) * 5)
@@ -336,8 +336,7 @@ class SaveEditorCliTests(unittest.TestCase):
         catalogue.set_mod_gems(mod)
         with patch.object(names.Catalogue, "load", return_value=catalogue):
             self.assertEqual(self.call("catalog", edit=dict(category=8, text=""))[1],
-                             [dict(number=2107001, name="Test Oath", icon=None, shape=2),  # the game's text wins
-                              dict(number=2130001, name="Serpentry", icon=None, shape=2)])
+                             [dict(number=2107001, name="Test Oath", icon=None, shape=2)])  # the game's text wins
             self.assertEqual(self.call("catalog", edit=dict(category=9, text="serp"))[1],
                              [dict(number=2130001, name="Serpentry", icon=None, category=8, shape=2)])
             self.assertEqual(catalogue.gem(200060, 2, [2130001])[1], 3000 + 200 + 1055)  # the mod's icon cell 4255
@@ -466,6 +465,7 @@ class SaveEditorCliTests(unittest.TestCase):
 
     def test_the_rune_list_is_never_cut_so_the_oath_runes_at_its_end_show(self):
         class Runes:  # the game has 67 Caryll rows before the six oath runes
+            mod_gem_rows = set()
             def caryll_runes(self):
                 return [(100000 + k, 1100000 + k, 1) for k in range(67)] + [(200000 + 10 * k, 2100000 + k, 2) for k in range(6)]
 
