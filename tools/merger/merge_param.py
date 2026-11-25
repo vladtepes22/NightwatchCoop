@@ -5,6 +5,7 @@ keep their change, two mods that change one field to different values are a conf
 names and widths come from the game's paramdefs (paramdef\\paramdef.paramdefbnd.dcx), read at merge time; a table whose
 paramdef is missing or does not add up to its row size is merged per 4-byte word instead, and the log names the bytes.
 """
+import bisect
 import re
 import struct
 
@@ -315,6 +316,7 @@ def merge_param(label_table, vanilla, mods, report, paramdefs, item_name=None):
             row_int = (row_int & ~unit.mask) | (final << unit.bit)
         out_rows.append((row_id, row_int.to_bytes(len(vbody), "little"), ref))
 
+    placed = []
     for key in sorted(new_order):
         versions = new_rows[key]
         mod, body, text = versions[-1]
@@ -343,7 +345,8 @@ def merge_param(label_table, vanilla, mods, report, paramdefs, item_name=None):
                 shown = [(m, "adds it") for m, _, _ in versions]
             report.conflict("%s (a new row; the versions differ in %s)" % (place, what), shown, mod)
         taken += 1
-        insert_new(out_rows, key, body, text)
+        placed.append((key, body, text))
+    insert_all_new(out_rows, placed)
     if name_clashes:
         shown = ", ".join("%d" % k[0] + (" #%d" % (k[1] + 1) if k[1] else "") for k in name_clashes[:8])
         report.info("%s: %d row name%s set differently by two or more mods (the game does not use row names; the later "
@@ -357,10 +360,30 @@ def merge_param(label_table, vanilla, mods, report, paramdefs, item_name=None):
 
 def insert_new(rows, key, body, text):
     """Inserts a new row after the last row of the highest id at or below its own (the game's order stays; an id below
-    every row goes first). `rows` = [(id, body, name ref)]."""
+    every row goes first). `rows` = [(id, body, name ref)]. One row at a time; `insert_all_new` places many at once."""
     row_id = key[0]
     best, at = None, 0
     for index, (other, _, _) in enumerate(rows):
         if other <= row_id and (best is None or other >= best):
             best, at = other, index + 1
     rows.insert(at, (row_id, body, text))
+
+
+def insert_all_new(rows, news):
+    """Same result as `insert_new` for each of `news` ([(key, body, text)] in ascending key order), in O(n log n):
+    every new row lands after the last existing row of the highest existing id at or below its own, and new rows that
+    share such an anchor follow each other in key order (a later new row's best match is the earlier new row there)."""
+    last_at = {}
+    for index, (row_id, _, _) in enumerate(rows):
+        last_at[row_id] = index
+    ids = sorted(last_at)
+    buckets = {}
+    for key, body, text in news:
+        found = bisect.bisect_right(ids, key[0]) - 1
+        anchor = last_at[ids[found]] + 1 if found >= 0 else 0
+        buckets.setdefault(anchor, []).append((key[0], body, text))
+    out = list(buckets.get(0, ()))
+    for index, row in enumerate(rows):
+        out.append(row)
+        out.extend(buckets.get(index + 1, ()))
+    rows[:] = out
