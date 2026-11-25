@@ -102,7 +102,7 @@ def test_nightwatch_vpn_and_radmin_both_up(tmp_path, capsys):
         encoding="utf-8")
     assert nd.main([str(h)]) == 0
     out = capsys.readouterr().out
-    assert "two VPNs up" in out and "> VPN, pick Radmin" in out
+    assert "two VPNs up" in out and "Party type to UPnP/VPN/LAN" in out
     assert "make the game use Radmin" not in out
 
 

@@ -455,8 +455,8 @@ def diagnose(logs, show_ips):
                 # Two VPNs up: auto takes the Nightwatch tunnel, friends who came in over the other VPN never land.
                 add(1, f"**{who} has two VPNs up: the Nightwatch VPN and {kind}.** The game uses the Nightwatch VPN "
                        f"tunnel, so friends who joined over {kind} cannot reach {who}.",
-                    f"{who}: in the launcher, Seamless > Advanced networking and troubleshooting > VPN, pick "
-                    f"{kind} (or disconnect the Nightwatch VPN), then host again. Everyone must play over the same VPN.")
+                    f"{who}: to play over {kind}, set the launcher's Co-op > Party type to UPnP/VPN/LAN (that turns off "
+                    f"the Nightwatch VPN), then host again. Or everyone joins over Nightwatch Online instead.")
                 continue
             if not known_online and not vpn_in_use:
                 # older builds cannot tell an offline VPN from an online one: do not claim it is in use
