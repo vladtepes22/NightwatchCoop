@@ -29,7 +29,7 @@ namespace BloodborneLauncher.Views
         private int _shown;
         private bool _busy;
 
-        public MergePage() : base(L.T("Merge"), L.T("Mod order decides the winner when two mods change the same thing."))
+        public MergePage() : base(L.T("Merger"), L.T("Mod order decides the winner when two mods change the same thing."))
         {
             Group(L.T("Mods to merge"));
             _empty = Text(L.T("No mods are installed."), "Faint");

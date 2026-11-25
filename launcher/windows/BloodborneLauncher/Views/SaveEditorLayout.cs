@@ -209,12 +209,12 @@ public sealed partial class SaveEditorWindow
     }
 
     // ---- Progress --------------------------------------------------------------------------------------------
-    private static readonly string[] FlagKinds = { "boss", "lamp", "ending", "time" };
+    private static readonly string[] FlagKinds = { "boss", "lamp", "ending" };
     private UIElement ProgressPage()
     {
         var dock = new DockPanel();
         foreach (var phase in MoonPhases) _moon.Items.Add(phase);
-        _moon.SelectionChanged += (_, _) => MoonPicked();
+        _moon.SelectionChanged += (_, _) => UpdateState();
         var moonLabel = LauncherPage.Text(L.T("Moon phase"), "RowTitle");
         moonLabel.VerticalAlignment = VerticalAlignment.Center; moonLabel.Margin = new Thickness(0, 0, 12, 0);
         var moonNote = LauncherPage.Text(L.T("Takes effect on the next load. Only the time of day changes: bosses, NPCs and story progress stay as they are."), "Muted");
@@ -223,7 +223,7 @@ public sealed partial class SaveEditorWindow
         DockPanel.SetDock(moonLabel, Dock.Left); DockPanel.SetDock(_moon, Dock.Left);
         moonRow.Children.Add(moonLabel); moonRow.Children.Add(_moon); moonRow.Children.Add(moonNote);
         DockPanel.SetDock(moonRow, Dock.Top); dock.Children.Add(moonRow);
-        _flagKinds = new Segments(new[] { L.T("Bosses"), L.T("Lamps"), L.T("Endings"), L.T("Time of day") }, _ => RefreshFlags(), 6, 8);
+        _flagKinds = new Segments(new[] { L.T("Bosses"), L.T("Lamps"), L.T("Endings") }, _ => RefreshFlags(), 6, 8);
         _flagKinds.Select(0); _flagKinds.Panel.Margin = new Thickness(0, 0, 0, 10);
         DockPanel.SetDock(_flagKinds.Panel, Dock.Top); dock.Children.Add(_flagKinds.Panel);
         var bar = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
@@ -256,42 +256,9 @@ public sealed partial class SaveEditorWindow
         {
             0 => L.T("This only changes the boss' defeated status in the game. The boss might not fully reset when using this menu."),
             1 => L.T("A lit lamp can be used for warping straight away."),
-            3 => L.T("The world's time of day. The game sets these flags together: Night also has Evening reached, Blood Moon has all three. The Moon phase above sets them the same way. Takes effect on the next load."),
             _ => L.T("Endings you have checked off as \"seen\" will unlock the associated shop and messenger items if they exist. The options below will never trigger the game credits or take away your key items.")
         };
     }
-    // The moon phase and the three time of day rows (flags 9800..9802) are one state: the phase sets the rows by the
-    // game's cumulative rule, a row edit shows the phase the rows now make (flagsdata.moon_phase: the latest phase
-    // whose flags are all set). Apply sends the rows.
-    private static readonly int[] TimeFlags = { 9800, 9801, 9802 };
-    private bool _syncingMoon;
-    private FlagRow? TimeRow(int id) => _flags.FirstOrDefault(f => f.Flag.Kind == "time" && f.Flag.Id == id);
-    private void MoonPicked()
-    {
-        if (!_loading && !_syncingMoon && _moon.SelectedIndex >= 0)
-        {
-            _syncingMoon = true;
-            try { for (int i = 0; i < TimeFlags.Length; i++) if (TimeRow(TimeFlags[i]) is { } row) row.On = i < _moon.SelectedIndex; }
-            finally { _syncingMoon = false; }
-        }
-        UpdateState();
-    }
-    private void TimeFlagChanged()
-    {
-        if (_loading || _syncingMoon || !_moon.IsEnabled) return;
-        _syncingMoon = true;
-        try { _moon.SelectedIndex = MoonOf(TimeFlags.Select(f => TimeRow(f)?.On == true).ToArray()); }
-        finally { _syncingMoon = false; }
-    }
-    internal static int MoonOf(bool[] on)
-    {
-        int phase = 0;
-        for (int i = 1; i <= on.Length; i++) if (on.Take(i).All(b => b)) phase = i;
-        return phase;
-    }
-    // True when the rows hold a pattern the game never writes (a later flag without the earlier ones).
-    private bool TimeFlagsOffPattern() =>
-        TimeFlags.Select((f, i) => (TimeRow(f)?.On == true) != (i < Math.Max(0, _moon.SelectedIndex))).Any(b => b);
     private void SetFlags(bool on)
     {
         if (_flagList.ItemsSource is not ListCollectionView view) return;

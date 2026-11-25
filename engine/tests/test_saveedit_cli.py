@@ -352,19 +352,6 @@ class SaveEditorCliTests(unittest.TestCase):
         self.assertEqual([e for _g, e, _s in catalogue.caryll_runes()], [2107001])
         self.assertEqual(catalogue.gem(200000, 2, [2107001])[0], "Test Oath")
 
-    def test_time_of_day_flags_are_listed_and_edited(self):
-        rows = [(f, g, label) for f, k, g, label in cli.flag_rows(names.Catalogue()) if k == "time"]
-        self.assertEqual(rows, [(9800, "Time of day", "Evening reached"), (9801, "Time of day", "Night"),
-                                (9802, "Time of day", "Blood Moon")])
-        shown = self.call("show")[1]
-        self.assertEqual([(f["id"], f["on"]) for f in shown["flags"] if f["kind"] == "time"],
-                         [(9800, False), (9801, False), (9802, False)])
-        edit = dict(revision=shown["revision"], flags=[dict(id=9800, on=True), dict(id=9801, on=True)])
-        self.assertEqual(self.call("apply", edit)[0], 0)
-        shown = self.call("show")[1]
-        self.assertEqual(shown["moon"], 2)  # Night
-        self.assertEqual([f["on"] for f in shown["flags"] if f["kind"] == "time"], [True, True, False])
-
     def test_subprocess_json_contract(self):
         script = Path(cli.__file__)
         for command, expected in (("slots", 0), ("invalid", 1)):

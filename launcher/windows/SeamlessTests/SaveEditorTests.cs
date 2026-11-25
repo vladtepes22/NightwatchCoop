@@ -47,25 +47,6 @@ internal static class SaveEditorTests
         Console.WriteLine("PASS: save editor JSON parsing and edit serialization");
         NocturneOnlyConfig();
         PackageShipsImports();
-        TimeOfDay();
-    }
-
-    // The Progress tab's Time of day rows (flags 9800..9802, kind "time") and the moon phase are one state: a row edit
-    // shows the phase flagsdata.moon_phase reads (the latest phase whose flags are all set).
-    private static void TimeOfDay()
-    {
-        var cases = new (bool[] On, int Phase)[] { ([false, false, false], 0), ([true, false, false], 1),
-            ([true, true, false], 2), ([true, true, true], 3), ([true, false, true], 1), ([false, true, true], 0) };
-        foreach (var (on, phase) in cases)
-            if (BloodborneLauncher.Views.SaveEditorWindow.MoonOf(on) != phase)
-                throw new Exception($"Moon phase of [{string.Join(",", on)}] is not {phase}");
-        var snap = SaveEditor.Parse<SaveEditor.Snapshot>("""
-            {"revision":"abc","character":{"name":"Test","stats":{"vigor":10},"level":25,"echoes":1,"insight":0,"ng_cycle":0},
-             "items":[],"moon":2,"flags":[{"id":9801,"kind":"time","group":"Time of day","label":"Night","on":true}]}
-            """);
-        if (snap.Moon != 2 || snap.Flags![0].Kind != "time" || !snap.Flags[0].On)
-            throw new Exception("Save time of day JSON contract changed");
-        Console.WriteLine("PASS: save editor time of day rows follow the moon phase rule");
     }
 
     // The editor's "Enable Nocturne" switch reads a config of its own: Nocturne first and on, every other mod off; no Nocturne folder: none.

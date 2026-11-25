@@ -193,14 +193,6 @@ def moon_phase(model):
     return phase
 
 
-# The Progress tab's "Time of day" list: the same three flags one by one, under the group and names the launcher translates.
-TIME_OF_DAY = {9800: "Evening reached", 9801: "Night", 9802: "Blood Moon"}
-
-
-def time_of_day():
-    return [(f, "Time of day", f"{label} [{f}]") for f, label in TIME_OF_DAY.items()]
-
-
 def set_moon_phase(model, phase):
     if not isinstance(phase, int) or isinstance(phase, bool) or not 0 <= phase <= 3:
         raise ValueError("invalid moon phase")

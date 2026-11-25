@@ -215,10 +215,9 @@ internal sealed class FlagRow : RowBase
     private bool _on;
     public SaveEditor.Flag Flag { get; }
     public FlagRow(SaveEditor.Flag flag, Action changed) { Flag = flag; _on = flag.On; _changed = changed; }
-    // Ending and time of day labels are the editor's own fixed strings; boss and lamp names come from the game's text.
-    private bool OwnText => Flag.Kind is "ending" or "time";
-    public string Label => OwnText ? L.T(Flag.Label) : Flag.Label;
-    public string Group => OwnText ? L.T(Flag.Group) : Flag.Group;
+    // Ending labels are the editor's own fixed strings; boss and lamp names come from the game's text.
+    public string Label => Flag.Kind == "ending" ? L.T(Flag.Label) : Flag.Label;
+    public string Group => Flag.Kind == "ending" ? L.T(Flag.Group) : Flag.Group;
     public bool On
     {
         get => _on;

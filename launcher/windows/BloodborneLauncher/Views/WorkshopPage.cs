@@ -11,7 +11,7 @@ namespace BloodborneLauncher.Views
         {
             ("mods", L.T("Mods"), typeof(ModsPage)),
             ("randomizer", L.T("Randomizer"), typeof(RandomizerPage)),
-            ("merge", L.T("Merge"), typeof(MergePage)),
+            ("merge", L.T("Merger"), typeof(MergePage)),
             ("saveeditor", L.T("Save editor"), null),
         }.Where(s => (s.Item1 != "randomizer" || Randomizer.Supported) && (s.Item1 != "merge" || Merger.Supported)).ToArray()) { }
 

@@ -63,7 +63,6 @@ def flag_rows(catalogue):
     rows = [(f, "boss", g, label) for f, g, label in flagsdata.bosses(catalogue)]
     rows += [(f, "lamp", g, label) for f, g, label in flagsdata.lamps(catalogue)]
     rows += [(f, "ending", g, label) for f, g, label in flagsdata.endings()]
-    rows += [(f, "time", g, label) for f, g, label in flagsdata.time_of_day()]
     return [(f, kind, group, label.removesuffix(f" [{f}]")) for f, kind, group, label in rows]
 
 
