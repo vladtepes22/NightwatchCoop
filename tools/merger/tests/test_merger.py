@@ -457,7 +457,10 @@ class EndToEndTests(unittest.TestCase):
                       "content), 3 rows merged, 1 conflict", text)
         self.assertIn("CONFLICT nightwatch\\weapon_clip_groups.json weapon 10000", text)
         self.assertIn("INFO Mod B: not copied (beside its game files): only_b.txt", text)
-        self.assertEqual(lines[-1], "DONE 4 files, 2 conflicts")
+        # Both mods' rows for s000000001 read the same, but their sound/x.wav differ: a conflict too.
+        self.assertIn('CONFLICT nightwatch\\sounds.json event s000000001: Mod A {"event": "s000000001", "file": '
+                      '"sound/x.wav"}, Mod B {"event": "s000000001", "file": "sound/x.wav"} -> Mod B wins', text)
+        self.assertEqual(lines[-1], "DONE 4 files, 3 conflicts")
         payload = containers.dcx_read(open(os.path.join(out, "dvdroot_ps4", "param", "gameparam",
                                                         "gameparam.parambnd.dcx"), "rb").read())[0]
         param = containers.bnd4_read(payload)["entries"][0][3]
@@ -495,6 +498,18 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(code, 0, err)
         with open(os.path.join(out2, "party_host_only.txt"), encoding="utf-8") as f:
             self.assertEqual([x for x in f.read().splitlines() if not x.startswith("#")], ["12104900", "12204900"])
+
+    def test_sound_file_outside_the_mod_is_not_copied(self):
+        synth.write(os.path.join(self.dir, "mods", "secret.wav"), b"not the mod's")
+        synth.write(os.path.join(self.mods[0], "nightwatch", "sounds.json"), json.dumps(
+            {"version": 1, "rows": [{"event": "s000000009", "file": "../secret.wav"}]}))
+        out = os.path.join(self.dir, "o4", "deep", "Merged")
+        code, lines, err = self.run_merge(out)
+        self.assertEqual(code, 0, err)
+        self.assertIn("INFO Mod A: sound file ../secret.wav is outside the mod folder: not copied, the row is kept as it "
+                      "is", lines)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "o4", "deep", "secret.wav")))
+        self.assertFalse(any(name.endswith(".wav") and "secret" in name for name in tree(out)))
 
     def test_deterministic(self):
         first, second = os.path.join(self.dir, "o1", "Merged"), os.path.join(self.dir, "o2", "Merged")

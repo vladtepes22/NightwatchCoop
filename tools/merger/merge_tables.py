@@ -103,7 +103,9 @@ def merge_tables(mods, out_dir, out_name, log):
             for row in own:  # inside one table the last row of a key wins, as in the engine
                 mine[row_key(feature, row)] = row
             for key, row in mine.items():
-                if key in rows and rows[key][1] != row:
+                # Two sounds rows can be equal and still name different files under one name: that differs too.
+                if key in rows and (rows[key][1] != row or (feature == "sounds" and _sound_data(
+                        rows[key][2], row) != _sound_data(folder, row))):
                     lines.append("CONFLICT nightwatch\\%s.json %s: %s %s, %s %s -> %s wins" % (
                         feature, _show_key(feature, key), rows[key][0], json.dumps(rows[key][1], sort_keys=True),
                         mod, json.dumps(row, sort_keys=True), mod))
@@ -194,9 +196,30 @@ def merge_host_only(mods, out_dir, log):
     return HOST_ONLY
 
 
+def _inside(rel):
+    """True for a path inside the mod folder: relative, no drive, no `..` (the engine refuses the others too)."""
+    parts = rel.replace("\\", "/").split("/")
+    return bool(rel) and ":" not in rel and not rel.startswith(("/", "\\")) and ".." not in parts
+
+
+def _sound_data(folder, row):
+    """The bytes of the sound file a row names (None when it names none or it cannot be read)."""
+    rel = row.get("file") if isinstance(row, dict) else None
+    if not isinstance(rel, str) or not _inside(rel):
+        return None
+    try:
+        with open(os.path.join(folder, rel.replace("/", os.sep).replace("\\", os.sep)), "rb") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
 def _copy_sound(mod, folder, rel, out_dir, written, log):
     """Copies a sound file a row names; when another mod already put a different file at that path, this one goes
     under merged\\<mod>\\ and the row is pointed there."""
+    if not _inside(rel):
+        log("INFO %s: sound file %s is outside the mod folder: not copied, the row is kept as it is" % (mod, rel))
+        return rel
     source = os.path.join(folder, rel.replace("/", os.sep).replace("\\", os.sep))
     if not os.path.isfile(source):
         log("INFO %s: sound file %s is missing: the row is kept as it is" % (mod, rel))
