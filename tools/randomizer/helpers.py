@@ -301,7 +301,7 @@ def found_mod_fights(events, enemies):
         for event, bank, iid, words, _, _ in fight.repoint:
             wanted.setdefault(event, []).append((bank, iid, words))
         if all(event in own and _holds(own[event][0], lines) for event, lines in wanted.items()):
-            out[fight.boss] = {"fight": name}
+            out[fight.boss] = {"fight": name, "extras": fight.travel}
     return out
 
 

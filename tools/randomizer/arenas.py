@@ -27,7 +27,7 @@ SOLO, GROUP, ARENA_ONLY, OUT = "solo", "group", "arena_only", "out"
 class Arena:
     def __init__(self, key, stem, kind, bodies, flags, intro, main=None, extras=(), pool=None, mix_option=None,
                  fighters=None, story_start=False, escorts=(), generators=None, ends_on=None, dope_as=None, notes="",
-                 option=None, model=None):
+                 option=None, model=None, mod_extras=()):
         self.key = key
         self.stem = stem
         self.kind = kind
@@ -36,6 +36,8 @@ class Arena:
         self.intro = intro                   # first-meeting event id (its flag on = second attempt), None = no fog start
         self.main = main if main is not None else self.bodies[0]
         self.extras = tuple(extras)          # bodies that belong to the boss but are not slots (helpers, hidden HP pools)
+        self.listed_extras = self.extras     # (extras: these plus the ones a base mod adds, found by set_phases)
+        self.mod_extras = tuple(mod_extras)  # bodies a base mod may add (pinned as the fight's, extras when found)
         self.pool = pool                     # a hidden HP pool body that takes the others' damage and carries the bar
         self.mix_option = mix_option         # the seedcode option that turns this fight's mix on
         # entities whose boss is a fighter elsewhere (SOLO: its body; GROUP: body 1; ARENA_ONLY/OUT: none). Gascoigne,
@@ -81,9 +83,11 @@ _ORPHAN_ONE = Arena("orphan", "m36_00", SOLO, (3600800,), (13601800, 13604808), 
 ARENAS = (
     # the 11 of round 1 (ARENA_FLAGS, boss_events): one body each
     Arena("gehrman", "m21_00", SOLO, (2100800,), (12101800, 12104800), 12101802, story_start=True),
-    Arena("moon_presence", "m21_00", SOLO, (2100810,), (12101850, 12104850), 12101852, story_start=True, extras=(2100860,),
-          notes="2100860 is Nocturne v6.1.0's phase two (c5420, no part of the game): when the inputs hold her, she travels "
-                "with the Moon Presence under option moon_presence_two (helpers.MOON_PRESENCE_TWO)"),
+    Arena("moon_presence", "m21_00", SOLO, (2100810,), (12101850, 12104850), 12101852, story_start=True,
+          mod_extras=(2100860,),
+          notes="Nocturne v6.1.0 adds her phase two 2100860 (c5420, no part of the game): an extra of this arena when the "
+                "inputs hold her (helpers.found_mod_fights, set_phases); she travels with the Moon Presence under option "
+                "moon_presence_two (helpers.MOON_PRESENCE_TWO)"),
     Arena("blood_starved_beast", "m23_00", SOLO, (2300800,), (12301800, 12304800), 12301802),
     Arena("paarl", "m23_00", SOLO, (2300810,), (12301700, 12304700), 12301702),
     Arena("amelia", "m24_00", SOLO, (2400800,), (12401800, 12404800), 12401802),
@@ -163,7 +167,7 @@ BY_KEY = {a.key: a for a in ARENAS}
 # {boss body: arena keys it never fights in}: the One Reborn does not fit the small arenas (user, 24 Nov: "keep him from
 # spawning in tiny arenas like witch, amelia, gascoigne"; player report: in Amelia's he stood above the arena)
 TOO_SMALL = {2800800: frozenset(("witch", "amelia", "gascoigne"))}
-BY_ENTITY = {e: a for a in ARENAS for e in a.bodies + a.extras + ((a.pool,) if a.pool else ())}
+BY_ENTITY = {e: a for a in ARENAS for e in a.bodies + a.extras + a.mod_extras + ((a.pool,) if a.pool else ())}
 BOSS_BODIES = frozenset(e for a in ARENAS for e in a.bodies)
 ESCORTS = frozenset(e for a in ARENAS for e in a.escorts)
 
@@ -189,6 +193,9 @@ def set_phases(phases, found_helpers=None):
     keep = dict(FOUND_HELPERS) if found_helpers is None else dict(found_helpers)
     FOUND_HELPERS.clear()
     FOUND_HELPERS.update({e: spec for e, spec in keep.items() if e in PHASES or e in BY_ENTITY})
+    for arena in ARENAS:  # a base mod's extra bodies (mod_extras) its inputs hold (helpers.found_mod_fights)
+        arena.extras = arena.listed_extras + tuple(e for body in arena.bodies
+                                                   for e in FOUND_HELPERS.get(body, {}).get("extras", ()))
     for hook in ON_PHASES:
         hook()
 

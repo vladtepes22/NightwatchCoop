@@ -70,6 +70,19 @@ class Inputs:
         return c, result, planner.check(result, c.slots, c.candidates, c.sizes, groups, limits, c.animations)
 
 
+_SAVED = {}
+
+
+def setUpModule():
+    """The census here sets the module-wide phase and helper tables (arenas.set_phases) for its inputs: the other test
+    modules read theirs once and rely on them, so they come back as they were afterwards."""
+    _SAVED.update(phases=dict(arenas.PHASES), helpers=dict(arenas.FOUND_HELPERS))
+
+
+def tearDownModule():
+    arenas.set_phases(_SAVED["phases"], _SAVED["helpers"])
+
+
 def _lines(ev, event):
     return [(b, d, tuple(w)) for b, d, w in ev.instructions(event)]
 
@@ -93,7 +106,6 @@ class Table(unittest.TestCase):
         self.assertEqual((fight.moved, fight.park, fight.handover), ((GAZE,), (GAZE,), (helpers.MADE, 1)))
         self.assertEqual(fight.made_from, (None, DEFEAT))  # the handover copy keeps the mod's host-only rule
         self.assertTrue(fight.gate)  # her events wait for the fight's start
-        self.assertIn(TWO, arenas.BY_KEY[KEY].extras)  # her slot is the fight's, never an ordinary enemy's
         self.assertEqual(helpers.ALONE[MOON].bar, TWO)  # alone: the name of her home bar, which sits on phase two
         self.assertEqual(helpers.ALONE[MOON].travel, ())
 
@@ -127,6 +139,7 @@ class WithoutHer(unittest.TestCase):
         c = Inputs.census(mods)
         self.assertNotIn(TWO, {s["entity"] for slots in c.slots.values() for s in slots})
         self.assertIsNot(helpers.FIGHTS.get(MOON), helpers.MOON_PRESENCE_TWO)
+        self.assertEqual(arenas.BY_KEY[KEY].extras, ())
         for seed in (1, 2):
             _, off, bad = Inputs.plan(mods, seed, {"boss_swap": 1})
             self.assertEqual(bad, [])
@@ -149,6 +162,7 @@ class WithHer(unittest.TestCase):
                          ("c5420", "boss", "extra", KEY))
         self.assertNotIn("c5420", c.candidates)
         self.assertIs(helpers.FIGHTS[MOON], helpers.MOON_PRESENCE_TWO)
+        self.assertEqual(arenas.BY_KEY[KEY].extras, (TWO,))  # her slot is the fight's, never an ordinary enemy's
         events = Emevd(dcx_read(Inputs.files((NOCTURNE,)).read("event/m21_00_00_00.emevd.dcx"))[0])
         # her defeat event tests the Moon Presence's HP and forces her fall: still no phase of hers (DEFEATS)
         self.assertNotIn(DEFEAT, boss_events.phase_events(events, MOON))
