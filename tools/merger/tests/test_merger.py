@@ -166,8 +166,8 @@ class ParamTests(unittest.TestCase):
         self.assertEqual(report.conflicts, 1)
         self.assertEqual([line for line in report.lines if line.startswith("CONFLICT")],
                          ["CONFLICT gameparam Test row 2 (b) attackBaseMagic: A 5, B 6 -> B wins"])
-        self.assertIn("INFO gameparam: Test: 2 row names set differently by two or more mods (the game does not use row "
-                      "names; the later mod's name is kept): rows 1, 9", report.lines)
+        self.assertIn("INFO gameparam: Test: 2 row names set differently by two or more mods (the game does not use "
+                      "row names; the later mod's name is kept): rows 1, 9", report.lines)
 
     def test_row_name_merge(self):
         vanilla = synth.param(TYPE, SIZE, [(1, row(), "a"), (2, row(), "b")])
@@ -521,10 +521,77 @@ class EndToEndTests(unittest.TestCase):
         out = os.path.join(self.dir, "o4", "deep", "Merged")
         code, lines, err = self.run_merge(out)
         self.assertEqual(code, 0, err)
-        self.assertIn("INFO Mod A: sound file ../secret.wav is outside the mod folder: not copied, the row is kept as it "
-                      "is", lines)
+        self.assertTrue(any(line.startswith("INFO nightwatch\\sounds.json of Mod A: row 1 needs") for line in lines),
+                        lines)
         self.assertFalse(os.path.exists(os.path.join(self.dir, "o4", "deep", "secret.wav")))
         self.assertFalse(any(name.endswith(".wav") and "secret" in name for name in tree(out)))
+
+    def write_table(self, mod, feature, table):
+        folder = self.mods[mod]
+        path = os.path.join(folder, "nightwatch.json")
+        manifest = json.load(open(path, encoding="utf-8"))
+        if feature not in manifest["features"]:
+            manifest["features"].append(feature)
+            synth.write(path, json.dumps(manifest))
+        synth.write(os.path.join(folder, "nightwatch", feature + ".json"), json.dumps(table))
+
+    def merged_table(self, out, feature):
+        with open(os.path.join(out, "nightwatch", feature + ".json"), encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_bad_table_row_drops_only_that_row(self):
+        # The game drops a mod's whole table for one bad row; the merged table must not carry it, or every mod's
+        # rows of that feature would be lost.
+        self.write_table(0, "weapon_clip_groups", {"version": 1, "rows": [
+            {"weapon": 10000, "clip_group": 50}, {"weapon": 12345, "clip_group": 5}, {"weapon": 20000, "clip_group": 0},
+            {"weapon": 30000, "clip_group": True}, {"weapon": 40000, "clip_group": 7}]})
+        self.write_table(1, "hit_effects", {"version": 1, "rows": [
+            {"attacker_speffect": 1, "base_fx": 2, "fx": 3}, {"sp_attribute": 2, "fx": 1, "sound": 1},
+            {"attacker_speffect": 1.0, "base_fx": 2, "fx": 3}]})
+        self.write_table(0, "hit_effects", {"version": 2, "rows": [{"attacker_speffect": 9, "base_fx": 9, "fx": 9}]})
+        out = os.path.join(self.dir, "mods", "Merged")
+        code, lines, err = self.run_merge(out)
+        self.assertEqual(code, 0, err)
+        clips = self.merged_table(out, "weapon_clip_groups")["rows"]
+        self.assertEqual(sorted(r["weapon"] for r in clips), [10000, 40000])
+        for number in (2, 3, 4):
+            self.assertTrue(any(line.startswith("INFO nightwatch\\weapon_clip_groups.json of Mod A: row %d needs"
+                                                % number) for line in lines), lines)
+        self.assertEqual(self.merged_table(out, "hit_effects")["rows"],
+                         [{"attacker_speffect": 1, "base_fx": 2, "fx": 3}])
+        self.assertIn('INFO nightwatch\\hit_effects.json of Mod A cannot be read ("version" is not 1): left out, as '
+                      'the game would leave it out', lines)
+
+    def test_key_twice_in_one_table_keeps_the_later_row(self):
+        self.write_table(0, "animated_attachments", {"attachments": [
+            {"speffect": 5, "part": "hd_a_1"}, {"speffect": 6, "part": "hd_a_2"}, {"speffect": 5, "part": "HD_A_1"}]})
+        self.write_table(1, "sounds", {"version": 1, "rows": [
+            {"event": "s000000001", "file": "sound/x.wav", "volume": 1.0},
+            {"event": "s000000001", "file": "sound/x.wav", "volume": 2.0}]})
+        out = os.path.join(self.dir, "mods", "Merged")
+        code, lines, err = self.run_merge(out)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.merged_table(out, "animated_attachments")["attachments"],
+                         [{"speffect": 6, "part": "hd_a_2"}, {"speffect": 5, "part": "HD_A_1"}])
+        self.assertIn("INFO nightwatch\\animated_attachments.json of Mod A: row 3 lists speffect 5 part HD_A_1 a "
+                      "second time: the later row is kept", lines)
+        sounds = [r for r in self.merged_table(out, "sounds")["rows"] if r["event"] == "s000000001"]
+        self.assertEqual([r["volume"] for r in sounds], [2.0])
+
+    def test_merged_table_keeps_the_game_limits_later_mods_first(self):
+        self.write_table(0, "animated_attachments", {"attachments": [
+            {"speffect": i, "part": "a_%d" % i} for i in range(1, 61)]})
+        self.write_table(1, "animated_attachments", {"attachments": [
+            {"speffect": i, "part": "b_%d" % i} for i in range(1, 11)]})
+        out = os.path.join(self.dir, "mods", "Merged")
+        code, lines, err = self.run_merge(out)
+        self.assertEqual(code, 0, err)
+        rows = self.merged_table(out, "animated_attachments")["attachments"]
+        self.assertEqual(len(rows), 64)
+        self.assertEqual(rows[0], {"speffect": 7, "part": "a_7"})  # Mod A's first 6 rows left out
+        self.assertEqual(rows[-10:], [{"speffect": i, "part": "b_%d" % i} for i in range(1, 11)])
+        self.assertIn("INFO nightwatch\\animated_attachments.json: more than the game takes (64 rows, 1 MiB): 6 rows "
+                      "of the earliest mods left out (Mod A 6)", lines)
 
     def test_deterministic(self):
         first, second = os.path.join(self.dir, "o1", "Merged"), os.path.join(self.dir, "o2", "Merged")

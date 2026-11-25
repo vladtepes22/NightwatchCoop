@@ -10,6 +10,101 @@ KEYS = {
     "sounds": ("event",),
 }
 LIST = {"animated_attachments": "attachments"}  # tables whose list is not "rows"
+# The engine's limits per table file (engine\start\features.h kMaxFileBytes, kMax*Rows); a merged table must fit them.
+MAX_FILE_BYTES = 1 << 20
+MAX_ROWS = {"hit_effects": 4096, "weapon_clip_groups": 4096, "sounds": 256, "animated_attachments": 64}
+_MAX_ID = 0x7FFFFFFF
+
+
+def _whole(value, lo=None, hi=None):
+    """A JSON whole number (not true / false, not 1.0) in lo..hi."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return False
+    return (lo is None or value >= lo) and (hi is None or value <= hi)
+
+
+def sound_path(text):
+    """engine SoundFilePath: a path inside the mod (1..200 bytes, no drive, no leading slash, no empty, . or ..
+    part, no control character)."""
+    if not isinstance(text, str) or not text or len(text.encode("utf-8", "surrogatepass")) > 200:
+        return False
+    p = text.replace("\\", "/")
+    if p[0] == "/" or ":" in p or any(ord(c) < 0x20 for c in p):
+        return False
+    return all(part not in ("", ".", "..") for part in p.split("/"))
+
+
+def row_problem(feature, row):
+    """Why the engine refuses one row of a table (engine\\start\\features.h Parse*), or None for a good row (and for
+    a feature this merger does not know)."""
+    if feature not in MAX_ROWS:
+        return None
+    if not isinstance(row, dict):
+        return "is not a JSON object"
+    if feature == "hit_effects":
+        if "sp_attribute" in row:
+            a = row.get("sp_attribute")
+            if not _whole(a, 1, 255) or a in (2, 6) or not _whole(row.get("fx"), 1, _MAX_ID) or \
+                    not _whole(row.get("sound"), 1, _MAX_ID) or "attacker_speffect" in row or "base_fx" in row:
+                return ("(a draw row) needs sp_attribute 1..255 but not 2 or 6, and whole numbers 1..2147483647 for "
+                        "fx and sound (no attacker_speffect or base_fx)")
+            return None
+        if not all(_whole(row.get(k), 1, _MAX_ID) for k in ("attacker_speffect", "base_fx", "fx")):
+            return "needs whole numbers 1..2147483647 for attacker_speffect, base_fx and fx"
+        return None
+    if feature == "weapon_clip_groups":
+        weapon = row.get("weapon")
+        if not _whole(weapon, 10000, 2147480000) or weapon % 10000 or not _whole(row.get("clip_group"), 1, 999):
+            return 'needs "weapon" (a multiple of 10000) and "clip_group" (1..999)'
+        return None
+    if feature == "sounds":
+        event, volume = row.get("event"), row.get("volume", 1.0)
+        ok = isinstance(event, str) and re.fullmatch(r"[acfopsmvxbgyz][0-9]{9}", event) is not None and \
+            sound_path(row.get("file")) and not isinstance(volume, bool) and isinstance(volume, (int, float)) and \
+            0.0 <= volume <= 4.0 and isinstance(row.get("replace", False), bool)
+        return None if ok else ('needs "event" (e.g. "s000252531"), "file" (a path inside the mod), "volume" 0..4 '
+                                'and "replace" true/false')
+    part = row.get("part")
+    if not _whole(row.get("speffect"), 1, _MAX_ID) or not isinstance(part, str) or \
+            re.fullmatch(r"[A-Za-z0-9_]{1,32}", part) is None:
+        return 'needs "speffect" (1..2147483647) and "part" (a parts file name: letters, digits, _; at most 32)'
+    return None
+
+
+def _table_bytes(list_name, rows):
+    table = {"version": 1, list_name: rows} if list_name == "rows" else {list_name: rows}
+    return len((json.dumps(table, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
+
+
+def _fit(feature, ordered, sources, list_name, lines):
+    """`ordered` [(mod, row, folder)] cut to the engine's row and size limits: the earliest mods' rows go first."""
+    limit = MAX_ROWS.get(feature)
+    if limit is None:
+        return ordered
+    rank = {mod: i for i, mod in enumerate(sources)}
+    drop_order = sorted(range(len(ordered)), key=lambda i: (rank[ordered[i][0]], i))
+    keep = set(range(len(ordered)))
+    dropped = []
+    queue = iter(drop_order)
+    while len(keep) > limit:
+        index = next(queue)
+        keep.discard(index)
+        dropped.append(ordered[index][0])
+    while keep:
+        rows = [ordered[i][1] for i in sorted(keep)]
+        # Sounds rows get a longer file path when a sound is renamed on copy: room is kept for that.
+        if _table_bytes(list_name, rows) + (300 * len(rows) if feature == "sounds" else 0) <= MAX_FILE_BYTES:
+            break
+        # Over 1 MiB: drop a batch of the earliest rows at once (each step at least 1/64 of the rows).
+        for _ in range(max(1, len(keep) // 64)):
+            index = next(queue)
+            keep.discard(index)
+            dropped.append(ordered[index][0])
+    if dropped:
+        mods = ", ".join("%s %d" % (m, dropped.count(m)) for m in sorted(set(dropped), key=rank.get))
+        lines.append("INFO nightwatch\\%s.json: more than the game takes (%d rows, 1 MiB): %d row%s of the earliest "
+                     "mods left out (%s)" % (feature, limit, len(dropped), "" if len(dropped) == 1 else "s", mods))
+    return [ordered[i] for i in sorted(keep)]
 
 
 def _hit_key(row):
@@ -22,7 +117,7 @@ def row_key(feature, row):
     if feature == "hit_effects":
         return _hit_key(row)
     if feature == "animated_attachments":
-        return (row.get("speffect"), row.get("part")) if isinstance(row, dict) else ("bad", repr(row))
+        return (row.get("speffect"), str(row.get("part")).upper()) if isinstance(row, dict) else ("bad", repr(row))
     fields = KEYS.get(feature)
     if fields and isinstance(row, dict):
         return tuple(row.get(f) for f in fields)
@@ -91,17 +186,34 @@ def merge_tables(mods, out_dir, out_name, log):
             if not os.path.isfile(path):
                 continue
             try:
+                if os.path.getsize(path) > MAX_FILE_BYTES:
+                    raise ValueError("larger than 1 MiB")
                 table = read_json(path)
                 own = table.get(list_name) if isinstance(table, dict) else None
                 if not isinstance(own, list):
                     raise ValueError('no "%s" list' % list_name)
+                version = table.get("version", None if list_name != "rows" else "missing")
+                if version is not None and (not _whole(version) or version != 1):
+                    raise ValueError('"version" is not 1')
             except (OSError, ValueError) as error:
-                log("INFO nightwatch\\%s.json of %s cannot be read (%s): left out" % (feature, mod, error))
+                log("INFO nightwatch\\%s.json of %s cannot be read (%s): left out, as the game would leave it out" % (
+                    feature, mod, error))
                 continue
             sources.append(mod)
             mine = {}
-            for row in own:  # inside one table the last row of a key wins, as in the engine
-                mine[row_key(feature, row)] = row
+            for number, row in enumerate(own, 1):
+                why = row_problem(feature, row)
+                if why:
+                    # The game drops a mod's whole table for one bad row; here only that row goes.
+                    lines.append("INFO nightwatch\\%s.json of %s: row %d %s: left out" % (feature, mod, number, why))
+                    continue
+                key = row_key(feature, row)
+                if key in mine and feature != "hit_effects":
+                    # The game refuses a table that lists a key twice; the later row is kept (the merge rule).
+                    lines.append("INFO nightwatch\\%s.json of %s: row %d lists %s a second time: the later row is "
+                                 "kept" % (feature, mod, number, _show_key(feature, key)))
+                mine.pop(key, None)  # inside one table the last row of a key wins, where it stands
+                mine[key] = row
             for key, row in mine.items():
                 # Two sounds rows can be equal and still name different files under one name: that differs too.
                 if key in rows and (rows[key][1] != row or (feature == "sounds" and _sound_data(
@@ -120,6 +232,7 @@ def merge_tables(mods, out_dir, out_name, log):
             # The engine checks the latest mod's rows first; inside one file the first matching row wins, so the
             # merged file lists the later mods' rows first.
             ordered = [r for mod in reversed(sources) for r in ordered if r[0] == mod]
+        ordered = _fit(feature, ordered, sources, list_name, lines)
         out_rows = []
         for mod, row, folder in ordered:
             if feature == "sounds" and isinstance(row, dict) and isinstance(row.get("file"), str):
@@ -196,16 +309,10 @@ def merge_host_only(mods, out_dir, log):
     return HOST_ONLY
 
 
-def _inside(rel):
-    """True for a path inside the mod folder: relative, no drive, no `..` (the engine refuses the others too)."""
-    parts = rel.replace("\\", "/").split("/")
-    return bool(rel) and ":" not in rel and not rel.startswith(("/", "\\")) and ".." not in parts
-
-
 def _sound_data(folder, row):
     """The bytes of the sound file a row names (None when it names none or it cannot be read)."""
     rel = row.get("file") if isinstance(row, dict) else None
-    if not isinstance(rel, str) or not _inside(rel):
+    if not isinstance(rel, str) or not sound_path(rel):
         return None
     try:
         with open(os.path.join(folder, rel.replace("/", os.sep).replace("\\", os.sep)), "rb") as f:
@@ -217,7 +324,7 @@ def _sound_data(folder, row):
 def _copy_sound(mod, folder, rel, out_dir, written, log):
     """Copies a sound file a row names; when another mod already put a different file at that path, this one goes
     under merged\\<mod>\\ and the row is pointed there."""
-    if not _inside(rel):
+    if not sound_path(rel):
         log("INFO %s: sound file %s is outside the mod folder: not copied, the row is kept as it is" % (mod, rel))
         return rel
     source = os.path.join(folder, rel.replace("/", os.sep).replace("\\", os.sep))
