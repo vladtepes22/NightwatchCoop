@@ -272,4 +272,12 @@ New-Item -ItemType Directory -Force -Path $generator | Out-Null
 Get-ChildItem -LiteralPath (Join-Path $repo 'tools\randomizer') -File -Filter *.py |
     Where-Object { -not $_.Name.StartsWith('_') } | Copy-Item -Destination $generator -Force
 if (!(Test-Path -LiteralPath (Join-Path $generator 'randomizer.py'))) { throw "No generator in $generator" }
+# The mod merger ships the same way (tools\merger's modules and its hks base hashes, no tests); it imports
+# randomizer\source\containers.py.
+$merger = Join-Path $destinationRoot 'merger\source'
+New-Item -ItemType Directory -Force -Path $merger | Out-Null
+Get-ChildItem -LiteralPath (Join-Path $repo 'tools\merger') -File |
+    Where-Object { $_.Extension -eq '.py' -or $_.Name -eq 'hks_base.json' } |
+    Where-Object { $_.Name -notin @('roundtrip.py', 'gen_hks_base.py') } | Copy-Item -Destination $merger -Force
+if (!(Test-Path -LiteralPath (Join-Path $merger 'merger.py'))) { throw "No merger in $merger" }
 Write-Output "Package assembled: $destinationRoot"
