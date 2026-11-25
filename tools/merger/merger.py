@@ -25,6 +25,7 @@ SERIALS = ("CUSA03173", "CUSA00900", "CUSA00207", "CUSA00208", "CUSA00299", "CUS
 GAME_FOLDERS = frozenset(("action", "adhoc", "chr", "event", "facegen", "font", "map", "menu", "movie", "msg", "mtd",
                           "obj", "other", "param", "paramdef", "parts", "remo", "script", "sfx", "shader", "sound"))
 LOOSE = (".txt", ".md", ".jpg", ".png", ".ini")
+TMP_MARK = ".nightwatch-merger-tmp"  # in <out>.tmp while a merge runs
 
 # Item names for log lines: PARAM table -> the id of its name FMG in msg\<lang>\item.msgbnd.dcx.
 NAME_FMG = {"EquipParamGoods": 10, "EquipParamWeapon": 11, "EquipParamProtector": 12, "EquipParamAccessory": 13,
@@ -290,11 +291,20 @@ def run(args):
             raise Failure("the output folder is one of the mods")
         mods.append((name, game_files(folder)))
     tmp = out + ".tmp"
+    log_path = os.path.normcase(os.path.abspath(args.log))
+    for folder in (out, tmp):
+        if log_path.startswith(os.path.normcase(folder) + os.sep):
+            raise Failure("the log file cannot be inside the output folder: %s" % args.log)
     if os.path.exists(tmp):
+        # Only a folder this tool made (a merge that was stopped) is removed; anything else there is the user's.
+        if not os.path.isfile(os.path.join(tmp, TMP_MARK)):
+            raise Failure("%s exists already and was not made by the merger: remove or rename it" % tmp)
         shutil.rmtree(tmp)
     log = Log(args.log)
     try:
         os.makedirs(tmp)
+        with open(os.path.join(tmp, TMP_MARK), "w", encoding="utf-8", newline="\n") as f:
+            f.write("a merge in progress; removed when it ends\n")
         log("INFO merging %d mods in this order (a later mod wins a conflict): %s" % (
             len(mods), ", ".join(n for n, _ in mods)))
         defs = game.read("paramdef/paramdef.paramdefbnd.dcx")
@@ -321,6 +331,7 @@ def run(args):
                            os.path.isfile(os.path.join(folder, e)))
             if extra:
                 log("INFO %s: not copied (beside its game files): %s" % (name, ", ".join(extra)))
+        os.remove(os.path.join(tmp, TMP_MARK))
         os.rename(tmp, out)
         log("DONE %d files, %d conflicts" % (files, log.conflicts))
     except BaseException:

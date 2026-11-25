@@ -593,6 +593,37 @@ class EndToEndTests(unittest.TestCase):
         self.assertIn("INFO nightwatch\\animated_attachments.json: more than the game takes (64 rows, 1 MiB): 6 rows "
                       "of the earliest mods left out (Mod A 6)", lines)
 
+    def test_log_inside_the_output_is_refused(self):
+        out = os.path.join(self.dir, "o5", "Merged")
+        stderr = io.StringIO()
+        args = ["merge", "--game", self.game, "--out", out, "--log", os.path.join(out, "merge.log")]
+        for m in self.mods:
+            args += ["--mod", m]
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+            code = merger.main(args)
+        self.assertNotEqual(code, 0)
+        self.assertTrue(stderr.getvalue().startswith("ERROR the log file cannot be inside the output folder"),
+                        stderr.getvalue())
+        self.assertFalse(os.path.exists(out))
+
+    def test_existing_tmp_folder(self):
+        out = os.path.join(self.dir, "o6", "Merged")
+        # A folder of that name the merger did not make (a mod called "Merged.tmp") is never deleted.
+        synth.write(os.path.join(out + ".tmp", "dvdroot_ps4", "keep.txt"), b"the user's")
+        code, lines, err = self.run_merge(out)
+        self.assertNotEqual(code, 0)
+        self.assertTrue(err.startswith("ERROR ") and "was not made by the merger" in err, err)
+        self.assertTrue(os.path.isfile(os.path.join(out + ".tmp", "dvdroot_ps4", "keep.txt")))
+        # A stopped merge's folder (it holds the merger's mark) is cleared and the merge runs.
+        shutil.rmtree(out + ".tmp")
+        synth.write(os.path.join(out + ".tmp", merger.TMP_MARK), b"")
+        synth.write(os.path.join(out + ".tmp", "half.bin"), b"x")
+        code, lines, err = self.run_merge(out)
+        self.assertEqual(code, 0, err)
+        self.assertFalse(os.path.exists(out + ".tmp"))
+        self.assertFalse(os.path.exists(os.path.join(out, "half.bin")))
+        self.assertFalse(os.path.exists(os.path.join(out, merger.TMP_MARK)))
+
     def test_deterministic(self):
         first, second = os.path.join(self.dir, "o1", "Merged"), os.path.join(self.dir, "o2", "Merged")
         self.assertEqual(self.run_merge(first)[0], 0)
