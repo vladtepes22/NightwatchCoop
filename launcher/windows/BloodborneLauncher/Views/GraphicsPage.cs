@@ -15,12 +15,25 @@ namespace BloodborneLauncher.Views
         private readonly SettingRow _glowSizeCard;
         private readonly SettingRow _presetCard, _renderScaleCard, _sharpenCard, _sharpnessCard, _mipBiasCard;
         private readonly SettingRow _frameGenFramesCard, _frameGenDynamicCard, _reflexCard, _frameGenCapCard;
+        private readonly StackPanel _presetBack = new();
+        private readonly List<(Presets.Preset Preset, TextBlock Hint, Wpf.Ui.Controls.Button Use)> _presets = new();
 
         public GraphicsPage() : base(L.T("Graphics"),
             L.T("Stored in bbport.ini; the upscaler can also be changed in game (Insert or L3 + R3)."))
         {
             Add(Card(SymbolRegular.Gauge24, L.T("Best settings for this PC"), Hardware.Detect().Summary,
                 SmallButton(L.T("Recommend…"), SymbolRegular.Sparkle24, (_, _) => MainWindow.Instance!.OfferBestSettings(firstRun: false)), out _));
+
+            // Presets fill in the settings below (picture, effects, lighting); they stay editable.
+            Group(L.T("Presets"));
+            Body.Children.Add(_presetBack);
+            foreach (var preset in Presets.All)
+            {
+                var use = SmallButton(L.T("Use"), SymbolRegular.Play24, (_, _) => UsePreset(preset));
+                Add(Card(SymbolRegular.Sparkle24, preset.Name, null, Row(use), out var hint));
+                _presets.Add((preset, hint, use));
+            }
+            RefreshPresets();
 
             Group(L.T("Upscaler"));
             var fsr411 = Fsr4VkFound() && !Amd();
@@ -184,7 +197,51 @@ namespace BloodborneLauncher.Views
 
         private void UpdateGlowSize() => _glowSizeCard.IsEnabled = Ini.Get("graphics_point_fog_falloff", "0") == "1";
 
-        public override void OnShown() { UpdateUpscaler(); UpdateGlowSize(); UpdateCoopOff(); }
+        public override void OnShown() { UpdateUpscaler(); UpdateGlowSize(); UpdateCoopOff(); RefreshPresets(); }
+
+        /// <summary>The preset in use shows Selected; "Go back" shows while values from before the first preset are kept.</summary>
+        private void RefreshPresets()
+        {
+            _presetBack.Children.Clear();
+            if (Presets.HasPrevious)
+                Add(Card(SymbolRegular.ArrowUndo24, L.T("Back to my settings"), L.T("Puts back the values you had before the first preset you used"),
+                    Row(SmallButton(L.T("Go back"), SymbolRegular.ArrowUndo24, (_, _) => PresetChange(Presets.GoBack,
+                        L.T("Your previous picture and lighting settings are back.")))), out _), _presetBack);
+            foreach (var (preset, hint, use) in _presets)
+            {
+                var current = Presets.IsCurrent(preset, Ini);
+                SetHint(hint, current ? L.T("In use. ") + preset.Description : preset.Description);
+                use.Content = current ? L.T("Selected") : L.T("Use");
+                use.Icon = Icon(current ? SymbolRegular.Checkmark24 : SymbolRegular.Play24);
+                use.Appearance = current ? ControlAppearance.Primary : ControlAppearance.Secondary;
+                use.IsEnabled = !current;
+            }
+        }
+
+        private void UsePreset(Presets.Preset preset) => PresetChange(ini => Presets.Apply(preset, ini),
+            L.F($"Preset in use: {preset.Name}. It takes effect the next time the game starts."));
+
+        private void PresetChange(Action<IniFile> change, string done)
+        {
+            // The game writes these settings too while it runs (System menu, Insert menu).
+            if (Ws.Game.Running)
+            {
+                Prompt.Tell(L.T("Close the game first"), L.T("The game changes these settings too while it runs."));
+                return;
+            }
+            try
+            {
+                change(Ini);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
+            {
+                Prompt.Tell(L.T("Could not change the settings"), e.Message);
+                return;
+            }
+            Ws.SaveSoon();
+            Ws.Log(done, LogLevel.Good);
+            MainWindow.Instance?.ReloadPages(); // the rows below show the new values
+        }
 
         // Free camera and the debug menu are game patches that count in the party patch hash: in co-op every
         // player needs the same setting (a join with another one is refused naming them), and the rows say so.
