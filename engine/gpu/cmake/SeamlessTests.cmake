@@ -1033,8 +1033,8 @@ foreach(t rt-lamps-test rt-lamps-mutant-test)
     add_dependencies(seamless-tests ${t})
 endforeach()
 
-# Judder with a steady FPS counter (NW-b9564e8): flips not locked to the vblanks follow the GPU's
-# real finish times (gpu/shim/lantern_pacing.h GpuPacedSlot, gpu/shim/frame_done_watch.cpp).
+# Judder with a steady FPS counter (NW-b9564e8): the frame finish watch (gpu/shim/frame_done_watch.cpp)
+# behind the Pacing line's frames as shown.
 add_executable(gpu-pacing-test EXCLUDE_FROM_ALL ../tests/test_gpu_pacing.cpp shim/frame_done_watch.cpp)
 target_include_directories(gpu-pacing-test PRIVATE ..)
 target_compile_options(gpu-pacing-test PRIVATE -UNDEBUG -Wall -Wextra)
