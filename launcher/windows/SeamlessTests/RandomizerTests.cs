@@ -223,7 +223,7 @@ internal static class RandomizerTests
         Check(Randomizer.Summary(Randomizer.Standard(1) with { StarterMelee = 4, StarterGuns = 3 }) ==
               "Shuffled: enemies, drops. Melee starting weapons offered: 4. Firearm starting weapons offered: 3.", "the card line names the starting weapon counts");
         Check(Randomizer.Summary(Randomizer.Standard(1) with { Chance = 50, Treasure = true, Headroom = 150, Exclude = new[] { 1, 2 } }, hidden: true) ==
-              "Shuffled: 50 % of enemies, treasure, drops. Variety 150 %. 2 enemies left out. Also has settings this page has no row for.", "the card line names the options");
+              "Shuffled: 50 % of enemies, treasure, drops. More enemy kinds per area. 2 enemies left out. Also has settings this page has no row for.", "the card line names the options");
 
         Check(Randomizer.ParseProgress("progress read 0 1") is { Fraction: 0.0, Step: "read" }, "the first step starts the bar");
         Check(Randomizer.ParseProgress("progress maps 8 16") is { Step: "maps" } half && Math.Abs(half.Fraction - 0.475) < 1e-9, "maps fill their share");

@@ -780,8 +780,10 @@ namespace BloodborneLauncher.Views
         protected ToggleSwitch SettingToggle(SymbolRegular icon, string title, string? hint, string key, Panel? into = null, Action? changed = null) =>
             ToggleRow(icon, title, hint, () => S.Bool(key), v => S.Set(key, v), into, changed);
 
-        protected ToggleSwitch IniToggle(SymbolRegular icon, string title, string? hint, string key, Panel? into = null, Action? changed = null) =>
-            ToggleRow(icon, title, hint, () => Ini.Flag(key), v => Ini.Set(key, v ? "1" : "0"), into, changed);
+        /// <summary>A bbport.ini switch; <paramref name="on"/> is the engine's default, shown while the key is not in the file yet.</summary>
+        protected ToggleSwitch IniToggle(SymbolRegular icon, string title, string? hint, string key, Panel? into = null, Action? changed = null,
+            bool on = false) =>
+            ToggleRow(icon, title, hint, () => Ini.Get(key, on ? "1" : "0") == "1", v => Ini.Set(key, v ? "1" : "0"), into, changed);
 
         /// <summary>A slider with a small number box beside it: type a value and press Enter (or click
         /// away) to set it exactly. The value is kept in the slider's range and on its steps; text that

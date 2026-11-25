@@ -104,7 +104,7 @@ namespace BloodborneLauncher.Views
             Group(L.T("Picture"));
             var picture = new StackPanel();
             IniToggle(SymbolRegular.Color24, L.T("Picture tuning"), L.T("Turns the settings below on, live. Also in the game's System menu (PC Graphics, PC Effects, PC Colour) and the Insert menu"), "graphics_controls");
-            IniToggle(SymbolRegular.CircleHalfFill24, L.T("Vignette"), null, "graphics_vignette", picture);
+            IniToggle(SymbolRegular.CircleHalfFill24, L.T("Vignette"), null, "graphics_vignette", picture, on: true); // engine default on
             Body.Children.Add(picture);
             // The sliders, folded until opened.
             var adjustments = Advanced(L.T("Picture adjustments"));
@@ -137,7 +137,7 @@ namespace BloodborneLauncher.Views
             foreach (var effect in Choices.Effects.Take(Choices.FirstLightingEffect))
             {
                 var motionBlur = effect.Key == "effect_motion_blur";
-                var toggle = IniToggle(EffectIcon(effect.Key), effect.Title, effect.Hint, effect.Key, changed: motionBlur ? UpdateUpscaler : null);
+                var toggle = IniToggle(EffectIcon(effect.Key), effect.Title, effect.Hint, effect.Key, changed: motionBlur ? UpdateUpscaler : null, on: effect.Default);
                 if (motionBlur) _motionBlurHint = ((SettingRow)Body.Children[^1]).Hint;
                 if (effect.Key is "debug_camera" or "debug_menu")
                     _coopOff.Add((toggle, ((SettingRow)Body.Children[^1]).Hint, effect.Hint));
@@ -148,7 +148,7 @@ namespace BloodborneLauncher.Views
             Body.Children.Add(Text(L.T("Optional lighting passes; all off by default. They need an upscaler on"), "Faint"));
             foreach (var effect in Choices.Effects.Skip(Choices.FirstLightingEffect))
             {
-                IniToggle(SymbolRegular.Lightbulb24, effect.Title, effect.Hint, effect.Key);
+                IniToggle(SymbolRegular.Lightbulb24, effect.Title, effect.Hint, effect.Key, on: effect.Default);
                 if (effect.Key == "effect_gtao")
                     IniCombo(SymbolRegular.Lightbulb24, L.T("Ambient occlusion quality"),
                         Choices.Hint(L.T("High looks sharper and steadier but costs more GPU time"),
