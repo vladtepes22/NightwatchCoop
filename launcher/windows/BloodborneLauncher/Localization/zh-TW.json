@@ -3060,5 +3060,8 @@
   "In use. ": "使用中。",
   "Could not change the settings": "無法變更設定",
   "The saved settings are damaged.": "儲存的設定已損毀。",
-  "Preset in use: {0}. It takes effect the next time the game starts.": "正在使用預設：{0}。下次啟動遊戲時生效。"
+  "Preset in use: {0}. It takes effect the next time the game starts.": "正在使用預設：{0}。下次啟動遊戲時生效。",
+  "Time of day": "時段",
+  "Evening reached": "已到傍晚",
+  "The world's time of day. The game sets these flags together: Night also has Evening reached, Blood Moon has all three. The Moon phase above sets them the same way. Takes effect on the next load.": "世界的時段。遊戲會一起設定這些旗標：夜晚同時包含已到傍晚，血月包含全部三個。上方的月相也以同樣方式設定。下次讀取時生效。"
 }

@@ -63,6 +63,7 @@ def flag_rows(catalogue):
     rows = [(f, "boss", g, label) for f, g, label in flagsdata.bosses(catalogue)]
     rows += [(f, "lamp", g, label) for f, g, label in flagsdata.lamps(catalogue)]
     rows += [(f, "ending", g, label) for f, g, label in flagsdata.endings()]
+    rows += [(f, "time", g, label) for f, g, label in flagsdata.time_of_day()]
     return [(f, kind, group, label.removesuffix(f" [{f}]")) for f, kind, group, label in rows]
 
 
@@ -93,8 +94,12 @@ def catalog(catalogue, request, game, cache):
     if isinstance(request, dict) and request.get("category") == MOD_CATEGORY:
         found = catalogue.search_mod_items(str(request.get("text", ""))[:60])
         wanted = {catalogue.icon(c, n) for c, n, _ in found} - {None}
+        runes = catalogue.mod_runes(str(request.get("text", ""))[:60])  # its new runes too, as the rune list adds them
+        wanted |= {catalogue.gem(g, s, [e])[1] for g, e, s, _ in runes} - {None}
         paths = icons.ensure(game, cache, wanted) if game and wanted else {}
-        return [dict(number=n, name=name, icon=paths.get(catalogue.icon(c, n)), category=c) for c, n, name in found]
+        return ([dict(number=n, name=name, icon=paths.get(catalogue.icon(c, n)), category=c) for c, n, name in found]
+                + [dict(number=e, name=name, icon=paths.get(catalogue.gem(g, s, [e])[1]), category=RUNE_CATEGORY, shape=s)
+                   for g, e, s, name in runes])
     if not isinstance(request, dict) or request.get("category") not in ADD_CATEGORIES:
         raise ValueError("expected a category: 0 weapon, 1 armor, 4 goods, 8 rune")
     category, text = request["category"], str(request.get("text", ""))[:60]
@@ -219,18 +224,19 @@ def mods_stamp(args):
 
 
 def mod_data(args, catalogue, catalogues=None):
-    """The enabled mods' items and bosses. Reading them parses the mods' params and events (about a second); the worker
+    """The enabled mods' items, gem and rune rows and bosses. Reading them parses the mods' params and events (about a second); the worker
     keeps them with its catalogue (in `catalogues`) and reads them again only when mods_stamp changes."""
     key = ("mods", str(args.user), str(args.game))
     stamp = mods_stamp(args)
     kept = catalogues.get(key) if catalogues is not None else None
     if kept is not None and kept[0] == stamp and kept[1] is catalogue:
-        return kept[2], kept[3]
+        return kept[2], kept[3], kept[4]
     items = names.read_mod_items(args.game, args.mods, args.mods_config)
+    gems = names.read_mod_gems(args.game, args.mods, args.mods_config)
     bosses = names.read_mod_bosses(args.game, args.mods, args.mods_config, catalogue.progress)
     if catalogues is not None:
-        catalogues[key] = (stamp, catalogue, items, bosses)
-    return items, bosses
+        catalogues[key] = (stamp, catalogue, items, bosses, gems)
+    return items, bosses, gems
 
 
 def execute(args, edit=None, running=running_games, catalogues=None):
@@ -254,8 +260,9 @@ def execute(args, edit=None, running=running_games, catalogues=None):
         if catalogues is not None:
             catalogues[user] = catalogue
     if args.mods and args.game:
-        items, bosses = mod_data(args, catalogue, catalogues)
+        items, bosses, gems = mod_data(args, catalogue, catalogues)
         catalogue.set_mod_items(items)
+        catalogue.set_mod_gems(gems)
         catalogue.set_mod_bosses(bosses)
     art = icons.source(args.game, args.mods, args.mods_config) if args.game else None  # the icon sheet in game
     if args.command == "effects":
