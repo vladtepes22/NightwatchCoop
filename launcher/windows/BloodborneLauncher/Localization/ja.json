@@ -3041,5 +3041,22 @@
   "More (can crash weaker PCs)": "多め（低性能PCでクラッシュすることあり）",
   "Most (crashes weaker PCs more often)": "最多（低性能PCでより頻繁にクラッシュ）",
   "More enemy kinds per area.": "エリアごとの敵の種類：多め。",
-  "Most enemy kinds per area.": "エリアごとの敵の種類：最多。"
+  "Most enemy kinds per area.": "エリアごとの敵の種類：最多。",
+  "Presets": "プリセット",
+  "Original": "オリジナル",
+  "Crisp": "くっきり",
+  "Atmospheric": "雰囲気重視",
+  "Full lighting": "フルライティング",
+  "The game as it shipped: picture tuning and optional lighting off": "発売時のままのゲーム：画像調整とオプションのライティングはオフ",
+  "Less haze and no lens effects, a little more contrast. Light on the GPU": "もやを減らしてレンズ効果をなくし、コントラストを少し上げます。GPU への負荷は軽め",
+  "Thicker fog, glow around lamps and beams of sunlight. Needs an upscaler on": "濃い霧、ランプの周りの光、差し込む日光。アップスケーラーをオンにする必要があります",
+  "Every optional lighting pass but the experimental ones. Needs an upscaler on and a strong GPU": "実験的なもの以外のすべてのオプションのライティング。アップスケーラーをオンにし、高性能な GPU が必要です",
+  "Back to my settings": "元の設定に戻す",
+  "Go back": "戻す",
+  "Puts back the values you had before the first preset you used": "最初にプリセットを使う前の値に戻します",
+  "Your previous picture and lighting settings are back.": "以前の画像とライティングの設定に戻りました。",
+  "In use. ": "使用中。",
+  "Could not change the settings": "設定を変更できませんでした",
+  "The saved settings are damaged.": "保存された設定が壊れています。",
+  "Preset in use: {0}. It takes effect the next time the game starts.": "使用中のプリセット：{0}。次にゲームを起動したときに反映されます。"
 }

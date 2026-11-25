@@ -3041,5 +3041,22 @@
   "More (can crash weaker PCs)": "Di più (può far crashare i PC deboli)",
   "Most (crashes weaker PCs more often)": "Massimo (crasha più spesso sui PC deboli)",
   "More enemy kinds per area.": "Più tipi di nemici per area.",
-  "Most enemy kinds per area.": "Massimo dei tipi di nemici per area."
+  "Most enemy kinds per area.": "Massimo dei tipi di nemici per area.",
+  "Presets": "Preimpostazioni",
+  "Original": "Originale",
+  "Crisp": "Nitido",
+  "Atmospheric": "Atmosferico",
+  "Full lighting": "Illuminazione completa",
+  "The game as it shipped: picture tuning and optional lighting off": "Il gioco così come è uscito: regolazione immagine e illuminazione opzionale disattivate",
+  "Less haze and no lens effects, a little more contrast. Light on the GPU": "Meno foschia e niente effetti obiettivo, un po' più di contrasto. Leggero per la GPU",
+  "Thicker fog, glow around lamps and beams of sunlight. Needs an upscaler on": "Nebbia più fitta, alone attorno alle lampade e raggi di sole. Richiede un upscaler attivo",
+  "Every optional lighting pass but the experimental ones. Needs an upscaler on and a strong GPU": "Tutti i passaggi di illuminazione opzionali tranne quelli sperimentali. Richiede un upscaler attivo e una GPU potente",
+  "Back to my settings": "Torna alle mie impostazioni",
+  "Go back": "Torna indietro",
+  "Puts back the values you had before the first preset you used": "Ripristina i valori che avevi prima della prima preimpostazione usata",
+  "Your previous picture and lighting settings are back.": "Le tue impostazioni precedenti di immagine e illuminazione sono tornate.",
+  "In use. ": "In uso. ",
+  "Could not change the settings": "Impossibile modificare le impostazioni",
+  "The saved settings are damaged.": "Le impostazioni salvate sono danneggiate.",
+  "Preset in use: {0}. It takes effect the next time the game starts.": "Preimpostazione in uso: {0}. Ha effetto al prossimo avvio del gioco."
 }
