@@ -903,6 +903,10 @@ def plan(arena, fighter, origin_msb, target_variants, events, taken=()):
         if stage and home in fight.stage_extra:
             continue
         part, pos, rot = _pose(origin_msb, home)
+        points = origin_msb.generator_points(part["part"])
+        if points:  # its generator places it at one of its spawn points; the copies have none (user 25 Nov: the Coiled
+            # Host's three snake balls rose stacked from one spot): the point nearest the boss, so they spread as at home
+            pos = min(points, key=lambda p: math.hypot(p[0] - home_pos[0], p[2] - home_pos[2]))
         if stage and home == fight.stage:  # the stage boss stands where the second phase waits, with its own rows
             part = dict(part, model=stage["model"], think=stage["think"], npc=stage["npc"], talk=0)
         entity = next(c for c in range(base + PART_GAP, base + 100)

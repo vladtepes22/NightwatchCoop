@@ -10,6 +10,7 @@ import struct
 
 MODELS, PARTS = "MODEL_PARAM_ST", "PARTS_PARAM_ST"
 EVENTS = "EVENT_PARAM_ST"
+REGIONS = "POINT_PARAM_ST"
 ENEMY = 2
 # Words that hold a part index, as (offset in the type data, count): by event type and by part type (DATA).
 EVENT_PART_REFS = {4: ((0x8, 1),), 5: ((0x50, 32),), 7: ((0x4, 1),), 16: ((0x10, 32),)}
@@ -151,6 +152,29 @@ class Msb:
                 struct.pack_into("<i", self.data, part["at"] + kind + 0x18, -1)
                 done.add(part["part"])
         return done
+
+    def generator_points(self, part_name):
+        """Positions of the spawn points (regions, position at +0x14) of every generator (event type 5: spawn points
+        at type data +0x30, 8 region indices; spawn parts +0x50, 32) that spawns this part; [] for none. DATA Nocturne
+        v6.0.0 m27: the Coiled Host's snake balls 2700803-805 each have a generator 2705001-003 with 4 points."""
+        secs = sections(self.data)
+        parts, regions = secs[PARTS][2][:-1], secs[REGIONS][2][:-1]
+        names = [_utf16z(self.data, at + _i64(self.data, at + 8)) for at in parts]
+        if part_name not in names:
+            return []
+        index = names.index(part_name)
+        out = []
+        for at in secs[EVENTS][2][:-1]:
+            if _i32(self.data, at + 0xc) != 5:
+                continue
+            kind = _i64(self.data, at + 0x20)
+            if index not in [_i32(self.data, at + kind + 0x50 + 4 * k) for k in range(32)]:
+                continue
+            for k in range(8):
+                point = _i32(self.data, at + kind + 0x30 + 4 * k)
+                if 0 <= point < len(regions):
+                    out.append(struct.unpack_from("<3f", self.data, regions[point] + 0x14))
+        return out
 
     def _part_index_words(self):
         """Absolute offsets of every int that holds a part's index in the parts list (DATA, all 24 main-map files,
