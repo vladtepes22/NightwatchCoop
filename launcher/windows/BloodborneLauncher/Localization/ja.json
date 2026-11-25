@@ -3085,5 +3085,9 @@
   "Could not open the merge log: ": "マージログを開けませんでした:",
   "That cannot be a folder name.": "フォルダー名として使えません。",
   "That name is too long.": "名前が長すぎます。",
-  "A mod with that name already exists.": "その名前の Mod はすでにあります。"
+  "A mod with that name already exists.": "その名前の Mod はすでにあります。",
+  "Include Moon Presence phase two (Nocturne)": "Moon Presence の第2形態を含める（Nocturne）",
+  "Needs Nocturne v6.1.0 or later among the ticked mods below, which gives the Moon Presence a second phase; without it this row is greyed out and does nothing. With this on, the Moon Presence brings her second phase to whatever fight she lands in, and turns into it at half her health bar. With this off, she fights alone there.": "チェックした Mod の中に Nocturne v6.1.0 以降が必要です（下記）。Moon Presence に第2形態を追加します。これがないとこの行はグレー表示になり、何もしません。これをオンにすると、Moon Presence はどの戦闘に現れても第2形態を連れて行き、体力バーが半分になると第2形態に変わります。オフにすると、そこでは単独で戦います。",
+  "The Moon Presence phase two option is skipped: no Nocturne v6.1.0 or later among the ticked mods.": "Moon Presence の第2形態のオプションはスキップされます: チェックした Mod に Nocturne v6.1.0 以降がありません。",
+  "The Moon Presence brings her phase two.": "Moon Presence は第2形態を連れて行きます。"
 }

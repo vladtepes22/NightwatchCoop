@@ -64,7 +64,7 @@ class Table(unittest.TestCase):
     def test_the_option_is_52_and_late(self):
         import seedcode
         self.assertEqual(seedcode._BY_ID[52][1:], ("scorched_beast", "int", 0))
-        self.assertEqual(seedcode.BOOL_OPTIONS_R2[-1], "scorched_beast")  # appended: older codes keep their bits
+        self.assertEqual(seedcode.BOOL_OPTIONS_R2[-2:], ("scorched_beast", "moon_presence_two"))  # appended: older codes keep their bits
         self.assertEqual(seedcode.LATE_OPTIONS["scorched_beast"], 0)
         a, b = {"boss_swap": 1}, {"boss_swap": 1, "scorched_beast": 0}
         self.assertEqual(seedcode.options_hash(seedcode.normalize(a)), seedcode.options_hash(seedcode.normalize(b)))

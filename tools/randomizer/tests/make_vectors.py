@@ -63,6 +63,7 @@ def main():
         valid("coiled host", 23, dict(boss_swap=1, coiled_host=1)),
         valid("no winter lanterns", 25, dict(no_winter_lanterns=1)),
         valid("scorched beast", 26, dict(boss_swap=1, scorched_beast=1)),
+        valid("moon presence phase two", 27, dict(boss_swap=1, moon_presence_two=1)),
         valid("include only", 26, dict(include_only=(1100, 2630), exclude=(2630,))),
         valid("typed lowercase with look-alikes", seed, FULL, good.lower().replace("0", "o").replace("1", "l")),
         valid("typed without group dashes", seed, FULL, "R2-" + good[3:].replace("-", "")),

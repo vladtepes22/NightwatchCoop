@@ -3085,5 +3085,9 @@
   "Could not open the merge log: ": "Impossibile aprire il registro dell'unione:",
   "That cannot be a folder name.": "Non può essere il nome di una cartella.",
   "That name is too long.": "Il nome è troppo lungo.",
-  "A mod with that name already exists.": "Esiste già una mod con questo nome."
+  "A mod with that name already exists.": "Esiste già una mod con questo nome.",
+  "Include Moon Presence phase two (Nocturne)": "Includi la seconda fase di Moon Presence (Nocturne)",
+  "Needs Nocturne v6.1.0 or later among the ticked mods below, which gives the Moon Presence a second phase; without it this row is greyed out and does nothing. With this on, the Moon Presence brings her second phase to whatever fight she lands in, and turns into it at half her health bar. With this off, she fights alone there.": "Richiede Nocturne v6.1.0 o successiva tra le mod spuntate qui sotto, che dà a Moon Presence una seconda fase; senza di essa questa riga è disattivata e non fa nulla. Con questa opzione attiva, Moon Presence porta la sua seconda fase in qualunque scontro in cui compare e si trasforma a metà della sua barra della salute. Disattivata, lì combatte da sola.",
+  "The Moon Presence phase two option is skipped: no Nocturne v6.1.0 or later among the ticked mods.": "L'opzione della seconda fase di Moon Presence viene saltata: nessuna Nocturne v6.1.0 o successiva tra le mod spuntate.",
+  "The Moon Presence brings her phase two.": "Moon Presence porta con sé la sua seconda fase."
 }

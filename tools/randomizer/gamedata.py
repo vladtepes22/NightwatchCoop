@@ -590,6 +590,9 @@ class Census:
         self.found_helpers = helpers.found_helpers(stem_events, {stem: {e["entity"]: e for e in v}
                                                                  for stem, v in stem_enemies.items()},
                                                    {**solo, **self.phases})
+        # a listed fight a base mod adds a body to (Nocturne v6.1.0's Moon Presence phase two), when its lines are there
+        self.found_helpers.update(helpers.found_mod_fights(stem_events, {stem: {e["entity"]: e for e in v}
+                                                                         for stem, v in stem_enemies.items()}))
         arenas.set_phases(self.phases, self.found_helpers)
         for stem in STEMS:
             enemies = stem_enemies[stem]

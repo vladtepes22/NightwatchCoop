@@ -14,6 +14,8 @@ listed event that still runs. A copy no listed id can hold is reported (`uncover
 where the map lists none (m25, m26, m35 list nothing: vanilla lets a guest's state through there too). The uncovered
 copies go into the world's PARTY_FILE (party_ids), which a host's engine adds to the list: those of a map that lists ids,
 and copies of listed events in any map."""
+import os
+
 import arenas
 from emevd import LABEL_BANK, LABEL_IDS
 
@@ -52,13 +54,29 @@ def emptied(events, event):
                                                                        and words[0] == 256)
 
 
-def rank(events, event):
-    """How much a copy needs a listed id, or None: 0 a copy of a listed event (it was host-only at home), 1 a phase copy
-    (boss_events.move_phases) that tests HP and sends the AI something, 2 any other phase copy. Part templates, the
+def mod_listed(folders):
+    """The event ids the mods' own PARTY_FILE lists name (folders: the input mods' folders): host-only at home by the
+    mod's word (Nocturne v6.1.0: the Moon Presence's handover 12101850), so a copy of one is host-only too (rank 0)."""
+    out = set()
+    for folder in folders:
+        path = os.path.join(folder, PARTY_FILE)
+        if not os.path.isfile(path):
+            continue
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                word = line.split("#", 1)[0].strip()
+                if word.isdigit():
+                    out.add(int(word))
+    return frozenset(out)
+
+
+def rank(events, event, listed=frozenset()):
+    """How much a copy needs a listed id, or None: 0 a copy of a listed event (it was host-only at home; listed: the ids
+    the inputs' mods list, mod_listed), 1 a phase copy (boss_events.move_phases) that tests HP and sends the AI something, 2 any other phase copy. Part templates, the
     events of a body's own moves and the helpers' events whose source is not listed are not phases: vanilla keeps none
     of them host-only, so they go without (parity)."""
     source, _, kind = events.sources[event]
-    if source in HOST_ONLY:
+    if source in HOST_ONLY or source in listed:
         return 0
     if kind != "phase":
         return None
@@ -91,14 +109,16 @@ def _swap_safe(events, a, b):
     return True
 
 
-def cover(events):
+def cover(events, mod_ids=frozenset()):
     """Gives this map's copies that need it (rank) the listed ids of this map's emptied events: an arena's own first,
     then any left in the map, copies in rank order. Edits events in place. Returns {"covered": [[copy id before, listed
     id, source event, body, rank]], "uncovered": [[copy id, source event, body, rank]], "listed": n, "free": n}; empty
-    ({}) when the map has neither a listed id nor a copy that needs one."""
+    ({}) when the map has neither a listed id nor a copy that needs one. mod_ids: the inputs' mods' listed ids
+    (mod_listed), rank's listed."""
     listed = [e for e in sorted(HOST_ONLY) if e in events.index]
     free = [e for e in listed if emptied(events, e)]
-    needs = sorted((r, e) for e in events.sources if not emptied(events, e) for r in (rank(events, e),) if r is not None)
+    needs = sorted((r, e) for e in events.sources if not emptied(events, e)
+                   for r in (rank(events, e, mod_ids),) if r is not None)
     if not needs and not listed:
         return {}
     taken, plan = set(), {}

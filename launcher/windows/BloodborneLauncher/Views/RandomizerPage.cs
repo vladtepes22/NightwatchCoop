@@ -37,6 +37,7 @@ namespace BloodborneLauncher.Views
         private string? _code;             // what the code box shows, null while it holds no valid code
         private bool _syncing, _busy;
         private bool _beast; // a ticked mod places the Scorched Beast (Nocturne v5.0.0+; option scorched_beast has him to act on)
+        private bool _moonTwo; // a ticked mod places the Moon Presence's phase two (Nocturne v6.1.0+; option moon_presence_two)
         private bool _nocturne; // a ticked mod places the Coiled Host (Nocturne v2.0.0+; option coiled_host has him to act on)
         private CancellationTokenSource? _stop;
 
@@ -182,6 +183,9 @@ namespace BloodborneLauncher.Views
             Bool(bosses, SymbolRegular.ArrowSwap24, L.T("Include Scorched Beast (Nocturne boss)"),
                 L.T("Needs Nocturne v5.0.0 or later among the ticked mods below, which adds the Scorched Beast to Old Yharnam; without it this row is greyed out and does nothing. With this on, the Scorched Beast can turn up as the boss of another fight, and another boss can stand in his place in Old Yharnam."),
                 o => o.ScorchedBeast, (o, b) => o with { ScorchedBeast = b }, null, () => _o.Bosses && _beast);
+            Bool(bosses, SymbolRegular.ArrowSwap24, L.T("Include Moon Presence phase two (Nocturne)"),
+                L.T("Needs Nocturne v6.1.0 or later among the ticked mods below, which gives the Moon Presence a second phase; without it this row is greyed out and does nothing. With this on, the Moon Presence brings her second phase to whatever fight she lands in, and turns into it at half her health bar. With this off, she fights alone there."),
+                o => o.MoonPresenceTwo, (o, b) => o with { MoonPresenceTwo = b }, null, () => _o.Bosses && _moonTwo);
             Bind(ComboRow(SymbolRegular.Alert24, L.T("Randomize bell maidens"), L.T("The One Reborn's bell maidens become random enemies."),
                 new[] { new Choice(L.T("Off"), Randomizer.BellMaidenChoices[0]), new Choice(L.T("On"), Randomizer.BellMaidenChoices[1]) },
                 () => _o.BellMaidens, v => Set(_o with { BellMaidens = v }), bosses, changed: Changed), () => _o.BellMaidens, () => _o.Bosses);
@@ -377,6 +381,8 @@ namespace BloodborneLauncher.Views
                 note += " " + L.T("The Coiled Host option is skipped: no Nocturne v2.0.0 or later among the ticked mods.");
             if (options.Bosses && options.ScorchedBeast && !_beast)
                 note += " " + L.T("The Scorched Beast option is skipped: no Nocturne v5.0.0 or later among the ticked mods.");
+            if (options.Bosses && options.MoonPresenceTwo && !_moonTwo)
+                note += " " + L.T("The Moon Presence phase two option is skipped: no Nocturne v6.1.0 or later among the ticked mods.");
             if (changed) note = L.F($"Changed from the code you pasted ({_pasted!.Canonical}): this is not that world any more.") + " " + note;
             SetHint(_codeNote, note);
         }
@@ -434,15 +440,17 @@ namespace BloodborneLauncher.Views
         {
             var dir = GameEnvironment.ModsDir(S);
             var picked = PickedMods();
-            bool found, beast;
+            bool found, beast, moonTwo;
             try
             {
-                (found, beast) = await Task.Run(() => (Randomizer.HasCoiledHost(dir, picked), Randomizer.HasScorchedBeast(dir, picked)));
+                (found, beast, moonTwo) = await Task.Run(() => (Randomizer.HasCoiledHost(dir, picked),
+                    Randomizer.HasScorchedBeast(dir, picked), Randomizer.HasMoonPresenceTwo(dir, picked)));
             }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { found = beast = false; }
-            if ((found == _nocturne && beast == _beast) || !picked.SequenceEqual(PickedMods())) return;
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { found = beast = moonTwo = false; }
+            if ((found == _nocturne && beast == _beast && moonTwo == _moonTwo) || !picked.SequenceEqual(PickedMods())) return;
             _nocturne = found;
             _beast = beast;
+            _moonTwo = moonTwo;
             Sync();
         }
 

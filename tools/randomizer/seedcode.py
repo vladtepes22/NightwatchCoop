@@ -121,6 +121,7 @@ OPTIONS = (
     (50, "no_winter_lanterns", "int", 0), # 1: Winter Lanterns never replace an enemy (planner.excluded_models, user 10 Nov: their Frenzy reaches from afar)
     (51, "include_only", "list", ()),     # model numbers: when any, only these replace an ordinary enemy; exclude still wins (planner.replacement_pool, user 11 Nov)
     (52, "scorched_beast", "int", 0),     # 1: Nocturne v5.0.0's Scorched Beast (the Lesser Demon, c5500 with his head c5501) is a boss of the pool and his plaza draws a boss (arenas.py "lesser_demon"); no effect without him
+    (53, "moon_presence_two", "int", 0),  # 1: Nocturne v6.1.0's Moon Presence phase two (c5420) comes along wherever the Moon Presence fights (helpers.MOON_PRESENCE_TWO); 0: she fights alone away from the Dream; no effect without her
 )
 _BY_ID = {o[0]: o for o in OPTIONS}
 LATE_OPTIONS = {"headroom": 100, "treasure_by_type": 0, "starters": 0, "boss_cutscenes": 0,
@@ -129,11 +130,12 @@ LATE_OPTIONS = {"headroom": 100, "treasure_by_type": 0, "starters": 0, "boss_cut
                 "hard_ebrietas": 0, "difficult_enemies": 0, "second_stage": 0, "away_from_home": 0, "free_poses": 0,
                 "starter_armor": 0, "shadows_summons": 0, "chalice_enemies": 0, "bosses_as_enemies": 0, "coiled_host": 0, "gem_roulette": 0,
                 "cursed_gems": 0, "boss_enemy_chance": 25, "boss_enemy_max": 1, "huge_bosses_as_enemies": 0,
-                "boss_enemy_hp": 8, "no_winter_lanterns": 0, "include_only": (), "scorched_beast": 0}
+                "boss_enemy_hp": 8, "no_winter_lanterns": 0, "include_only": (), "scorched_beast": 0,
+                "moon_presence_two": 0}
 BOOL_OPTIONS_R2 = ("witch_mix", "shadows_mix", "emissary_mix", "failures_mix", "chalice_bosses", "hard_rom",
                    "hard_amygdala", "hard_ebrietas", "difficult_enemies", "second_stage", "away_from_home", "free_poses",
                    "starter_armor", "shadows_summons", "chalice_enemies", "bosses_as_enemies", "coiled_host", "gem_roulette", "cursed_gems",
-                   "huge_bosses_as_enemies", "no_winter_lanterns", "scorched_beast")
+                   "huge_bosses_as_enemies", "no_winter_lanterns", "scorched_beast", "moon_presence_two")
 CONTENT_ONLY_OPTIONS = ("boss_cutscenes", "boss_enemy_hp")  # boss_enemy_hp sets HP only: the same enemies at 8x or 16x
 # the most bosses a map may hold as enemies (option boss_enemy_max): five of the largest boss models (22 MB) are a third of
 # a map's 343 MB budget at 100 %, about as much as the boss models can take before the map's own variety goes
@@ -208,7 +210,7 @@ CORE_FIELDS = (("scaling", 9, 2), ("enemy_chance", 11, 5), ("headroom", 16, 6)) 
 CORE_BITS = 22
 # extras: free-form options, only when not at their default, as varint(option id) + value, ids ascending.
 # Percents are stored as steps of 5 (enemy_chance in the core too).
-EXTRAS = (2, 3, 4, 6, 8, 9, 10, 11, 23, 24) + tuple(range(26, 53))  # area_chance, exclude, oops_all, fixed_effect, map_models, map_mb, big_models, variety, starter_melee, starter_guns, the boss round options, second_stage, away_from_home, free_poses, starter_armor, shadows_summons, chalice_enemies, bosses_as_enemies, coiled_host, gem_roulette, cursed_gems, boss_enemy_chance, boss_enemy_max, huge_bosses_as_enemies, boss_enemy_hp, no_winter_lanterns, include_only
+EXTRAS = (2, 3, 4, 6, 8, 9, 10, 11, 23, 24) + tuple(range(26, 54))  # area_chance, exclude, oops_all, fixed_effect, map_models, map_mb, big_models, variety, starter_melee, starter_guns, the boss round options, second_stage, away_from_home, free_poses, starter_armor, shadows_summons, chalice_enemies, bosses_as_enemies, coiled_host, gem_roulette, cursed_gems, boss_enemy_chance, boss_enemy_max, huge_bosses_as_enemies, boss_enemy_hp, no_winter_lanterns, include_only, scorched_beast, moon_presence_two
 SEED_BITS = 32
 
 

@@ -6,7 +6,7 @@ ordinary enemies), by the arena table (arenas.py)."""
 from collections import Counter
 
 from arenas import ARENA_ONLY, ARENAS, BY_KEY, ENEMY_OUT, GROUP, OUT, SOLO, TOO_SMALL, ends_on_death
-from helpers import FIGHTS, extras_of, with_stage
+from helpers import FIGHTS, MOON, MOON_PRESENCE_TWO, MOON_TWO, extras_of, with_stage
 from neighbours import connections
 from seedcode import Stream, normalize, options_hash
 
@@ -400,6 +400,10 @@ def plan(slots, candidates, sizes, groups, group_limits, seed, options, animatio
     if norm["scorched_beast"] and not _in_play(BY_KEY["lesser_demon"], index, norm):
         norm["scorched_beast"] = 0  # no Scorched Beast in the inputs (user: then the option does nothing)
         skipped["scorched_beast"] = "no Scorched Beast in the inputs (needs Nocturne v5.0.0 or later)"
+    moon_two = FIGHTS.get(MOON) is MOON_PRESENCE_TWO and MOON_TWO in index  # helpers.found_mod_fights found her
+    if norm["moon_presence_two"] and not moon_two:
+        norm["moon_presence_two"] = 0  # the world of it off
+        skipped["moon_presence_two"] = "no Moon Presence phase two in the inputs (needs Nocturne v6.1.0 or later)"
     opts_hash = options_hash(norm)
     area = dict(norm["area_chance"])
     excluded = excluded_models(norm)
@@ -438,6 +442,11 @@ def plan(slots, candidates, sizes, groups, group_limits, seed, options, animatio
     chalice_pool = [f for f in extra_fighters if sizes.get(f["model"], 0) > 0]
     fighters = boss_fighters(slots, index, excluded, hard_rows, chalice_pool if norm["chalice_bosses"] else (),
                              phase_entities(index) if norm["coiled_host"] else (), norm)
+    if moon_two and not norm["moon_presence_two"]:
+        # option moon_presence_two off (user 25 Nov: a toggle for her): the Moon Presence fights alone wherever she goes,
+        # her fight ending on her death (helpers.ALONE); her phase two stays home, out of any other boss's fight
+        fighters = [dict(f, extras=[], extra_models=[], needs_end=False, alone=True) if f["origin"] == MOON else f
+                    for f in fighters]
     if units and norm["second_stage"] and not norm["chalice_bosses"]:
         # user, 10 Nov: with second stages the arenas and the three stages want more bosses than travel (the Emissary and
         # the Failures never leave their arena): chalice bosses fill the gap, as many as it takes, when that is enough
