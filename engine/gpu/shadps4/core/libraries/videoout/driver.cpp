@@ -1449,15 +1449,17 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
         u64 last_tick = 0; // the last flip's frame (0: none, or no longer waited for)
         Clock::time_point last_flip{}, last_shown{};
         bool last_noted = false;
+        LanternPacing::UsualLate usual_late;
         const auto note_shown = [&](const BbFrameDone::State& state) {
             if (last_noted || state.kind != BbFrameDone::State::Kind::Done) return;
             last_noted = true;
             const auto pace = flips.Period();
             const auto ms = [](auto d) { return std::chrono::duration<double, std::milli>(d).count(); };
-            if (state.done - last_flip > pace / 16) {
+            if (state.done - last_flip - usual_late.Get() > pace / 16) {
                 ++pacing.gpu_late;
                 pacing.worst_gpu_late_ms = std::max(pacing.worst_gpu_late_ms, ms(state.done - last_flip));
             }
+            usual_late.Add(state.done - last_flip);
             const auto shown = std::max(last_flip, state.done);
             if (last_shown != Clock::time_point{} && shown - last_shown < pace * 4) {
                 const auto interval = shown - last_shown;
@@ -1485,9 +1487,11 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
                     return true;
                 }
             }
+            const auto usual = usual_late.Get(); // before this frame joins it
             note_shown(state);
             if (!hold || state.kind != BbFrameDone::State::Kind::Done) return true;
-            const auto slot = LanternPacing::GpuPacedSlot(flips.Slot(), last_flip, state.done, flips.Period());
+            const auto slot =
+                LanternPacing::GpuPacedSlot(flips.Slot(), last_flip, state.done, flips.Period(), usual);
             if (slot == flips.Slot()) return true;
             flips.PushTo(slot);
             ++pacing.gpu_held;
