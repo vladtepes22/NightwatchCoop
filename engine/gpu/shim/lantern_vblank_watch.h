@@ -32,6 +32,11 @@ struct Learner {
     int off_score = 0;
     // false (BB_VBLANK_RELEARN=0): a refresh that once varied stays variable for the session (the old rule).
     bool relearn = true;
+    // Nightwatch (diagnostics, judder report 24 Nov): the wakes judged off since the caller last cleared them. Late
+    // ones alone are what a fixed refresh shows when this thread wakes late (CPU load); early ones (a refresh sooner
+    // than the period) are what a variable refresh shows. Not reset by Restart / Reset: the caller reads and clears.
+    int late_offs = 0, early_offs = 0;
+    double worst_late = 0;
 
     void Restart(double now) {
         period = refreshes = 0;
@@ -63,6 +68,12 @@ struct Learner {
         const double early = period * 0.1;
         const double late = LANTERN_VBLANK_WATCH_PICK(2, early, relearn ? std::max(early, kLateFloorNs) : early);
         if (whole < 1 || residual < -LANTERN_VBLANK_WATCH_PICK(3, late, early) || residual > late) {
+            if (whole >= 1 && residual > late) {
+                ++late_offs;
+                worst_late = std::max(worst_late, residual);
+            } else {
+                ++early_offs;
+            }
             if (whole >= 1) {
                 predicted += whole * period;
                 refreshes += whole;
