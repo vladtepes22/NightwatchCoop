@@ -521,6 +521,9 @@ struct Values {
     std::atomic<bool> menu_move{false};
     std::atomic<bool> mouse_invert_x{false},mouse_invert_y{false},mouse_auto_rotation{false};
     std::atomic<bool> pc_menus{true};
+    /// The pause menu's Settings screen (bbport_settings_screen.cpp) instead of the System list with the PC pages;
+    /// only with pc_menus on. Read at start; env BB_SETTINGS_SCREEN=0/1 overrides it.
+    std::atomic<bool> settings_screen{true};
     std::atomic<int> mouse_sensitivity{5};
     std::atomic<int> button_prompts{PromptsAuto};
     std::atomic<int> pad_icons{PadIconsAuto};

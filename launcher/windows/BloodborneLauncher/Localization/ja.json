@@ -3085,5 +3085,7 @@
   "Could not open the merge log: ": "マージログを開けませんでした:",
   "That cannot be a folder name.": "フォルダー名として使えません。",
   "That name is too long.": "名前が長すぎます。",
-  "A mod with that name already exists.": "その名前の Mod はすでにあります。"
+  "A mod with that name already exists.": "その名前の Mod はすでにあります。",
+  "New Settings screen": "新しい設定画面",
+  "New Settings screen: the pause menu's Settings page; off shows the game's System list with the PC pages instead. Only with the menus on.": "新しい設定画面：ポーズメニューの設定ページ。オフにすると代わりにゲームのシステム一覧とPC用ページが表示されます。メニューがオンのときのみ。"
 }

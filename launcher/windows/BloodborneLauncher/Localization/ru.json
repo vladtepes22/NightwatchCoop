@@ -3085,5 +3085,7 @@
   "Could not open the merge log: ": "Не удалось открыть журнал объединения:",
   "That cannot be a folder name.": "Это не может быть названием папки.",
   "That name is too long.": "Название слишком длинное.",
-  "A mod with that name already exists.": "Мод с таким названием уже существует."
+  "A mod with that name already exists.": "Мод с таким названием уже существует.",
+  "New Settings screen": "Новый экран настроек",
+  "New Settings screen: the pause menu's Settings page; off shows the game's System list with the PC pages instead. Only with the menus on.": "Новый экран настроек: страница настроек в меню паузы; если выключить, вместо неё будет список «Система» игры со страницами ПК. Только при включённых меню."
 }

@@ -907,9 +907,14 @@ std::uint32_t Pressed(State& s, std::uint32_t now_held) {
 } // namespace
 
 bool Enabled() {
+    // bbport.ini settings_screen (launcher: Play > Nightwatch menus in the game), only with pc_menus on (off = the
+    // game's own menus, as on PS4); BB_SETTINGS_SCREEN=0/1 overrides the key. Read once, at the first pause menu.
     static const bool on = [] {
+        const auto& s = BbSettings::Get();
+        if (!s.pc_menus) return false;
         const char* v = std::getenv("BB_SETTINGS_SCREEN");
-        return !(v && *v == '0');  // on unless BB_SETTINGS_SCREEN=0
+        if (v && *v) return *v != '0';
+        return s.settings_screen.load();
     }();
     return on;
 }

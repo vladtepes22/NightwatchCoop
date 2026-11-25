@@ -3085,5 +3085,7 @@
   "Could not open the merge log: ": "Não foi possível abrir o registro da mesclagem:",
   "That cannot be a folder name.": "Isso não pode ser um nome de pasta.",
   "That name is too long.": "Esse nome é muito longo.",
-  "A mod with that name already exists.": "Já existe um mod com esse nome."
+  "A mod with that name already exists.": "Já existe um mod com esse nome.",
+  "New Settings screen": "Nova tela de configurações",
+  "New Settings screen: the pause menu's Settings page; off shows the game's System list with the PC pages instead. Only with the menus on.": "Nova tela de configurações: a página de configurações do menu de pausa; desligada mostra a lista Sistema do jogo com as páginas de PC. Só com os menus ligados."
 }

@@ -3085,5 +3085,7 @@
   "Could not open the merge log: ": "Das Zusammenführungsprotokoll konnte nicht geöffnet werden:",
   "That cannot be a folder name.": "Das kann kein Ordnername sein.",
   "That name is too long.": "Der Name ist zu lang.",
-  "A mod with that name already exists.": "Eine Mod mit diesem Namen existiert bereits."
+  "A mod with that name already exists.": "Eine Mod mit diesem Namen existiert bereits.",
+  "New Settings screen": "Neuer Einstellungsbildschirm",
+  "New Settings screen: the pause menu's Settings page; off shows the game's System list with the PC pages instead. Only with the menus on.": "Neuer Einstellungsbildschirm: die Einstellungsseite im Pausenmenü; aus zeigt stattdessen die System-Liste des Spiels mit den PC-Seiten. Nur mit eingeschalteten Menüs."
 }

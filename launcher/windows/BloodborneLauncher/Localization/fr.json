@@ -3085,5 +3085,7 @@
   "Could not open the merge log: ": "Impossible d'ouvrir le journal de fusion :",
   "That cannot be a folder name.": "Ce ne peut pas être un nom de dossier.",
   "That name is too long.": "Ce nom est trop long.",
-  "A mod with that name already exists.": "Un mod portant ce nom existe déjà."
+  "A mod with that name already exists.": "Un mod portant ce nom existe déjà.",
+  "New Settings screen": "Nouvel écran des réglages",
+  "New Settings screen: the pause menu's Settings page; off shows the game's System list with the PC pages instead. Only with the menus on.": "Nouvel écran des réglages : la page Réglages du menu pause ; désactivé, la liste Système du jeu avec les pages PC s'affiche à la place. Seulement avec les menus activés."
 }

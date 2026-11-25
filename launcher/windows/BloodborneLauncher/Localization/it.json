@@ -3085,5 +3085,7 @@
   "Could not open the merge log: ": "Impossibile aprire il registro dell'unione:",
   "That cannot be a folder name.": "Non può essere il nome di una cartella.",
   "That name is too long.": "Il nome è troppo lungo.",
-  "A mod with that name already exists.": "Esiste già una mod con questo nome."
+  "A mod with that name already exists.": "Esiste già una mod con questo nome.",
+  "New Settings screen": "Nuova schermata impostazioni",
+  "New Settings screen: the pause menu's Settings page; off shows the game's System list with the PC pages instead. Only with the menus on.": "Nuova schermata impostazioni: la pagina Impostazioni del menu di pausa; disattivata mostra invece l'elenco Sistema del gioco con le pagine PC. Solo con i menu attivi."
 }

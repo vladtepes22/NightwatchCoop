@@ -3085,5 +3085,7 @@
   "Could not open the merge log: ": "Nie można otworzyć dziennika scalania:",
   "That cannot be a folder name.": "To nie może być nazwa folderu.",
   "That name is too long.": "Ta nazwa jest za długa.",
-  "A mod with that name already exists.": "Mod o tej nazwie już istnieje."
+  "A mod with that name already exists.": "Mod o tej nazwie już istnieje.",
+  "New Settings screen": "Nowy ekran ustawień",
+  "New Settings screen: the pause menu's Settings page; off shows the game's System list with the PC pages instead. Only with the menus on.": "Nowy ekran ustawień: strona Ustawienia w menu pauzy; wyłączony pokazuje zamiast niej listę System gry ze stronami PC. Tylko przy włączonych menu."
 }

@@ -128,11 +128,37 @@ namespace BloodborneLauncher.Views
             _gameIcon = gameCard.Icon;
             gameCard.ShowIcon = true;
             Add(gameCard);
-            ToggleRow(SymbolRegular.TextBulletListSquare24, L.T("Nightwatch menus in the game"),
+            // One row, two switches: the Nightwatch menus, and within them the new Settings screen (off = the game's
+            // System list with the PC pages). The second one does nothing while the menus are off, so it greys out.
+            var settingsScreen = new ToggleSwitch
+            {
+                IsChecked = Ini.Get("settings_screen", "1") != "0",
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = L.T("New Settings screen"),
+            };
+            settingsScreen.Click += (_, _) => { Ini.Set("settings_screen", settingsScreen.IsChecked == true ? "1" : "0"); Ws.SaveSoon(); };
+            var pcMenus = new ToggleSwitch { IsChecked = Ini.Get("pc_menus", "1") != "0", VerticalAlignment = VerticalAlignment.Center };
+            var screenLabel = Text(L.T("New Settings screen"), "Muted");
+            screenLabel.VerticalAlignment = VerticalAlignment.Center;
+            screenLabel.Margin = new Thickness(0, 0, 8, 0);
+            void SyncMenus()
+            {
+                settingsScreen.IsEnabled = pcMenus.IsChecked == true;
+                screenLabel.Opacity = settingsScreen.IsEnabled ? 1 : 0.45;
+            }
+            pcMenus.Click += (_, _) => { Ini.Set("pc_menus", pcMenus.IsChecked == true ? "1" : "0"); Ws.SaveSoon(); SyncMenus(); };
+            SyncMenus();
+            var switches = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            switches.Children.Add(screenLabel);
+            switches.Children.Add(settingsScreen);
+            switches.Children.Add(new Border { Width = 24 });
+            switches.Children.Add(pcMenus);
+            Add(Card(SymbolRegular.TextBulletListSquare24, L.T("Nightwatch menus in the game"),
                 L.T("The PC menus Nightwatch Co-op adds to the game: the extra pages in System (PC graphics, controls, camera), the title ") +
                 L.T("screen's entries and the Altar of Despair's rebirth. Off: only the game's own menus, as on PS4; the launcher and the ") +
-                L.T("overlay (Insert or L3 + R3) still change every setting. Takes effect at the next start"),
-                () => Ini.Get("pc_menus", "1") != "0", v => Ini.Set("pc_menus", v ? "1" : "0"));
+                L.T("overlay (Insert or L3 + R3) still change every setting. Takes effect at the next start") + " " +
+                L.T("New Settings screen: the pause menu's Settings page; off shows the game's System list with the PC pages instead. Only with the menus on."),
+                switches, out _));
 
             // The Old Hunters on base-game dumps: the folder of the dumped add-ons (BB_DLC_DIR).
             _resetDlc = IconButton(SymbolRegular.Dismiss24, L.T("No DLC folder"), (_, _) =>

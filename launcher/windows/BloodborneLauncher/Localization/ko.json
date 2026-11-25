@@ -3085,5 +3085,7 @@
   "Could not open the merge log: ": "병합 로그를 열 수 없습니다:",
   "That cannot be a folder name.": "폴더 이름으로 쓸 수 없습니다.",
   "That name is too long.": "이름이 너무 깁니다.",
-  "A mod with that name already exists.": "같은 이름의 모드가 이미 있습니다."
+  "A mod with that name already exists.": "같은 이름의 모드가 이미 있습니다.",
+  "New Settings screen": "새 설정 화면",
+  "New Settings screen: the pause menu's Settings page; off shows the game's System list with the PC pages instead. Only with the menus on.": "새 설정 화면: 일시 정지 메뉴의 설정 페이지입니다. 끄면 대신 게임의 시스템 목록과 PC 페이지가 표시됩니다. 메뉴가 켜져 있을 때만."
 }

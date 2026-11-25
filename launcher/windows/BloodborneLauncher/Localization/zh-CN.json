@@ -3086,5 +3086,7 @@
   "Could not open the merge log: ": "无法打开合并日志：",
   "That cannot be a folder name.": "这不能作为文件夹名称。",
   "That name is too long.": "名称过长。",
-  "A mod with that name already exists.": "已存在同名模组。"
+  "A mod with that name already exists.": "已存在同名模组。",
+  "New Settings screen": "新的设置界面",
+  "New Settings screen: the pause menu's Settings page; off shows the game's System list with the PC pages instead. Only with the menus on.": "新的设置界面：暂停菜单中的设置页面；关闭后改为显示游戏的系统列表及 PC 页面。仅在菜单开启时有效。"
 }

@@ -3085,5 +3085,7 @@
   "Could not open the merge log: ": "Birleştirme günlüğü açılamadı:",
   "That cannot be a folder name.": "Bu bir klasör adı olamaz.",
   "That name is too long.": "Bu ad çok uzun.",
-  "A mod with that name already exists.": "Bu adda bir mod zaten var."
+  "A mod with that name already exists.": "Bu adda bir mod zaten var.",
+  "New Settings screen": "Yeni Ayarlar ekranı",
+  "New Settings screen: the pause menu's Settings page; off shows the game's System list with the PC pages instead. Only with the menus on.": "Yeni Ayarlar ekranı: duraklatma menüsünün Ayarlar sayfası; kapalıyken yerine oyunun Sistem listesi PC sayfalarıyla gösterilir. Yalnızca menüler açıkken."
 }
