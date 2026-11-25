@@ -1,4 +1,5 @@
 #include "bbport_headless.h"
+#include "frame_done_watch.h"
 #include "bbport_frame_state.h"
 #include "bbport_present_hold.h"
 #include "bbport_latency.h"
@@ -256,7 +257,15 @@ Presenter::Presenter(Frontend::WindowSDL& window_, AmdGpu::Liverpool* liverpool_
         hdr_format != vk::Format::eUndefined) {
         hdr_pass.Create(device, hdr_format);
     }
-
+    // Nightwatch (NW-b9564e8): when each game frame really finished on the GPU, for the flip clock
+    // (VideoOutDriver::PresentThread). Stopped first in the destructor, before the device goes.
+    BbFrameDone::Get().Start([this, device](u64 tick, std::chrono::nanoseconds timeout, bool& failed) {
+        const vk::Semaphore handle = draw_scheduler.GetWorkSemaphore()->Handle();
+        const vk::SemaphoreWaitInfo wait_info{.semaphoreCount = 1, .pSemaphores = &handle, .pValues = &tick};
+        const vk::Result result = device.waitSemaphores(wait_info, u64(timeout.count()));
+        failed = result != vk::Result::eSuccess && result != vk::Result::eTimeout;
+        return result == vk::Result::eSuccess;
+    });
 }
 
 void Presenter::ReportState() {
@@ -321,6 +330,7 @@ void Presenter::WaitForSubmittedWork(u64 timeout_ns) {
 }
 
 Presenter::~Presenter() {
+    BbFrameDone::Get().Stop();
 
     draw_scheduler.Finish();
     present_scheduler.Finish();
@@ -1153,6 +1163,7 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
     }
     SubmitInfo info{};
     draw_scheduler.Flush(info);
+    BbFrameDone::Get().Note(frame->ready_tick);
     BbTimeline::Note(BbTimeline::PipeTask, 5, frame->ready_tick);
     dlss_fg->OnFrameSubmitted(); // bbport: Reflex: this frame's render submit ended
 

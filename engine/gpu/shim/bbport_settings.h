@@ -467,6 +467,12 @@ struct Values {
     /// shows generated frames. After visy f1d579c6; default off since 0.3.2 beta 2 (settings_rev 5): on a 14900 / 60 FPS it
     /// let streaming spikes through, 88 stalls over 40 ms on one route against 50 with it off (NW-69aae50).
     std::atomic<bool> ll_pacing{false};
+    /// Flips follow the GPU's real finish (ini gpu_pacing, BB_GPU_PACING; live; default off, not yet proven in a game):
+    /// on a display the flips are not locked to (G-Sync, FreeSync, own clock), the flip after a frame the GPU finished
+    /// later than usual waits a whole pace from that finish (videoout driver gpu_gate, LanternPacing::GpuPacedSlot).
+    /// For judder with a steady FPS counter while the GPU is near its limit (NW-b9564e8). The per-minute Pacing line
+    /// measures frames as shown either way.
+    std::atomic<bool> gpu_pacing{false};
     /// Variable refresh rate display (ini vrr, BB_VRR; default off, a program cannot see whether VRR is active): the frame
     /// rate is held at VrrCap(refresh) so the display refreshes when a frame arrives and never at its top. At start.
     std::atomic<bool> vrr{false};
