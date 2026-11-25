@@ -911,15 +911,28 @@ def plan(arena, fighter, origin_msb, target_variants, events, taken=()):
         n = next(k for k in range(10000) if "%s_%04d" % (part["model"], k) not in names)
         name = "%s_%04d" % (part["model"], n)
         names.add(name)
-        offset = tuple(p - h for p, h in zip(pos, home_pos))
-        if math.hypot(offset[0], offset[2]) > NEAR:  # far across its home arena: on the boss instead (it may be no
-            offset = (0.0, offset[1], 0.0)            # arena there: Ebrietas's bullet owner stands 31 m from her)
+        offset = home_offset(pos, home_pos)
         out.append({"home": home, "entity": entity, "name": name, "model": part["model"], "think": part["think"],
                     "npc": part["npc"], "talk": part["talk"], "own_row": bool(stage) and home == fight.stage, "offset": offset,
                     "turn": tuple(r - h for r, h in zip(rot, home_rot)), "home_yaw": home_rot[1]})
     return out
 
 
+def home_offset(pos, home_pos):
+    """A body's offset from its boss at home, as it is used elsewhere: on the boss when it stood far across its home arena
+    (it may be no arena there: Ebrietas's bullet owner stands 31 m from her); never below the boss when it stood within
+    FLOOR under him (user 25 Nov, the Coiled Host's puddles invisible in Amygdala's arena: his producers stand 0.39 m
+    under his spawn at home, LIVE headless 25 Nov 0.25-0.29 m under the Scorched Beast's floor, and they have no gravity;
+    a boss stands on or just above its floor). Parts parked far under or over an arena keep their height."""
+    offset = tuple(p - h for p, h in zip(pos, home_pos))
+    if math.hypot(offset[0], offset[2]) > NEAR:
+        offset = (0.0, offset[1], 0.0)
+    if -FLOOR < offset[1] < 0.0:
+        offset = (offset[0], 0.0, offset[2])
+    return offset
+
+
+FLOOR = 1.0  # metres: a body this close under its boss stands on the boss's floor at home
 NEAR = 15.0  # metres: a travelling body farther than this from its boss at home is placed on the boss (its bullets come
 # from the boss's dummy polys, the owner only owns them: DATA 2003[05] [owner, source, dummy poly, bullet])
 

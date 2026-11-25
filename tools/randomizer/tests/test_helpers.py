@@ -141,6 +141,19 @@ class AddEnemy(unittest.TestCase):
         self.assertEqual(_i32(again.data, old_boss["at"] + kind + 0x1c), _i32(again.data, new[0]["at"] + kind_new + 0x1c))
 
 
+class HomeOffset(unittest.TestCase):
+    def test_a_body_just_under_its_boss_stands_on_the_new_floor(self):
+        """User 25 Nov: the Coiled Host's puddle producers, 0.39 m under him at home (DATA Nocturne v6.0.0 m27), sank
+        under other arenas' floors; parked parts keep their height, a far body goes on the boss."""
+        import helpers
+        home = (-334.29, -186.41, 480.43)
+        self.assertEqual(helpers.home_offset((-332.58, -186.80, 485.13), home)[1], 0.0)
+        self.assertAlmostEqual(helpers.home_offset((-332.58, -186.80, 485.13), home)[0], 1.71, places=2)
+        self.assertAlmostEqual(helpers.home_offset((0.0, -82.0, 0.0), (0.0, 0.0, 0.0))[1], -82.0)  # parked under
+        self.assertAlmostEqual(helpers.home_offset((0.0, 0.48, 0.0), (0.0, 0.0, 0.0))[1], 0.48)  # above: as it was
+        self.assertEqual(helpers.home_offset((31.0, -0.5, 0.0), (0.0, 0.0, 0.0)), (0.0, 0.0, 0.0))  # far: on the boss
+
+
 class Fights(unittest.TestCase):
     def _travel(self, origin, target):
         import helpers
